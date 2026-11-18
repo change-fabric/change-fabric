@@ -253,6 +253,29 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_match(/cannot be verified: run uses variable expansion/, verdict.refusal(STEP))
   end
 
+  def test_absolute_path_into_the_repo_fails_closed
+    commit("scripts/ci.sh" => "a\n")
+    error = cover({ "name" => "ci", "run" => "bash #{File.realpath(@repo)}/scripts/ci.sh" })["error"]
+    assert_match(/by absolute path/, error)
+    assert_nil cover({ "name" => "ci", "run" => "/usr/bin/env true" })["error"]
+  end
+
+  def test_path_inside_a_submodule_fails_closed
+    sub = Dir.mktmpdir
+    GitFixture.git_init(sub, "-b", "main")
+    File.write(File.join(sub, "ci.sh"), "a\n")
+    GitFixture.git(sub, "add", "-A")
+    GitFixture.git(sub, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "c")
+    GitFixture.git(@repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "vendor/tools")
+    sha = commit({})
+    entry = { "name" => "ci", "run" => "bash vendor/tools/ci.sh" }
+    assert_match(/inside submodule vendor\/tools/, cover(entry)["error"])
+    snap = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.at_ref(@repo, sha, @repo))
+    assert_match(/inside submodule vendor\/tools/, snap["error"])
+  ensure
+    FileUtils.remove_entry(sub) if sub
+  end
+
   def test_plain_run_is_not_opaque
     assert_nil cover({ "name" => "ci", "run" => "bundle exec rake test && npm run lint -- --fix" })["error"]
   end

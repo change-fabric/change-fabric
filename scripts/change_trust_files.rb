@@ -23,7 +23,7 @@ module ChangeTrustFiles
   # The files of one tree: the working tree (tracked and untracked, ignored
   # files excluded) or a commit read with git, never checked out.
   class Source
-    attr_reader :root
+    attr_reader :root, :git_root
 
     def self.working_tree(root) = new(root, nil)
 
@@ -60,6 +60,12 @@ module ChangeTrustFiles
       @links_found.keys
     end
 
+    # Submodule paths: their files are in another repo, never listed here.
+    def gitlinks
+      listing
+      @gitlinks_found
+    end
+
     private
 
     def tree_read(rel)
@@ -69,6 +75,7 @@ module ChangeTrustFiles
 
     def listing
       @links_found ||= {}
+      @gitlinks_found ||= []
       @listing ||= @ref ? ref_listing : tree_listing
     end
 
@@ -79,6 +86,7 @@ module ChangeTrustFiles
       out.split("\0").each_with_object({}) do |line, files|
         meta, rel = line.split("\t", 2)
         mode, type, _obj, size = meta.split
+        @gitlinks_found << rel if type == 'commit'
         next unless type == 'blob'
 
         files[rel] = size.to_i
@@ -97,6 +105,8 @@ module ChangeTrustFiles
           files[rel] = @links_found[rel].bytesize
         elsif File.file?(full)
           files[rel] = File.size(full)
+        elsif File.directory?(full)
+          @gitlinks_found << rel.chomp('/')
         end
       end
     end
@@ -192,12 +202,14 @@ module ChangeTrustFiles
     words = tokens(run)
     bases = [ cwd ] + changed_dirs(words, cwd)
     words.flat_map do |token|
+      refuse_absolute_into_repo(token, source)
       bases.flat_map do |base|
         path = base.empty? ? token : File.join(base, token)
         refuse_dotdot_after_link(path, source)
         rel = normalize(path)
         next [] unless rel
 
+        refuse_under_gitlink(rel, source)
         rel.match?(/[*?\[]/) ? glob_files([ rel ], source) : resolve(rel, source)
       end
     end.uniq
@@ -220,6 +232,20 @@ module ChangeTrustFiles
 
   # Each `cd` composes with every directory reached before it, so `cd a &&
   # cd b` yields a/b. Over-matching only adds coverage.
+  # The repo's own absolute path changes from one checkout to the next, so a
+  # run that names a file by it cannot be tied to a repo path.
+  def refuse_absolute_into_repo(token, source)
+    roots = [ File.expand_path(source.git_root), (File.realpath(source.git_root) rescue nil) ].compact
+    return unless roots.any? { |root| token == root || token.start_with?("#{root}/") }
+
+    raise Escape, "run names #{token} by absolute path; use a repo-relative path"
+  end
+
+  def refuse_under_gitlink(rel, source)
+    link = source.gitlinks.find { |gitlink| rel == gitlink || rel.start_with?("#{gitlink}/") }
+    raise Escape, "#{rel} is inside submodule #{link}, whose files cannot be verified; refused" if link
+  end
+
   def changed_dirs(words, cwd)
     words.each_cons(2).each_with_object([ cwd ]) do |(verb, dir), bases|
       next unless %w[cd pushd].include?(verb)
