@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require 'set'
 require_relative 'skill_registry'
 
 # Rubric lenses for cf:roast. Ruby routes, a haiku agent in the skill culls:
@@ -83,7 +84,7 @@ module RoastLens
       add_path_reasons(reasons, skills, [ path, *diff_paths(body) ])
       # An all_files skill matches any path, so a path named in prose says
       # nothing about it; only the input and diff paths route it.
-      add_path_reasons(reasons, skills.reject(&:all_files?), named_paths(body)) if plan_text
+      add_path_reasons(reasons, skills.reject(&:all_files?), named_paths(body) + named_basenames(body, skills)) if plan_text
     end
     add_keyword_reasons(reasons, texts, skills_dir) if plan_text
     add_detect_reasons(reasons, skills, repo) if repo
@@ -94,6 +95,14 @@ module RoastLens
     paths.uniq.each do |p|
       skills.each { |s| reasons["cf:#{bare(s.name)}"] << "path #{p}" if s.matches?(p) }
     end
+  end
+
+  # Bare words (Gemfile, Dockerfile, .dockerignore) that equal a skill's
+  # declared basename; PATH_TOKEN needs a slash or an extension, so these
+  # would otherwise never route.
+  def named_basenames(body, skills)
+    known = skills.flat_map(&:basename_markers).to_set
+    body.to_s.gsub(URL, ' ').scan(/(?<![\w\/.-])(\.?[\w-]+(?:\.[\w-]+)*)(?![\w\/-])/).flatten.select { |w| known.include?(w) }.uniq
   end
 
   # Paths written in a prose body: URLs removed first, and a sentence's
