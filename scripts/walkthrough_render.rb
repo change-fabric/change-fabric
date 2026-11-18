@@ -270,7 +270,7 @@ module WalkthroughRender
       script = "mkdir -p #{d}/ov && ffmpeg -loglevel error -i #{d}/%06d.png -i #{img} " \
                "-filter_complex overlay -start_number 1 -y #{d}/ov/%06d.png && mv #{d}/ov/*.png #{d}/ && rmdir #{d}/ov"
       output, status = @p[:docker].call(ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'sh',
-                                                                  args: [ '-c', script ], mounts: { @root => BRoll::WORK }))
+                                                                  args: [ '-c', script ], mounts: { @root => BRoll::WORK }, user: :host))
       raise FfmpegError, "b-roll overlay failed:\n#{output.to_s.lines.last(5).join}" unless status.success?
     end
 
@@ -748,7 +748,7 @@ module WalkthroughRender
 
     def docker_argv(args)
       ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args,
-                               mounts: { @root => WORK }, workdir: WORK)
+                               mounts: { @root => WORK }, workdir: WORK, user: :host)
     end
 
     def ffmpeg!(args, label)
@@ -804,7 +804,7 @@ module WalkthroughRender
       # argv stays deterministic for one manifest.
       name = "cf-walkthrough-pass2-#{Process.pid}-#{Digest::SHA256.hexdigest(args.last)[0, 12]}"
       argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, name: name,
-                                      mounts: { @root => WORK }, workdir: WORK)
+                                      mounts: { @root => WORK }, workdir: WORK, user: :host)
       kill = -> { system('docker', 'kill', name, out: File::NULL, err: File::NULL) }
       out, status = @p[:ffmpeg_watch].call(argv, limit_s: WalkthroughFfmpeg.runaway_limit(total_ms), kill: kill, label: 'ffmpeg pass 2')
       raise FfmpegError, "ffmpeg pass 2 failed:\n#{out.to_s.lines.last(20).join}" unless status.success?
@@ -821,7 +821,7 @@ module WalkthroughRender
 
       out, = @p[:docker].call(ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'sh',
                                                        args: [ '-c', WalkthroughFfmpeg.probe_script(paths) ],
-                                                       mounts: { @root => WORK }, workdir: WORK))
+                                                       mounts: { @root => WORK }, workdir: WORK, user: :host))
       WalkthroughFfmpeg.probe_warnings(plan, out).each { |w| @out.puts "warning: #{w}" }
       WalkthroughFfmpeg.probe_notes(plan, out).each { |n| @out.puts n }
     rescue StandardError => e
@@ -1161,7 +1161,7 @@ module WalkthroughRender
       say("deliverable #{paths[:mp4]}")
       say(WalkthroughDeliverables.fenced(paths[:line]))
       share(paths[:mp4])
-      prune if @final
+      cleanup if @final
       paths
     end
 
@@ -1285,6 +1285,14 @@ module WalkthroughRender
       mp4 = assemble(manifest)
       paths = deliver(mp4, manifest)
       { manifest: manifest, mp4: mp4, deliverable: paths }
+    end
+
+    # The post-final prune. The deliverable is already verified on disk, so
+    # a refused or failed cleanup only warns; it never fails the render.
+    def cleanup
+      prune
+    rescue WalkthroughHousekeeping::Error, SystemCallError => e
+      say("warning: cache cleanup skipped: #{e.message}; the render succeeded")
     end
 
     # Drops superseded renders, dead frames and stills, and aged roast

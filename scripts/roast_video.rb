@@ -120,7 +120,7 @@ module RoastVideo
     args = [ '-hide_banner', '-nostdin', '-y', '-i', "/src/#{File.basename(mp4)}", '-an',
              '-vf', "fps=#{fps},scale=#{width}:-2:flags=lanczos", '-q:v', JPEG_QUALITY.to_s, "#{WORK}/%05d.jpg" ]
     argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args,
-                                    mounts: { src => '/src', File.expand_path(dir) => WORK }, workdir: WORK)
+                                    mounts: { src => '/src', File.expand_path(dir) => WORK }, workdir: WORK, user: :host)
     output, status = docker.call(argv)
     raise FfmpegError, "frame sampling failed:\n#{output.to_s.lines.last(8).join}" unless status.success?
     raise FfmpegError, 'frame sampling wrote no frames' if Dir.glob(File.join(dir, '*.jpg')).empty?

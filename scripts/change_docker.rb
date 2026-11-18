@@ -92,6 +92,19 @@ module ChangeDocker
                                                  inline_env: false))
   end
 
+  # The calling uid:gid. `user: :host` runs a container as it, so a file the
+  # container writes into a bind mount is owned by the host user on Linux
+  # (Docker Desktop on macOS maps ownership to the host user either way).
+  # HOME points at a writable dir, since the uid has no home in the image.
+  def host_user = "#{Process.uid}:#{Process.gid}"
+
+  def user_args(user)
+    return [] unless user
+    return [ '--user', host_user, '-e', 'HOME=/tmp' ] if user == :host
+
+    [ '--user', user ]
+  end
+
   def child_env(env) = env.to_h { |key, value| [ key.to_s, value.to_s ] }
 
   # The argv `run` executes, split out so a test can assert the flags without
@@ -111,7 +124,7 @@ module ChangeDocker
     cmd += [ '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ] if name
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
-    cmd += [ '--user', user ] if user
+    cmd += user_args(user)
     cmd += [ '-w', workdir ] if workdir
     env.each { |key, value| cmd += [ '-e', inline_env ? "#{key}=#{value}" : key.to_s ] }
     with_cache_links(mounts).each { |host, spec| cmd += mount_arg(host, spec) }

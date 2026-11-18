@@ -914,6 +914,54 @@ class WalkthroughRenderTest < Minitest::Test
     assert_includes out.string, "prune: dropped"
   end
 
+  # The render, the share copy, and every probe write or read the board's
+  # bind mount as the host user, never root (a root-owned share copy breaks
+  # sync tools and later edits on Linux).
+  def test_every_render_container_runs_as_the_host_user
+    run_render(final: true)
+    refute_empty @calls[:docker]
+    @calls[:docker].each do |argv|
+      at = argv.index("--user")
+      refute_nil at, argv.join(" ")
+      assert_equal "#{Process.uid}:#{Process.gid}", argv[at + 1]
+    end
+    assert(@calls[:docker].any? { |argv| argv.last.end_with?("-share.mp4") })
+  end
+
+  def test_a_refused_cache_cleanup_warns_and_keeps_the_final
+    run_render
+    foreign = Dir.mktmpdir
+    cache = File.join(@root, ".cache")
+    FileUtils.cp_r(File.join(cache, "."), foreign)
+    FileUtils.rm_rf(cache)
+    File.symlink(foreign, cache)
+    out = StringIO.new
+    final = run_render(final: true, out: out)
+    assert File.file?(File.join(@root, "demo-final.mp4"))
+    assert File.file?(final[:mp4])
+    assert_match(/warning: cache cleanup skipped: refusing: .* the render succeeded/, out.string)
+    refute_includes out.string, "prune: dropped"
+  ensure
+    FileUtils.rm_rf(foreign) if foreign
+  end
+
+  def test_a_hand_made_cache_link_under_the_default_root_is_pruned
+    run_render
+    Dir.mktmpdir do |home|
+      target = File.join(home, ".cache", "cf-walkthrough", "demo")
+      FileUtils.mkdir_p(File.dirname(target))
+      cache = File.join(@root, ".cache")
+      FileUtils.cp_r(cache, target)
+      FileUtils.rm_rf(cache)
+      File.symlink(target, cache)
+      FileUtils.mkdir_p(File.join(target, "render", "superseded"))
+      out = StringIO.new
+      with_env("XDG_CACHE_HOME" => File.join(home, ".cache")) { run_render(final: true, out: out) }
+      refute File.exist?(File.join(target, "render", "superseded"))
+      assert_includes out.string, "prune: dropped"
+    end
+  end
+
   def test_cache_root_override_links_the_cache_out_of_the_tree
     Dir.mktmpdir do |ext|
       with_env("CF_WALKTHROUGH_CACHE_ROOT" => ext) do

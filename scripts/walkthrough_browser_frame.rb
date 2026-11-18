@@ -230,7 +230,7 @@ module WalkthroughBrowserFrame
              '-filter_complex', filter(stage, title_file: cpath.(title_path), address_file: cpath.(address_path)),
              '-map', '[out]', '-start_number', '1', File.join(cpath.(tmp), '%06d.png') ]
     argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { File.expand_path(work) => '/work' },
-                                    workdir: '/work')
+                                    workdir: '/work', user: :host)
     out, status = docker.call(argv)
     unless status.success?
       FileUtils.rm_f(File.join(dir, 'end-state.json'))

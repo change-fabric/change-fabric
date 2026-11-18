@@ -1089,7 +1089,7 @@ module WalkthroughLive
       filter = WalkthroughInset.append(composite_filter(out_dir), inset, hires: hires && dirs.size)
       args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', filter, '-map', '[out]',
                '-start_number', '1', File.join(container(out_dir), '%06d.png') ]
-      argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { @work => '/work' }, workdir: '/work')
+      argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { @work => '/work' }, workdir: '/work', user: :host)
       out, status = @docker.call(argv)
       raise CaptureError, "ffmpeg frame composite failed:\n#{out.to_s.lines.last(10).join}" unless status.success?
 

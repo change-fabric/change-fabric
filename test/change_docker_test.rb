@@ -171,6 +171,40 @@ class ChangeDockerTest < Minitest::Test
     refute_includes ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd]), "--entrypoint"
   end
 
+  # user: :host runs as the calling uid:gid, so a bind-mount output is owned
+  # by the host user on Linux; Docker Desktop maps ownership either way.
+  def test_host_user_runs_as_the_calling_uid_and_gid_with_a_writable_home
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd], user: :host)
+    user_at = argv.index("--user")
+    assert_equal "#{Process.uid}:#{Process.gid}", argv[user_at + 1]
+    assert_includes argv, "HOME=/tmp"
+    assert_operator user_at, :<, argv.index("img")
+    assert_equal "#{Process.uid}:#{Process.gid}", ChangeDocker.host_user
+  end
+
+  # Every FFmpeg container writes into a bind mount (renders, share copies,
+  # probes, b-roll, roast clips), so each call site runs as the host user.
+  def test_every_ffmpeg_run_writes_as_the_host_user
+    root = File.expand_path("../scripts", __dir__)
+    calls = Dir.glob(File.join(root, "*.rb")).flat_map do |path|
+      src = File.read(path)
+      src.enum_for(:scan, /ChangeDocker\.run_command\(/).map do
+        start = Regexp.last_match.begin(0)
+        depth = 0
+        stop = (start...src.size).find do |i|
+          depth += 1 if src[i] == "("
+          depth -= 1 if src[i] == ")"
+          src[i] == ")" && depth.zero?
+        end
+        [ File.basename(path), src[start..stop] ]
+      end
+    end
+    ffmpeg = calls.select { |_, call| call.include?("FFMPEG_IMAGE") }
+    refute_empty ffmpeg
+    missing = ffmpeg.reject { |_, call| call.include?("user: :host") }.map(&:first)
+    assert_empty missing, "FFmpeg runs without user: :host"
+  end
+
   def test_run_command_emits_user_and_workdir_before_the_image
     argv = ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd], user: "1:2", workdir: "/w")
     image_at = argv.index("img")

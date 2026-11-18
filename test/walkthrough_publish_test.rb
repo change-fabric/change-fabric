@@ -151,6 +151,7 @@ class WalkthroughPublishTest < Minitest::Test
       assert_equal 1, argvs.size
       assert_includes argvs.first, ChangeDocker::FFMPEG_IMAGE
       assert_includes argvs.first, "-crf"
+      assert_equal "#{Process.uid}:#{Process.gid}", argvs.first[argvs.first.index("--user") + 1]
     end
   end
 
