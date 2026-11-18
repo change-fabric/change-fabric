@@ -228,15 +228,16 @@ module ChangeQaFilm
     1
   end
 
-  def parse(argv)
-    options = { add_hosts: [], launch_args: [] }
-    flags = { '--url' => :url, '--persona' => :persona, '--flag' => :flag, '--flag-probe' => :flag_probe,
+  OPTIONS = { '--url' => :url, '--persona' => :persona, '--flag' => :flag, '--flag-probe' => :flag_probe,
               '--flag-expect' => :flag_expect, '--flag-selector' => :flag_selector, '--draft' => :draft,
               '--steps' => :draft, '--out' => :out, '--save-suite' => :save_suite, '--profile' => :profile,
-              '--change-md' => :change_md, '--case-id' => :case_id }
+              '--change-md' => :change_md, '--case-id' => :case_id }.freeze
+
+  def parse(argv)
+    options = { add_hosts: [], launch_args: [] }
     until argv.empty?
       arg = argv.shift
-      key = flags[arg]
+      key = OPTIONS[arg]
       raise ArgumentError, "unknown option #{arg}" unless key
 
       value = argv.shift
