@@ -137,6 +137,9 @@ module SkillRegistry
     # The `detect:` globs, for callers that name the marker that fired.
     def detect_markers = detect
 
+    # The `basenames:` an exact file name matches, for prose routing.
+    def basename_markers = basenames
+
     private
 
     # A `paths` glob fires if it matches the path directly or as a suffix; the

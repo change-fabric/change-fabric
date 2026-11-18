@@ -271,6 +271,13 @@ class RoastLensPlanRoutingTest < Minitest::Test
     assert_includes RoastLens.suggest_with_reasons([ [ "plan.md", "Update vite.config.ts." ] ], SKILLS_DIR, plan_text: true).keys, "cf:typescript"
   end
 
+  def test_bare_basenames_and_dotfiles_route
+    result = RoastLens.suggest_with_reasons([ [ "plan.md", "Update Gemfile, Dockerfile and .dockerignore." ] ], SKILLS_DIR, plan_text: true)
+    assert_includes result["cf:ruby"], "path Gemfile"
+    assert_includes result.keys, "cf:docker"
+    refute_includes routed("A plan about gems."), "cf:ruby"
+  end
+
   def test_multi_word_keyword_spans_any_whitespace
     assert RoastLens.keyword_pattern("Cloud Run").match?("on cloud\n  run today")
     refute RoastLens.keyword_pattern("Cloud Run").match?("xCloud Run")
