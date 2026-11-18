@@ -435,6 +435,15 @@ class WalkthroughFluidMotionTest < Minitest::Test
     end
   end
 
+  def test_recapture_notice_names_both_halves_of_a_targeted_navigate_pair
+    Dir.mktmpdir do |root|
+      out = StringIO.new
+      WalkthroughRender::Run.new(root, board: nav_board, out: out, scene: "detail").send(:recapture_notice)
+      assert_includes out.string, "feed (--recapture or --scene)"
+      assert_includes out.string, "detail (--recapture or --scene)"
+    end
+  end
+
   def test_bridge_holds_cursor_and_ripple_still_through_a_push
     push = { "type" => "push", "ms" => 300, "ease" => "ease-in-out" }
     point = ->(f, x) { { "frame" => f, "x" => x, "y" => 50 } }

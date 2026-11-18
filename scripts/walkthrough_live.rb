@@ -355,8 +355,11 @@ module WalkthroughLive
   # Live frames key: URL, persona login spec, parent session key, steps,
   # waits, storage, viewport, fps, duration, and browser options. No env
   # value is key material; changing a password does not re-key a scene.
-  def frames_key(board, scene, parent_key: nil, root: nil)
-    WalkthroughCache.key(live: url(scene), compose: compose_material(scene),
+  def frames_key(board, scene, parent_key: nil, root: nil) = WalkthroughCache.key(frames_inputs(board, scene, parent_key: parent_key, root: root))
+
+  # The named inputs a live scene's frames key is made of.
+  def frames_inputs(board, scene, parent_key: nil, root: nil)
+    WalkthroughCache.canonicalize(live: url(scene), compose: compose_material(scene),
                          message: WalkthroughMessage.realtime?(scene) ? WalkthroughMessage.material(scene, root) : nil, persona: persona_spec(board, scene['persona']),
                          session_from: parent_key, interactions: keyed_interactions(scene['interactions'] || []), wait: scene['wait'],
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
@@ -397,8 +400,40 @@ module WalkthroughLive
     if (nxt = pair_next(board, scene))
       key = WalkthroughCache.key(run: key, next: frames_key(board, nxt, parent_key: key, root: root))
     end
-    memo[scene['id']] = { key: key, live: true, parent: from, compose: compose?(scene),
+    inputs = frames_inputs(board, scene, parent_key: parent && parent[:key], root: root).transform_values { |v| WalkthroughCache.key(v) }
+    memo[scene['id']] = { key: key, live: true, parent: from, compose: compose?(scene), inputs: inputs,
                           out_dir: File.join(root, '.cache', 'frames', key) }
+  end
+
+  # -- recapture notice -----------------------------------------------------
+
+  # Per scene, the key and input digests of its last live capture, so the
+  # next render can say which input re-keyed it.
+  INPUTS_DIR = 'frames-inputs'
+
+  def inputs_path(root, id) = File.join(root, '.cache', INPUTS_DIR, "#{id}.json")
+
+  def record_inputs(root, id, prep)
+    path = inputs_path(root, id)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, "#{JSON.pretty_generate('key' => prep[:key], 'inputs' => prep[:inputs])}\n")
+  end
+
+  # Why a live scene with no frames under its key recaptures: the inputs
+  # whose digest moved since its last recorded capture (session_from means
+  # its session parent re-keyed), or that no capture was recorded.
+  def recapture_reason(root, id, prep)
+    path = inputs_path(root, id)
+    was = File.file?(path) ? JSON.parse(File.read(path)) : nil
+    return 'no earlier capture on record' unless was.is_a?(Hash) && was['inputs'].is_a?(Hash)
+
+    now = prep[:inputs] || {}
+    changed = (now.keys | was['inputs'].keys).select { |k| now[k] != was['inputs'][k] }.sort
+    return 'its navigate pair changed' if changed.empty?
+
+    "changed: #{changed.join(', ')}"
+  rescue JSON::ParserError
+    'no earlier capture on record'
   end
 
   # -- the /function modules -----------------------------------------------

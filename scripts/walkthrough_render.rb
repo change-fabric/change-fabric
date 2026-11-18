@@ -272,7 +272,10 @@ module WalkthroughRender
     # browser options (network, extra hosts).
     def capture_frames
       with_session { |session| capture_all(session) } if capture_needed?(live: false)
-      with_live_session { |session| capture_live(session) } if capture_needed?(live: true)
+      if capture_needed?(live: true)
+        recapture_notice
+        with_live_session { |session| capture_live(session) }
+      end
       clip_check!
     end
 
@@ -300,6 +303,33 @@ module WalkthroughRender
       rescue ArgumentError
         true
       end
+    end
+
+    # Just before a run films the live app (the silent cut, then the
+    # narrated draft), which live scenes it will recapture and why, keyed
+    # on the board that run films, so a key change (a toolkit upgrade, an
+    # edit upstream) never recaptures a film against a drifted site
+    # unannounced.
+    def recapture_notice
+      memo = {}
+      # A navigate pair films as one run, so either half targeted or stale
+      # recaptures both, as in capture_live.
+      lines = scenes.flat_map do |scene|
+        next [] unless live?(scene) && !WalkthroughLive.pair_parent(@board, scene)
+
+        halves = [ scene, WalkthroughLive.pair_next(@board, scene) ].compact
+        next [] unless halves.any? { |s| capture_target?(s) }
+        next halves.map { |s| "#{s['id']} (--recapture or --scene)" } if halves.any? { |s| recapture?(s) }
+        next [] if halves.all? { |s| captured?(s, prep(s, memo)) }
+
+        halves.map { |s| "#{s['id']} (#{WalkthroughLive.recapture_reason(@root, s['id'], prep(s, memo))})" }
+      rescue ArgumentError
+        []
+      end
+      return if lines.empty?
+
+      say("live recapture: #{lines.size} scene(s) will film the live app again:")
+      lines.each { |l| say("  #{l}") }
     end
 
     # Captured in real time in the live browser: a live or compose scene.
@@ -359,6 +389,7 @@ module WalkthroughRender
         pair = nxt ? { next_scene: nxt, next_out_dir: prep(nxt, memo)[:out_dir] } : {}
         ended = @p[:live_capture].call(**live_args(session, scene, prep(scene, memo)[:out_dir], start), compose: compose_spec(scene, memo), **pair)
         sessions[(nxt || scene)['id']] = ended
+        halves.each { |s| WalkthroughLive.record_inputs(@root, s['id'], prep(s, memo)) }
       end
     end
 

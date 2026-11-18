@@ -430,6 +430,65 @@ class WalkthroughLiveTest < Minitest::Test
     assert_equal 1, pass2s.size, "--recapture reassembles despite an unchanged manifest"
   end
 
+  # Before filming, the render names each live scene it will recapture and
+  # the key input that moved; an unchanged film prints no notice.
+  def test_recapture_notice_names_the_changed_input
+    render
+    assert_includes @log.string, "landing (no earlier capture on record)"
+    render
+    refute_includes @log.string, "live recapture:"
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].find { |sc| sc["id"] == "sign-in" }["screen"]["url"] = "https://app.localhost/sign-in-v2"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    assert_includes @log.string, "sign-in (changed: live)"
+    assert_includes @log.string, "dashboard (changed: session_from)"
+    refute_includes @log.string, "inbox ("
+  end
+
+  # A narration edit can change a cached live scene's duration only once
+  # audio is resolved; the recapture is still announced before filming.
+  def test_recapture_notice_covers_a_timing_change_from_narration
+    render
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].find { |sc| sc["id"] == "landing" }["narration"]["text"] = "A much longer line for the landing scene, " * 8
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    assert_includes @log.string, "landing: capturing"
+    assert_match(/landing \(changed: [^)]*duration_ms/, @log.string)
+  end
+
+  def test_a_cached_word_anchored_scene_reports_no_recapture
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "inbox" }["interactions"] << { "at" => { "word" => "inbox" }, "op" => "click", "target" => "#archive" }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    render
+    refute_includes @log.string, "live recapture:"
+  end
+
+  def test_a_session_child_of_a_word_anchored_scene_reports_no_recapture
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "inbox" }["interactions"] << { "at" => { "word" => "inbox" }, "op" => "click", "target" => "#archive" }
+    reports = b["scenes"].find { |sc| sc["id"] == "reports" }
+    reports.delete("persona")
+    reports["session_from_scene"] = "inbox"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    render
+    refute_includes @log.string, "live recapture:"
+  end
+
+  # The silent cut names an anchored scene before it films it.
+  def test_the_silent_cut_announces_before_it_films
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "inbox" }["interactions"] << { "at" => { "word" => "inbox" }, "op" => "click", "target" => "#archive" }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    log = @log.string
+    assert_operator log.index("inbox (no earlier capture on record)"), :<, log.index("inbox: capturing")
+  end
+
   def test_secret_never_reaches_a_written_artifact
     render
     files = Dir.glob(File.join(@root, "**", "*"), File::FNM_DOTMATCH).select { |f| File.file?(f) }
