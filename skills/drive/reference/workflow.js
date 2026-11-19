@@ -17,21 +17,22 @@
 // real sub-agent with tool access that does the actual worktree, bash, and
 // test work on its behalf.
 //
-// Model tiers:
-//   Relevance   haiku   High-volume, mechanically bounded: decide two
-//                       booleans from a route summary and a file list.
-//   Quality     inherit Lane agents write real fixes; needs full reasoning.
-//   Recheck     opus    Low volume, highest stakes: gates the push.
-//   Predict CI  inherit Runs and reads real command output; no rubric to
-//                       delegate to a cheaper tier.
+// Model roles (see model_roles.yml for what each role maps to per host):
+//   Relevance   classifier  High-volume, mechanically bounded: decide two
+//                           booleans from a route summary and a file list.
+//   Quality     per lane    Critic for the cf:code-review lane, worker for
+//                           the lanes that apply fixes or run checks.
+//   Recheck     critic      Low volume, highest stakes: gates the push.
+//   Predict CI  worker      Runs and reads real command output; no rubric to
+//                           delegate to a cheaper role.
 
 export const meta = {
   name: "cf-drive-quality-and-ci",
   description: "Relevance-gate quality lanes, iterate fixes to a would-approve state, then predict CI locally",
   phases: [
-    { title: "Relevance", model: "haiku" },
+    { title: "Relevance", model: {{model-js:classifier}} },
     { title: "Quality" },
-    { title: "Recheck", model: "opus" },
+    { title: "Recheck", model: {{model-js:critic}} },
     { title: "Predict CI" }
   ]
 }
@@ -144,7 +145,7 @@ const relevanceResult = await agent(
   "config-driven sweep to run). A pure-docs or internal-refactor change in a repo with no " +
   "change-fabric config should get change.relevant: false.\n\n" +
   "Files:\n" + files.join("\n") + "\n\nRoute output (ruby skill_route.rb):\n" + routeOutput,
-  { model: "haiku", phase: "Relevance", schema: RELEVANCE_SCHEMA }
+  { model: {{model-js:classifier}}, phase: "Relevance", schema: RELEVANCE_SCHEMA }
 )
 
 // A null relevance call, or a result missing a lane key, must never read as
@@ -286,6 +287,13 @@ function changePrompt() {
   )
 }
 
+// Role per quality lane: code review judges, so it takes the critic role; every
+// other lane applies fixes or runs checks and takes the worker role.
+const LANE_MODEL = {
+  "cf:code-review": { model: {{model-js:critic}} }
+}
+const DEFAULT_LANE_MODEL = { model: {{model-js:worker}} }
+
 const lanePrompts = {
   "cf:code-review": codeReviewPrompt,
   "cf:ai-slop": aiSlopPrompt,
@@ -320,7 +328,7 @@ for (let n = 1; n <= cap; n++) {
   for (const skill of selectedSkills) {
     const result = await agent(
       lanePrompts[skill](),
-      { phase: "Quality", label: "iteration " + n + ":" + skill, schema: LANE_SCHEMA }
+      { ...(LANE_MODEL[skill] ?? DEFAULT_LANE_MODEL), phase: "Quality", label: "iteration " + n + ":" + skill, schema: LANE_SCHEMA }
     )
     lanesRun.push({ skill, ...(result || { fixed: 0, deferred: 0, blocking: true, notes: skill + " lane returned no result" }) })
   }
@@ -343,7 +351,7 @@ for (let n = 1; n <= cap; n++) {
         "that was unavailable, not a defect in the change; never withhold approval for it alone." +
         "\n\nLane results this iteration:\n" +
         JSON.stringify(lanesRun, null, 2),
-        { model: "opus", phase: "Recheck", label: "iteration " + n, schema: RECHECK_SCHEMA }
+        { model: {{model-js:critic}}, phase: "Recheck", label: "iteration " + n, schema: RECHECK_SCHEMA }
       )
 
   iterations.push({
@@ -378,7 +386,7 @@ async function predictCI() {
     "fail with concrete evidence (the actual output or exit code), not a guess. This " +
     "repository's own CI shape is not special-cased; read whatever workflow files are actually " +
     "present and run whatever they actually say.",
-    { phase: "Predict CI", schema: CI_SCHEMA }
+    { model: {{model-js:worker}}, phase: "Predict CI", schema: CI_SCHEMA }
   )
 }
 
@@ -393,7 +401,7 @@ if (ciFixContext) {
     JSON.stringify(ciFixContext.failingJobs, null, 2) +
     "\n\nLogs:\n" + ciFixContext.logs +
     "\n\nFix exactly these failures in " + repoPath + ". Do not touch unrelated code.",
-    { phase: "Predict CI", label: "ci-fix" }
+    { model: {{model-js:worker}}, phase: "Predict CI", label: "ci-fix" }
   )
   ciFixApplied = Boolean(ciFixResult)
 }

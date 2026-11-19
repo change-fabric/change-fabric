@@ -26,7 +26,7 @@ This was a dry run. It used no live repo and no real agents.
    | -------- | --------------- | ------- |
    | `scope` | 1 | tips and uncovered files; next: review |
    | `review` | 8 reviewers in parallel, then the ledger | next: audit or fix |
-   | `fix` `plan-batches` | 1 (opus) | batches go to the owner first |
+   | `fix` `plan-batches` | 1 (author role) | batches go to the owner first |
    | `fix` `apply`, one batch with `revise: true` | 2 in sequence, then the ledger | the revise prompt reuses the open PR; the planner notes arrive |
    | `fix` `verify`, round 1 | 2 reviewers plus one combined QA | full diff `base...branch`; QA merges both branches |
    | `fix` `verify`, round 3 | 1 reviewer plus QA | delta `lastVerifiedSha..branch` only |
@@ -34,8 +34,8 @@ This was a dry run. It used no live repo and no real agents.
    | `qa`, a lane note reading "sent no mail" | all 7, one at a time | no halt |
    | `qa`, a lane returning `SAFETY STOP: ...` | setup, p0, p1 | halts after p1 |
    | `qa`, setup failing | setup | halts all QA |
-   | `audit` check, then apply | 1 (opus), then the ledger | candidates become owner questions |
-   | `handoff` with a carried lane | 1 (opus) | the prompt demands an `OWNER APPROVAL` line |
+   | `audit` check, then apply | 1 (critic role), then the ledger | candidates become owner questions |
+   | `handoff` with a carried lane | 1 (author role) | the prompt demands an `OWNER APPROVAL` line |
    | `prod` | none | pointer only |
 
 3. **The plan checks catch the source case's own mistakes.**

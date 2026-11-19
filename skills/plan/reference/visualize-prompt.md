@@ -1,8 +1,8 @@
 # Visualize prompt (step 7a, the diagram agent)
 
 Fill every `{{placeholder}}`, then pass the fenced block as the prompt of one
-background agent (`subagent_type: general-purpose`, `model: opus`,
-`run_in_background: true`). Skip this step entirely when the writing agent's
+background agent (`subagent_type: general-purpose`, model {{model:worker}},
+`run_in_background: true`, description starting `[role:worker]`). Skip this step entirely when the writing agent's
 `## Visuals` list is empty. Keep the agent's id: step 7b resumes it with
 `SendMessage` to apply accepted visual fixes.
 

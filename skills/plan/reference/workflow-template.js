@@ -37,10 +37,10 @@
 //  6. Return a single object at the end. That is the workflow's result and
 //     the only thing the calling session sees.
 //
-// Model tiers: pick per call, and only where the work justifies it. `haiku`
-// for high-volume mechanically bounded classification. `opus` for the low
-// volume, high stakes calls that gate everything downstream. Omit `model` to
-// inherit, which is the right default for an agent that reads real output.
+// Model roles: pick per call. The classifier role for high-volume mechanically
+// bounded classification, the critic role for the low volume, high stakes calls
+// that gate everything downstream, the worker role for an agent that executes a
+// bounded phase or reads real output. Always set `model` explicitly.
 
 export const meta = {
   name: "PLAN-SLUG",
@@ -123,7 +123,7 @@ for (const spec of PHASES) {
     spec.verify +
     "\n\nSet landed: false if the verification did not pass. Do not report a phase " +
     "landed on the strength of the code looking right.",
-    { phase: spec.title, schema: PHASE_SCHEMA }
+    { model: {{model-js:worker}}, phase: spec.title, schema: PHASE_SCHEMA }
   )
   results.push({ phase: spec.title, ...(result ?? { landed: false, files: [], verification: "agent returned no result" }) })
   if (stopOnFailure && !results[results.length - 1].landed) {
@@ -139,7 +139,7 @@ for (const spec of PHASES) {
 //
 // const reviews = await parallel(
 //   INDEPENDENT_UNITS.map((unit) => () => agent(preamble(unit.title) + unit.instruction,
-//     { phase: "PHASE ONE TITLE", label: unit.title, schema: PHASE_SCHEMA }))
+//     { model: {{model-js:worker}}, phase: "PHASE ONE TITLE", label: unit.title, schema: PHASE_SCHEMA }))
 // )
 
 const landed = results.filter((r) => r.landed)
@@ -156,7 +156,7 @@ if (fullRun || input.verify === true) {
     "plan's own acceptance criteria in " + REPO_PATH + ": run the plan's full check suite " +
     "yourself and read the real output. Report green only on evidence.\n\n" +
     "Phase results:\n" + JSON.stringify(results, null, 2),
-    { model: "opus", phase: "Verify", schema: PHASE_SCHEMA }
+    { model: {{model-js:critic}}, phase: "Verify", schema: PHASE_SCHEMA }
   )
 } else {
   log("Skipping Verify: partial run (" + landed.length + " of " + PHASES.length + " phases landed)")

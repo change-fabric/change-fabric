@@ -102,8 +102,8 @@ Under merge-ready, ignore the flag and run the human interview above.
 The bar for what earns a question is unchanged. For each question that
 clears it:
 
-1. Spawn 2 to 3 proposer agents in one message (`model: opus`,
-   `run_in_background: true`), each with a distinct brief: one favors the
+1. Spawn 2 to 3 proposer agents in one message (model {{model:author}},
+   `run_in_background: true`, description starting `[role:author]`), each with a distinct brief: one favors the
    smallest change, one favors the most robust design, and an optional third
    argues from the repo's existing conventions. Prompt:
 
@@ -114,7 +114,7 @@ clears it:
    Write no files, ask nothing.
    ```
 
-2. Spawn one judge agent (`model: opus`) with every proposal verbatim:
+2. Spawn one judge agent (model {{model:critic}}, description starting `[role:critic]`) with every proposal verbatim:
 
    ```
    Pick or merge one answer for {{header}} from these proposals. Prefer the

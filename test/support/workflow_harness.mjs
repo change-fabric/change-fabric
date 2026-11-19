@@ -58,12 +58,14 @@ function nextKey(base) {
 
 const calls = []
 const prompts = {}
+const models = {}
 
 async function agent(prompt, opts = {}) {
   const base = String(opts.label ?? opts.phase ?? "unlabeled")
   const key = nextKey(base)
   calls.push(key)
   prompts[key] = String(prompt)
+  models[key] = opts.model ?? null
 
   if (argv.null === key) return null
 
@@ -102,7 +104,7 @@ const fn = new AsyncFunction("args", "agent", "parallel", "pipeline", "phase", "
 
 try {
   const result = await fn(workflowArgs, agent, parallel, pipeline, phase, log)
-  console.log(JSON.stringify({ result, calls, phases, prompts }))
+  console.log(JSON.stringify({ result, calls, phases, prompts, models }))
 } catch (e) {
   console.log(JSON.stringify({ threw: String((e && e.message) || e), calls, phases }))
 }

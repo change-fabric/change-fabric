@@ -5,6 +5,7 @@ require "minitest/autorun"
 require "open3"
 require "json"
 require "tmpdir"
+require_relative "support/rendered_workflow"
 
 # Guards the four Workflow scripts cf:resolve-threads, cf:drive, cf:sweep and
 # cf:code-review against the class of bug plan.md's audit table names: an
@@ -35,7 +36,7 @@ class WorkflowNullHarnessTest < Minitest::Test
   end
 
   def run_harness(skill, null: nil, partial: nil, partial_field: nil)
-    args = [ "node", HARNESS, WORKFLOWS.fetch(skill), "--fixture", fixture_path(skill) ]
+    args = [ "node", HARNESS, RenderedWorkflow.path(WORKFLOWS.fetch(skill)), "--fixture", fixture_path(skill) ]
     args.push("--null", null) if null
     if partial
       args.push("--partial", partial)
@@ -188,7 +189,7 @@ class WorkflowNullHarnessTest < Minitest::Test
       Dir.mktmpdir do |dir|
         path = File.join(dir, "sweep.json")
         File.write(path, JSON.generate(fixture))
-        out, status = Open3.capture2("node", HARNESS, WORKFLOWS.fetch("sweep"), "--fixture", path)
+        out, status = Open3.capture2("node", HARNESS, RenderedWorkflow.path(WORKFLOWS.fetch("sweep")), "--fixture", path)
         assert status.success?, "#{name}: harness failed: #{out}"
         result = JSON.parse(out).fetch("result")
         queue = result.fetch("autoMergeQueue")
@@ -214,7 +215,7 @@ class WorkflowNullHarnessTest < Minitest::Test
       Dir.mktmpdir do |dir|
         path = File.join(dir, "sweep.json")
         File.write(path, JSON.generate(fixture))
-        out, status = Open3.capture2("node", HARNESS, WORKFLOWS.fetch("sweep"), "--fixture", path)
+        out, status = Open3.capture2("node", HARNESS, RenderedWorkflow.path(WORKFLOWS.fetch("sweep")), "--fixture", path)
         assert status.success?, "harness failed: #{out}"
         JSON.parse(out).fetch("result")
       end

@@ -1,7 +1,7 @@
 ---
 name: cf:plan
 group: workflow
-description: Turns a described goal into a landed planning set under the configured plans tree. The set is plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js. Background Opus agents research and surface the open questions; this session grills the user with AskUserQuestion until the judgment calls are settled, then has the plan written against those answers. It plans only; it never implements the plan or runs the Workflow itself.
+description: Turns a described goal into a landed planning set under the configured plans tree. The set is plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js. Background worker-role agents research and surface the open questions; this session grills the user with AskUserQuestion until the judgment calls are settled, then has the plan written against those answers. It plans only; it never implements the plan or runs the Workflow itself.
 ---
 
 # CF Plan
@@ -19,7 +19,7 @@ the judgment calls in it the user's rather than yours?
 
 `--judge` replaces the human interview at steps 5 and 6 with an LLM-as-judge
 interview. Per open question, 2 to 3 background proposer agents with distinct
-briefs each propose an answer with rationale, and one judge agent (opus)
+briefs each propose an answer with rationale, and one judge agent (critic role)
 picks or merges them. Each ledger entry then carries `Answered by: judge`,
 and plan.md lists those entries under `### Judged decisions (unreviewed)`
 so they stay open to revisiting. This is distinct from away mode, which only
@@ -133,7 +133,7 @@ fresh session that will execute the plan.
    ```
 
 4. **Research.** Spawn background research agents with the `Agent` tool,
-   `subagent_type: general-purpose`, `model: opus`, `run_in_background: true`,
+   `subagent_type: general-purpose`, model {{model:worker}}, `run_in_background: true`, description starting `[role:worker]`,
    built from `reference/research-prompt.md`'s research section, with
    `{{seed}}` filled from step 1 or rendered empty. One agent by
    default. Fan out to at most four, in a single message so they run
@@ -163,7 +163,7 @@ fresh session that will execute the plan.
    rounds. Stop when a round surfaces no question whose answer would change
    the plan. Say which round settled it.
 
-7. **Write.** Spawn one writing agent (`model: opus`) from
+7. **Write.** Spawn one writing agent (model {{model:author}}, description starting `[role:author]`) from
    `reference/research-prompt.md`'s writing section, with the full ledger and
    every research finding pasted in verbatim, and `{{seed}}` filled the same
    way as at step 4. It writes all three files. Never
@@ -187,7 +187,7 @@ fresh session that will execute the plan.
      load targets, cost, or sizes.
 
 7a. **Visualize.** Skipped when the `## Visuals` list is empty. Otherwise
-   spawn one background diagram agent (`model: opus`) from
+   spawn one background diagram agent (model {{model:worker}}, description starting `[role:worker]`) from
    `reference/visualize-prompt.md`. It authors diagrams per cf:diagram and
    charts per cf:chart into `<plan_dir>/diagrams/`, reads the palette with
    `--repo <target repo>`, lints for up to 3 rounds (retrying with

@@ -494,7 +494,7 @@ function ledger(title, instruction, payload) {
     "header from the rows, never by adding to the old number. Append each new flake to followups.md " +
     "as FLAKE-<n>. Do not edit code or any other file.\n\n" + instruction + "\n\n" +
     JSON.stringify(payload, null, 2),
-    { phase: title, schema: LEDGER_SCHEMA }
+    { model: {{model-js:worker}}, phase: title, schema: LEDGER_SCHEMA }
   )
 }
 
@@ -580,7 +580,7 @@ if (segment === "scope") {
     "review unit's scope covers and no exclusion explains (uncoveredFiles), and which risk areas " +
     "(money, auth, pii, schema) the changed files touch. Units:\n" + unitScopes + "\nExclusions: " +
     PLAN.review.exclusions.join("; ") + "\nWrite no files.",
-    { phase: "Scope", schema: SCOPE_SCHEMA }
+    { model: {{model-js:worker}}, phase: "Scope", schema: SCOPE_SCHEMA }
   )
   const gaps = scope ? scope.uncoveredFiles.length : null
   return {
@@ -603,7 +603,7 @@ if (segment === "review") {
     ? PLAN.review.units.filter((u) => input.units.includes(u.id))
     : PLAN.review.units
   const reviews = await parallel(units.map((unit) => () =>
-    agent(reviewPrompt(unit), { phase: "Review", label: unit.id, schema: REVIEW_SCHEMA })))
+    agent(reviewPrompt(unit), { model: {{model-js:critic}}, phase: "Review", label: unit.id, schema: REVIEW_SCHEMA })))
   const results = units.map((unit, i) => ({ unit: unit.id, title: unit.title, result: reviews[i] ?? null }))
   const missing = results.filter((r) => !r.result).map((r) => r.unit)
   const written = await ledger("Review",
@@ -643,7 +643,7 @@ if (segment === "fix" && mode === "plan-batches") {
     "Put in each batch's notes every constraint the fix agent must honor (owner rulings, callers " +
     "to keep working, tests that must stay green). A finding that needs a change under " +
     PLAN.fix.schemaPaths.join(", ") + " goes in escalations, not a batch.",
-    { phase: "Fix", model: "opus", schema: BATCH_SCHEMA }
+    { phase: "Fix", model: {{model-js:author}}, schema: BATCH_SCHEMA }
   )
   return {
     plan: PLAN_MD,
@@ -686,7 +686,7 @@ if (segment === "fix" && mode === "apply") {
       "or update the PR as above unless merge mode is local-only. Stop. Do not merge. Do not edit " +
       "any file under " + PLAN.planDir + ".\n\nSet landed: false if a gate command failed or a push " +
       "that merge mode allows did not happen.",
-      { phase: "Fix", label: batch.slug, schema: APPLY_SCHEMA }
+      { model: {{model-js:worker}}, phase: "Fix", label: batch.slug, schema: APPLY_SCHEMA }
     )
     applied.push({ batch: batch.slug, findingIds: listOf(batch.findingIds), result: result ?? null })
   }
@@ -735,7 +735,7 @@ if (segment === "fix" && mode === "verify") {
     "bug. Do not edit anything or comment on GitHub.\n\n" + SEVERITY_TEXT +
     "Return unit '" + item.ref + "'. Put one 'fixed: <ID>' or 'not fixed: <ID> because ...' line per " +
     "claimed finding in verdicts.",
-    { phase: "Fix", model: "opus", label: "review " + item.ref, schema: REVIEW_SCHEMA }
+    { phase: "Fix", model: {{model-js:critic}}, label: "review " + item.ref, schema: REVIEW_SCHEMA }
   ))
   const qaThunk = () => agent(
     preamble("QA") + tipCheck() +
@@ -750,7 +750,7 @@ if (segment === "fix" && mode === "verify") {
     "reproduces, then the nearest normal path still works, at desktop and 390." +
     (input.qaFlows ? "\nAlso:\n" + input.qaFlows : "") + "\n\nCleanup at the end:\n" +
     PLAN.qa.throwawayCleanup.join("\n") + "\nand remove the worktree.",
-    { phase: "Fix", label: "QA fixes combined", schema: LANE_SCHEMA }
+    { model: {{model-js:worker}}, phase: "Fix", label: "QA fixes combined", schema: LANE_SCHEMA }
   )
   const thunks = PLAN.fix.preMergeVerify ? reviewThunks.concat([ qaThunk ]) : reviewThunks
   const results = await parallel(thunks)
@@ -800,7 +800,7 @@ if (segment === "gate") {
       : "") +
     "Remove the worktree afterwards. green is true only if every row passed, counting a listed " +
     "flake's single retry.",
-    { phase: "Gate", schema: GATE_SCHEMA }
+    { model: {{model-js:worker}}, phase: "Gate", schema: GATE_SCHEMA }
   )
   const written = gate ? await ledger("Gate",
     "Append this run to gate-log.md as an integration-tip gate. If green is true, move each finding " +
@@ -832,7 +832,7 @@ if (segment === "qa") {
   let haltedBy = null
   for (const lane of lanes) {
     const body = lane.id === "setup" ? lane.prompt() : laneCommon() + laneSpec(lane)
-    const result = await agent(preamble("QA") + tipCheck() + body, { phase: "QA", label: lane.id, schema: LANE_SCHEMA })
+    const result = await agent(preamble("QA") + tipCheck() + body, { model: {{model-js:worker}}, phase: "QA", label: lane.id, schema: LANE_SCHEMA })
     laneResults.push({ lane: lane.id, result: result ?? null })
     const stops = result ? result.stopReasons : []
     if (!result || (lane.id === "setup" && (!result.passed || stops.length > 0))) {
@@ -896,7 +896,7 @@ if (segment === "audit") {
     "and ignoring how the reviewer framed it. Any row whose scenario, if it happened, meets a higher " +
     "level is a candidate: give the higher level and the one-sentence reason. Report every ID you " +
     "checked.\n\n" + SEVERITY_TEXT,
-    { phase: "Audit", model: "opus", schema: AUDIT_SCHEMA }
+    { phase: "Audit", model: {{model-js:critic}}, schema: AUDIT_SCHEMA }
   )
   return {
     plan: PLAN_MD,
@@ -947,7 +947,7 @@ if (segment === "handoff") {
       ? "8. Copied verbatim from plan.md: " + PLAN.handoff.verbatimSections.join(", ") + ".\n"
       : "") +
     "No connection strings or secrets.",
-    { phase: "Handoff", model: "opus", schema: HANDOFF_SCHEMA }
+    { phase: "Handoff", model: {{model-js:author}}, schema: HANDOFF_SCHEMA }
   )
   return {
     plan: PLAN_MD,
