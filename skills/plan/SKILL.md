@@ -250,7 +250,11 @@ fresh session that will execute the plan.
    5. Round 2 runs only if
       `ruby ~/.claude/cf/bin/roast.rb decide --out-dir <plan_dir>/roast`
       says continue and the summed estimates, round 2's own included, stay at
-      or under 0.50 USD. There is never a round 3.
+      or under 0.50 USD. There is never a round 3. When `decide` stops and
+      prints `followups:`, run the local pass in `skills/roast/SKILL.md` under
+      "Open P1s at the stop" over `roast/round-N.response.json` (no further
+      paid round) and list each `unresolved` or `escalated` follow-up under
+      `## Roast`.
    6. The writing agent appends `## Roast` to plan.md: rounds run, score per
       round and spend (summed estimates), each finding with its verdict
       (accepted, rebutted, or contested) and resolution, any open P0 or P1,
