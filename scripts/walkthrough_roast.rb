@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'json'
 require_relative 'design_config'
 require_relative 'roast'
 require_relative 'walkthrough_storyboard'
@@ -57,6 +58,16 @@ module WalkthroughRoast
        a visible key action the narration never mentions, or narration running ahead of or behind the action.
     14. Caption-band clash: a caption cue that would sit over UI the narration points at, or a cue too long
        to read in the time it is shown.
+    The story block (hero, guide, perspective, spine, highlights) is given beside the transcript. Judge it
+    against the cut, naming the scene id as the screen:
+    15. Story: the spine holds, with the before state, the turn and the after outcomes shown in that order.
+       The hero is the viewer's counterpart, a role the audience sees itself in; the product or our team
+       cast as the hero fails. When a guide is set, it is distinct from the hero and plays a helping role.
+       With perspective first, "I" and "we" spoken as the viewer's own team pass. Each requested highlight
+       is shown: ui_before_after true needs each pair to show old and new UI a viewer can tell apart (false
+       is no requirement); scope built_only means no scene features work outside this change, wider means
+       the wider context appears and is framed as context; each secondary_artifacts entry appears on screen;
+       each request is visibly met, or name the one that is not.
   TEXT
 
   module_function
@@ -129,6 +140,7 @@ module WalkthroughRoast
     lines = manifest['scenes'].filter_map { |e| transcript_line(e, by_id.dig(e['id'], 'narration', 'text').to_s.strip, fps) }
     out = [ 'Narration by scene:', *lines ]
     out += [ '', 'Caption cues:', srt.strip ] if srt && !srt.strip.empty?
+    out += [ '', 'Story block:', JSON.pretty_generate(board['story']) ] if board['story'].is_a?(Hash)
     out.join("\n")
   end
 

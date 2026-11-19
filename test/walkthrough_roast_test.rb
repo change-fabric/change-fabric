@@ -118,6 +118,20 @@ class WalkthroughRoastTest < Minitest::Test
     assert_includes text, "Caption cues:"
   end
 
+  def test_rubric_item_15_judges_story_and_story_block_reaches_the_critic
+    items = WalkthroughRoast::RUBRIC.scan(/^\s*(\d+)\. /).flatten.map(&:to_i)
+    assert_equal (1..15).to_a, items
+    item = WalkthroughRoast::RUBRIC[/^\s*15\. Story.*\z/m]
+    [ "spine", "viewer's counterpart", "distinct from the hero", "perspective first", "we", "ui_before_after",
+     "built_only", "secondary_artifacts", "request" ].each { |w| assert_includes item, w }
+    story = { "hero" => "the platform admin", "guide" => "change-fabric", "perspective" => "first" }
+    manifest = { "timeline" => { "fps" => 10 }, "scenes" => [] }
+    text = WalkthroughRoast.transcript({ "scenes" => [], "story" => story }, manifest)
+    assert_includes text, "Story block:"
+    assert_includes text, "the platform admin"
+    refute_includes WalkthroughRoast.transcript({ "scenes" => [] }, manifest), "Story block:"
+  end
+
   def test_decide_converges_only_with_target_and_no_blockers
     Dir.mktmpdir do |dir|
       refute WalkthroughRoast.decide(dir)[:stop]
