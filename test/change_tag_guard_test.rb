@@ -372,4 +372,10 @@ class ChangeTagGuardTest < Minitest::Test
   ensure
     [ a, b ].compact.each { |d| FileUtils.remove_entry(d) }
   end
+  def test_push_repo_option_selects_the_destination
+    guard = ChangeTagGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => "git push --repo=upstream --tags" } })
+    assert_equal "upstream", guard.send(:push_destination)
+    guard = ChangeTagGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => "git push --tags --repo upstream" } })
+    assert_equal "upstream", guard.send(:push_destination)
+  end
 end

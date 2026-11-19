@@ -87,6 +87,12 @@ class ChangeTagGuard
   def push_destination
     toks = GuardedCommand.tokens(command)
     rest = toks[(toks.index('push') + 1)..] || []
+    idx = rest.index('--repo')
+    return rest[idx + 1] if idx
+
+    flag = rest.find { |token| token.start_with?('--repo=') }
+    return flag.delete_prefix('--repo=') if flag
+
     rest.find { |token| !token.start_with?('-') }
   end
 
