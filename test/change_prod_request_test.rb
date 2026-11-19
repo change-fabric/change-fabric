@@ -61,7 +61,7 @@ class ChangeProdRequestTest < Minitest::Test
     _, out, = create
     id = request_id(out)
     calls = []
-    runner = ->(workflow, rid) { calls << [ workflow, rid ] || true }
+    runner = ->(workflow, rid, _repo) { calls << [ workflow, rid ] || true }
     err = StringIO.new
     argv = [ "dispatch", id, "--config", FIXTURE, "--repo", @dir, "--no-push" ]
     assert_equal 1, Request.run(argv.dup, stdout: StringIO.new, stderr: err, runner: runner)
@@ -81,9 +81,9 @@ class ChangeProdRequestTest < Minitest::Test
     digest = @store.read("requests", id)["digest"]
     @store.create("approvals", id, { "protocol" => "cf.prod.approval/2", "request_id" => id, "digest" => digest, "proof" => {} }, push: false)
     calls = []
-    runner = ->(workflow, rid) { calls << [ workflow, rid ] }
+    runner = ->(workflow, rid, repo) { calls << [ workflow, rid, repo ] }
     assert_equal 0, Request.run([ "dispatch", id, "--config", FIXTURE, "--repo", @dir, "--no-push" ], stdout: StringIO.new, runner: runner)
-    assert_equal [ [ "cf-prod.yml", id ] ], calls
+    assert_equal [ [ "cf-prod.yml", id, @dir ] ], calls
   end
 
   def test_dispatch_reports_a_failed_gh_call_and_a_changed_config
@@ -101,6 +101,10 @@ class ChangeProdRequestTest < Minitest::Test
     err = StringIO.new
     assert_equal 1, Request.run([ "dispatch", id, "--config", changed, "--repo", @dir, "--no-push" ], stdout: StringIO.new, stderr: err, runner: ->(*) { true })
     assert_match(/config_digest does not match/, err.string)
+  end
+
+  def test_the_real_dispatch_runs_inside_the_selected_checkout
+    assert_raises(SystemCallError) { Request.gh_dispatch("cf-prod.yml", SecureRandom.uuid, File.join(@dir, "no-such-checkout")) }
   end
 
   def test_usage_and_bad_flags

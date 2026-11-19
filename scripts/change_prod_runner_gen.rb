@@ -249,7 +249,7 @@ module ChangeProdRunnerGen
   def job_id(profile) = "run-#{profile.tr('_', '-')}"
 
   def oidc_command(repo)
-    "gh api -X PUT repos/#{repo || '<o>/<r>'}/actions/oidc/customization/sub -f use_default=false " \
+    "gh api -X PUT repos/#{repo || '<o>/<r>'}/actions/oidc/customization/sub -F use_default=false " \
       "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
   end
 

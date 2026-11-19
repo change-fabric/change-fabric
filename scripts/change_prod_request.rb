@@ -73,7 +73,7 @@ module ChangeProdRequest
 
     workflow = File.basename(config.dig('change_config', 'runners', operation_runner(config, envelope), 'workflow').to_s)
     raise ChangeProdStore::Error, 'the runner declares no workflow file' if workflow.empty?
-    raise ChangeProdStore::Error, 'dispatch failed' unless runner.call(workflow, id)
+    raise ChangeProdStore::Error, 'dispatch failed' unless runner.call(workflow, id, opts[:repo])
 
     stdout.puts "[cf-prod] dispatched #{workflow} for #{id}"
     0
@@ -84,8 +84,9 @@ module ChangeProdRequest
   def operation_runner(config, envelope) = config.dig('change_config', 'operations', envelope['op'], 'runner').to_s
 
   # Always dispatches on the default branch; the runner refuses any other ref.
-  def gh_dispatch(workflow, request_id)
-    _out, status = Open3.capture2e('gh', 'workflow', 'run', workflow, '-f', "request_id=#{request_id}")
+  # Runs in the verified checkout, so gh resolves that repository's workflow.
+  def gh_dispatch(workflow, request_id, repo)
+    _out, status = Open3.capture2e('gh', 'workflow', 'run', workflow, '-f', "request_id=#{request_id}", chdir: repo)
     status.success?
   end
 

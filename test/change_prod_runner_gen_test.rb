@@ -160,7 +160,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
     Dir.mktmpdir do |root|
       out = StringIO.new
       assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out)
-      assert_includes out.string, "repos/acme/app/actions/oidc/customization/sub -f use_default=false"
+      assert_includes out.string, "repos/acme/app/actions/oidc/customization/sub -F use_default=false"
       assert_includes out.string, "include_claim_keys[]=job_workflow_ref"
       assert_equal 0, Gen.run([ "--check", "--root", root ], stdout: StringIO.new)
       path = File.join(root, Gen::WORKFLOW)
