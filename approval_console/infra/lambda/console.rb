@@ -482,7 +482,8 @@ class ApprovalConsoleApp
   # only to a caller that presents the very assertion that was accepted.
   def stored_proof(mid, rid, data)
     rec = @store.get(pk(mid), "REC##{rid}") or raise HttpError.new(409, 'not_pending')
-    raise HttpError.new(409, 'not_pending') unless rec['proof']['signature'] == data['signature']
+    signature = rec['proof']['signature']
+    raise HttpError.new(409, 'not_pending') unless signature.is_a?(String) && signature == data['signature']
 
     json(200, proof: rec['proof'])
   end
@@ -560,7 +561,20 @@ class ApprovalConsoleApp
     proof = { 'kind' => 'totp-terminal', 'body' => body, 'totp_step' => step,
               'receipt' => receipt(kind: 'totp-terminal', mid: mid, body: body, request_id: rid, assertion: nil, step: step, channel: 'terminal') }
     ops = [ { op: :put, item: success_meta(meta, step), expect: { 'version' => meta['version'] } }, { op: :put, item: rec_item(mid, rid, proof), absent: true } ]
+    ops.concat(close_request(mid, rid, body))
     @store.transact(ops) ? json(200, proof: proof) : :conflict
+  end
+
+  # A request created through /requests is closed by the same transaction, so
+  # the page stops offering it and the phone route cannot approve it again. A
+  # terminal approval of a different body under the same id is refused.
+  def close_request(mid, rid, body)
+    item = @store.get(pk(mid), "REQ##{rid}")
+    return [] unless item
+    raise HttpError.new(409, 'request_conflict') unless item['body'] == body
+    return [] unless item['status'] == 'pending'
+
+    [ { op: :put, item: item.merge('status' => 'approved', 'approved_at' => stamp(now), 'channel' => 'terminal'), expect: { 'status' => 'pending' } } ]
   end
 
   def online_step(mid, meta, data, parsed)

@@ -425,6 +425,35 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_equal [ 409, "request_conflict" ], [ status, data["error"] ]
   end
 
+  def test_a_terminal_approval_closes_the_pending_request_for_the_phone
+    body, rid = pending_request
+    assert_equal 200, signed("POST", "/m/#{MID}/terminal-approve", { "body" => body, "code" => totp })[0]
+    assert_equal "approved", @store.get("M##{MID}", "REQ##{rid}")["status"]
+    assert_equal "terminal", @store.get("M##{MID}", "REQ##{rid}")["channel"]
+    assert_includes call("GET", "/m/#{MID}/r/#{rid}")[1], "This request is approved."
+    @now += 30
+    status, data = approve(body, rid)
+    assert_equal [ 409, "not_pending" ], [ status, data["error"] ]
+    assert_equal 409, call("POST", "/m/#{MID}/r/#{rid}/approve", { "totp" => totp }.to_json)[0], "an absent signature does not match a terminal proof"
+    assert_equal "approved", signed("GET", "/m/#{MID}/r/#{rid}/proof")[1]["status"]
+  end
+
+  def test_a_terminal_approval_of_a_different_body_for_a_requested_id_is_refused
+    body, rid = pending_request
+    other = request_body(rid: rid, summary: "changed")
+    status, data = signed("POST", "/m/#{MID}/terminal-approve", { "body" => other, "code" => totp })
+    assert_equal [ 409, "request_conflict" ], [ status, data["error"] ]
+    assert_equal "pending", @store.get("M##{MID}", "REQ##{rid}")["status"]
+    assert_nil @store.get("M##{MID}", "REC##{rid}")
+  end
+
+  def test_sync_also_closes_a_pending_request
+    body, rid = pending_request
+    step = Totp.step_for(@now) - 2
+    assert_equal 200, signed("POST", "/m/#{MID}/sync", { "body" => body, "code" => Totp.code(SEED, step), "step" => step })[0]
+    assert_equal "approved", @store.get("M##{MID}", "REQ##{rid}")["status"]
+  end
+
   def test_terminal_approve_refusals
     body = request_body
     path = "/m/#{MID}/terminal-approve"
