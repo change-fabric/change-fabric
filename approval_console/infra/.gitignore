@@ -1,0 +1,13 @@
+# Terraform working files. The lock file (.terraform.lock.hcl) is committed; the
+# provider cache, local state, and plan artifacts are not. State lives in the S3
+# backend, not on disk.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+*.tfplan
+tfplan
+
+# The Lambda package staged by build.sh and the zip archive_file makes from it.
+build/

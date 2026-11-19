@@ -20,6 +20,7 @@ rules the repo holds itself to are in `PRINCIPLES.md`; the release runbook is
 | `site/` | The Vite site at www.changefabric.org, its spec archive in `site/src/archive/`, and `site/infra/`. |
 | `telemetry/` | The `api.changefabric.org` backend: Terraform in `telemetry/infra/`, Lambdas under it. |
 | `account/infra/` | Account-wide alarms, CloudTrail, budgets, and security controls. Owns no workload. |
+| `approval_console/` | The remote approval console: Terraform in `approval_console/infra/`, the Lambda under it. |
 | `walkthrough/` | Walkthrough sources for the site's own video. |
 | `platform/` | An earlier hosted app and its infra. Under review for removal; do not build on it. |
 | `CHANGE.md` | This repo's own `cf:change` config and policy. |
@@ -109,9 +110,9 @@ each track are in `RELEASING.md`.
 
 ## Infrastructure
 
-Four Terraform roots share one state bucket under separate keys:
-`site/infra`, `telemetry/infra`, `account/infra`, and `platform/infra` (under
-review). `account/infra` references the others by literal identifier only, so
+Five Terraform roots share one state bucket under separate keys:
+`site/infra`, `telemetry/infra`, `account/infra`, `approval_console/infra`, and
+`platform/infra` (under review). `account/infra` references the others by literal identifier only, so
 it applies regardless of their state. Each root's README covers its apply.
 
 ## Docs policy
