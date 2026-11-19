@@ -56,13 +56,18 @@ module ApprovalConsoleCli
   # reveal the seed is discarded so an unseen secret is not left enrolled.
   def reveal(store, tty, stderr)
     seed = store.enroll!
+    shown = false
     begin
       show(tty, store, seed)
+      shown = true
     rescue StandardError, Errno::EIO
-      store.discard!
       stderr.puts '[approval_console] could not show the secret on the terminal; nothing was enrolled.'
-      return 1
+    ensure
+      # Also runs on Interrupt and other signals: an unconfirmed seed is never kept.
+      store.discard! unless shown
     end
+    return 1 unless shown
+
     stderr.puts '[approval_console] enrolled. Add the secret to any RFC 6238 TOTP app, one entry per machine.'
     0
   end

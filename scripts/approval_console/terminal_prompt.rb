@@ -43,14 +43,17 @@ module ApprovalConsole
     # Builds the canonical body for `attrs` (type, repo, sha, profile and the
     # per-type payload), prompts for the code and spends it. The body binds the
     # approval to the exact context the human just confirmed.
-    def approve(attrs, stdin:, stdout:, store: LocalStore.new, now: Time.now)
+    def approve(attrs, stdin:, stdout:, store: LocalStore.new, now: nil)
       raise LocalStore::NotEnrolled unless store.enrolled?
 
+      started = now || Time.now
       body = Canonical.build(attrs.merge('machine_id' => store.machine_id, 'request_id' => SecureRandom.uuid,
-                                         'created_at' => now.utc.iso8601,
-                                         'expires_at' => (now.utc + LIFETIME).iso8601))
+                                         'created_at' => started.utc.iso8601,
+                                         'expires_at' => (started.utc + LIFETIME).iso8601))
       code = read_code(stdin, stdout)
-      outcome = store.consume(code, now: now, entry: { 'type' => attrs['type'], 'sha' => attrs['sha'],
+      # The clock is read after the blocking prompt, so a code typed late is
+      # still checked against the step it was generated for.
+      outcome = store.consume(code, now: now || Time.now, entry: { 'type' => attrs['type'], 'sha' => attrs['sha'],
                                                       'body_sha256' => Canonical.body_sha256(body) })
       return Result.new(error: message(outcome)) unless outcome.ok?
 

@@ -112,6 +112,17 @@ class ApprovalConsoleCliTest < Minitest::Test
     refute @store.enrolled?
   end
 
+  def test_an_interrupted_reveal_discards_the_seed
+    interrupted = Object.new
+    def interrupted.print(*) = true
+    def interrupted.puts(*) = true
+    def interrupted.flush = true
+    def interrupted.gets = raise(Interrupt)
+    assert_raises(Interrupt) { cli(%w[totp-enroll], reveal: interrupted) }
+    refute @store.enrolled?
+    assert_equal 0, cli(%w[totp-enroll]).first, "a later enroll can show a fresh secret"
+  end
+
   # --- status and unlock ---
 
   def test_status_prints_state_and_never_the_seed
@@ -333,6 +344,17 @@ class ApprovalConsoleCliTest < Minitest::Test
     assert_nil result.proof["receipt"]
     assert_equal Totp.step_for(@t0), result.proof["totp_step"]
     assert_equal "why", ApprovalConsole::Canonical.parse(result.proof["body"])["reason"]
+  end
+
+  def test_prompt_samples_the_clock_after_the_code_is_typed
+    enroll_totp(@home)
+    attrs = { "type" => "override", "repo" => "repo:x/y", "sha" => "a" * 40, "profile" => nil, "reason" => "why" }
+    slow = Object.new
+    code_text = code(0, time: Time.now)
+    slow.define_singleton_method(:gets) { sleep 0.01; "#{code_text}\n" }
+    result = ApprovalConsole::TerminalPrompt.approve(attrs, stdin: slow, stdout: StringIO.new, store: @store)
+    assert_predicate result, :ok?
+    assert_operator result.proof["totp_step"], :>=, Totp.step_for(Time.now) - 1
   end
 
   def test_prompt_rejects_a_wrong_replayed_and_missing_code
