@@ -149,6 +149,15 @@ stuck player.
 
 Enforcer: site/test/media-slot.test.ts
 
+## Skills name roles, not tiers
+
+Skills write `{{model:<role>}}` in prose and `model: {{model-js:<role>}}` in
+Workflow JS, never a tier name, and every Workflow `agent()` call carries a
+model option. An exception needs a `model-roles: allow <reason>` marker listed
+in `MARKER_EXCEPTIONS`. A tagged spawn that misses its role warns at run time.
+
+Enforcer: test/model_roles_lint_test.rb, scripts/model_role_guard.rb
+
 ## Docs are the living set only
 
 Architecture lives in `ARCHITECTURE.md`, rules here, agent instructions in

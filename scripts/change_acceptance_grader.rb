@@ -3,6 +3,7 @@
 
 require 'json'
 require 'open3'
+require_relative 'model_roles'
 
 # Grades a test case's human-prose `acceptance` criterion against what the run
 # actually observed, and returns a verdict the lane turns into a Finding.
@@ -37,6 +38,8 @@ class ChangeAcceptanceGrader
   # line with the same contract (prompt on stdin, JSON on stdout), so a repo can
   # point grading at whatever it actually has.
   DEFAULT_COMMAND = %w[claude -p].freeze
+  GRADER_ROLE = 'critic'
+  GRADER_HOST = 'claude'
   SKIP_ENV = 'CF_SKIP_ACCEPTANCE_GRADING'
   COMMAND_ENV = 'CF_ACCEPTANCE_GRADER'
 
@@ -79,9 +82,10 @@ class ChangeAcceptanceGrader
   # `runner` is the seam the tests drive: anything responding to #call(prompt)
   # and returning the grader's raw stdout. Left nil, it shells out to the
   # resolved command.
-  def initialize(env: ENV, runner: nil)
+  def initialize(env: ENV, runner: nil, snapshot_path: ModelRoles.default_snapshot_path)
     @env = env
     @runner = runner
+    @snapshot_path = snapshot_path
   end
 
   # The skip switch governs the default, real grader only. An explicitly
@@ -95,10 +99,21 @@ class ChangeAcceptanceGrader
   def command
     configured = @env[COMMAND_ENV].to_s
     return configured.split unless configured.empty?
-    return DEFAULT_COMMAND if @runner || executable?(DEFAULT_COMMAND.first)
+    return default_command if @runner || executable?(DEFAULT_COMMAND.first)
 
     nil
   end
+
+  # The critic model the default command grades with: the install snapshot's,
+  # else the repo map's (never live env or user files), so CI, which has no
+  # snapshot, and a default local run agree. nil when there is no entry.
+  def model
+    ModelRoles.installed_or_repo_roles(GRADER_HOST, path: @snapshot_path)&.dig(GRADER_ROLE)
+  end
+
+  # The model named in the report line, or nil when a CF_ACCEPTANCE_GRADER
+  # command (which is trusted as configured and gets no --model) does the grading.
+  def reported_model = @env[COMMAND_ENV].to_s.empty? ? model : nil
 
   def available? = !skipped? && (!@runner.nil? || !command.nil?)
 
@@ -147,6 +162,11 @@ class ChangeAcceptanceGrader
   end
 
   private
+
+  def default_command
+    chosen = model
+    chosen ? [ *DEFAULT_COMMAND, '--model', chosen ] : DEFAULT_COMMAND
+  end
 
   def payload(observation)
     {
