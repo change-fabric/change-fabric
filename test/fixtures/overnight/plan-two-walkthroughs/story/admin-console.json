@@ -1,0 +1,11 @@
+{
+  "story": {
+    "hero": "the client's platform admin",
+    "guide": "change-fabric",
+    "perspective": "third",
+    "audience": "client platform team",
+    "before": { "state": "deploys wait on a ticket queue" },
+    "turn": { "moment": "the admin opens the self-serve console" },
+    "after": { "outcomes": [ "ships a service in ten minutes" ] }
+  }
+}

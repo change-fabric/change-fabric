@@ -7,6 +7,7 @@ require 'optparse'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
 require_relative 'overnight_store'
+require_relative 'plan_check'
 require_relative 'plan_phase_trailer'
 
 # cf:overnight intake and dry-run. Resolves a typed capability manifest from
@@ -320,8 +321,28 @@ module OvernightPlan
       deps = declared ? declared.scan(/P(?:hase\s*)?(\d+)/i).flatten.map { |n| "p#{n}" } : []
       deps = [ "p#{numbers[index - 1]}" ] if declared.nil? && index.positive?
       ref = "#{File.basename(File.dirname(File.expand_path(plan_dir)))}/#{File.basename(plan_dir)}#Phase #{number}"
-      { 'id' => "p#{number}", 'phase' => number.to_i, 'ref' => ref, 'title' => title.strip, 'depends_on' => deps }
+      slug = section[PlanCheck::WALKTHROUGH_LINE, 1]
+      { 'id' => "p#{number}", 'phase' => number.to_i, 'ref' => ref, 'title' => title.strip, 'depends_on' => deps,
+        'walkthrough' => slug.to_s.empty? ? nil : slug }
     end
+  end
+
+  # Story file for a unit's `walkthrough:` slug, per the cf:plan convention
+  # (story.json for one walkthrough, story/<slug>.json for several), as a path
+  # under the plan dir.
+  def story_path(plan_dir, slug, count)
+    File.join(plan_dir, PlanCheck.story_rel(slug, count))
+  end
+
+  def walkthrough_story_lines(units, plan_dir)
+    slugs = units.filter_map { |u| u['walkthrough'] }.uniq
+    lines = units.select { |u| u['walkthrough'] }.map do |u|
+      path = story_path(plan_dir, u['walkthrough'], slugs.size)
+      state = File.file?(path) ? 'present' : 'missing: interview at intake'
+      "#{u['id']} #{u['walkthrough']}: story #{path} (#{state})"
+    end
+    lines << 'none' if lines.empty?
+    lines << 'classifier: {{model:classifier}} at intake for phases without a walkthrough: line'
   end
 
   # Adopts in-flight work: a PR whose title matches the unit's, or whose
@@ -433,6 +454,8 @@ module OvernightPlan
       denied = q == 'Destructive writes' && man['capabilities']['destructive']
       lines << "#{q}: #{denied ? 'never (destructive capability denied for this run)' : options}"
     end
+    lines << '' << '## Walkthrough stories'
+    lines.concat(walkthrough_story_lines(units, plan_dir))
     lines << '' << '## Units'
     lines << 'none' if units.empty?
     units.each do |u|

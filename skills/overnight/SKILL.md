@@ -35,9 +35,12 @@ byte-stable and secrets are masked. It prints:
 2. Denials: missing, conflicting or invalid safety fields, and each
    capability allowed or denied with the reason.
 3. The interview: the four decisions as they would be asked.
-4. Units: new or adopted (PR, branch, worktree), with dependency edges.
-5. A schedule per unit: step, command, gate, expected outcome, deadline.
-6. Reservations against the budget, and the wakeup and Monitor plan.
+4. Walkthrough stories: one line per phase with a `walkthrough: <slug>`
+   line, its story file and whether it is present or missing, then the
+   classifier line.
+5. Units: new or adopted (PR, branch, worktree), with dependency edges.
+6. A schedule per unit: step, command, gate, expected outcome, deadline.
+7. Reservations against the budget, and the wakeup and Monitor plan.
 
 The dry-run path never builds an executor. Its only process calls are the
 read-only discovery allowlist: `git log`, `git worktree list`, `git ls-remote`,
@@ -90,6 +93,18 @@ and the denied capabilities:
 2. Scope and order.
 3. Flag state after ship.
 4. Walkthrough end state: numbered drafts overnight, final in the morning.
+
+Walkthrough round at intake, alongside the four decisions and while the user
+is present: spawn one background agent (model {{model:classifier}},
+description starting `[role:classifier]`) that answers yes or no per phase
+without a `walkthrough: <slug>` line: "does this phase produce a walkthrough
+video?". For each yes, and for each `walkthrough:` phase whose story file is
+missing, run the walkthrough round from the question table in
+`skills/walkthrough/reference/storyboard-schema.md` (up to four questions per
+AskUserQuestion call) and write `story.json` beside plan.md, or
+`story/<slug>.json` when the plan has several walkthroughs. Fields still
+unanswered at run time are drafted from the docs, each listed in
+`story.assumptions`, and nothing is asked at night.
 
 Keys and spend estimates are checked at intake (`cf_keys.rb` status, never
 enroll), so no key question fires at night. Then run `/cf:away`. After that
