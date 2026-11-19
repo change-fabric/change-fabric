@@ -277,7 +277,7 @@ class ChangeProdGateTest < Minitest::Test
   def test_cli_verifies_and_claims_through_a_real_remote_once
     origin = Dir.mktmpdir
     clone = File.join(Dir.mktmpdir, "runner")
-    GitFixture.git_init(origin, "--bare")
+    GitFixture.git_init(origin, "--bare", "-b", "main")
     GitFixture.git(@dir, "remote", "add", "origin", origin)
     GitFixture.git(@dir, "push", "-q", "origin", "main")
     @store.create("requests", @id, @envelope)
@@ -306,7 +306,7 @@ class ChangeProdGateTest < Minitest::Test
 
   def test_claim_through_a_real_remote_is_single_use
     origin = Dir.mktmpdir
-    GitFixture.git_init(origin, "--bare")
+    GitFixture.git_init(origin, "--bare", "-b", "main")
     GitFixture.git(@dir, "remote", "add", "origin", origin)
     first = Gate.claim(store: @store, request_id: @id, run_id: 1, now: NOW)
     assert_predicate first, :ok?

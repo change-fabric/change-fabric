@@ -11,7 +11,7 @@ class ChangeProdStoreTest < Minitest::Test
   def setup
     @origin = Dir.mktmpdir
     @dir = Dir.mktmpdir
-    GitFixture.git_init(@origin, "--bare")
+    GitFixture.git_init(@origin, "--bare", "-b", "main")
     GitFixture.git_init(@dir, "-b", "main")
     GitFixture.git(@dir, "remote", "add", "origin", @origin)
     @store = ChangeProdStore.new(@dir)
