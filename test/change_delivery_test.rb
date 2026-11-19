@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "json"
+require "open3"
 require "stringio"
 require "tmpdir"
 require_relative "../scripts/change_delivery"
@@ -114,5 +115,31 @@ class ChangeDeliveryTest < Minitest::Test
       assert_equal 1, code
       assert_equal "unavailable", JSON.parse(out).dig("error", "code")
     end
+  end
+
+  def reference_run(trace)
+    out, = Open3.capture2("ruby", REFERENCE, stdin_data: JSON.generate(trace))
+    JSON.parse(out)["transitions"]
+  end
+
+  def clean_trace
+    JSON.parse(File.read(File.join(ChangeDelivery::TRACES_DIR, "clean_advance.json"))).reject { |k, _| k == "expect" }
+  end
+
+  def test_the_reference_defaults_omitted_pacing_to_manual
+    trace = clean_trace
+    trace["rollout"].delete("pacing")
+    assert_equal "await_approval", reference_run(trace)[2]["action"]
+    trace["rollout"]["pacing"] = { "advance" => "auto" }
+    assert_equal "advance", reference_run(trace)[2]["action"]
+  end
+
+  def test_the_reference_enforces_only_configured_guards
+    trace = clean_trace
+    trace["rollout"]["guards"] = { "new_5xx_on_flagged_spans" => { "max" => 0 } }
+    trace["steps"][1].merge!("new_exceptions" => 3, "p95_ratio" => 9.0, "baseline_requests" => 1)
+    assert_equal %w[pass pass pass pass], reference_run(trace).map { |t| t["verdict"] }
+    trace["steps"][1]["new_5xx"] = 1
+    assert_equal "breach", reference_run(trace)[1]["verdict"]
   end
 end

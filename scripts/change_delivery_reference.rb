@@ -49,20 +49,22 @@ class ChangeDeliveryReference
   end
 
   def breach?(step)
-    return true if step['new_5xx'].to_i > guard_max('new_5xx_on_flagged_spans')
-    return true if step['new_exceptions'].to_i > guard_max('new_exceptions_on_flagged_spans')
+    return true if over?('new_5xx_on_flagged_spans', step['new_5xx'])
+    return true if over?('new_exceptions_on_flagged_spans', step['new_exceptions'])
 
     ratio = step['p95_ratio']
-    !ratio.nil? && baseline_ok?(step) && ratio > p95_limit
+    p95_guard? && !ratio.nil? && baseline_ok?(step) && ratio > p95_limit
   end
 
   def unknown?(step)
     step['coverage'] != 'complete' || step['telemetry_age_s'].to_i > @policy['max_telemetry_age_s'] ||
-      step['requests'].to_i.zero? || !baseline_ok?(step)
+      step['requests'].to_i.zero? || (p95_guard? && !baseline_ok?(step))
   end
 
+  # Only guards the rollout configures are enforced, with only their own evidence prerequisites.
+  def over?(name, observed) = @guards.key?(name) && observed.to_i > (@guards.dig(name, 'max') || 0)
+  def p95_guard? = @guards.key?('p95_ms_vs_baseline')
   def baseline_ok?(step) = step['baseline_requests'].to_i >= @policy['min_baseline_requests']
-  def guard_max(name) = @guards.dig(name, 'max') || 0
   def p95_limit = @guards.dig('p95_ms_vs_baseline', 'max_ratio') || 1.25
 
   def decide(verdict, step)
@@ -112,7 +114,7 @@ class ChangeDeliveryReference
   def manual?(stage)
     return true if @pacing['money_affecting']
 
-    (stage['advance'] || @pacing['advance'] || 'auto') == 'manual'
+    (stage['advance'] || @pacing['advance'] || 'manual') == 'manual'
   end
 end
 

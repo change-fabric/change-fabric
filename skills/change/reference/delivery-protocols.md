@@ -122,6 +122,7 @@ Normative for any consumer controller:
   unsampled source (`metrics.<name>.error_source: unsampled`). Without proof of
   coverage (a sampled source, or span drop counters above zero) the verdict
   carries `coverage: incomplete` and reads `unknown`.
+- Only guards the rollout configures are enforced, and pacing defaults to `manual` when omitted.
 - At `everyone`, guards keep running for 7 days after entry; then the rollout is
   `complete`. Entering `everyone`, and every transition of a money-affecting or
   `advance: manual` stage, waits for a human approval.
