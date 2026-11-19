@@ -79,16 +79,18 @@ external script, and `Cache-Control: no-store`. Logs hold route and status only.
 ## Prod claim
 
 `cf-prod-claim` is assumed by GitHub OIDC only, and only when `aud` is
-`sts.amazonaws.com` and the token's `sub` exactly equals the repo's default
-immutable subject for its claim Environment,
-`repo:<o>@<oid>/<r>@<rid>:environment:<claim_environment>`, for a repo in
-`claim_repos`. No subject customization is needed. Each `claim_repos` entry is
+`sts.amazonaws.com` and the token's `sub` matches
+`repo:<o>@<oid>/<r>@<rid>:environment:<claim_environment>:job_workflow_ref:*`
+for a repo in `claim_repos`. That is the customized immutable subject: each
+consumer repo sets the template `include_claim_keys` [repo, context,
+job_workflow_ref] so its credential roles can pin `cf-prod.yml` (the
+generator prints the command). Only the trailing workflow is wildcarded. Each `claim_repos` entry is
 the `sub_claim_prefix` that
 `gh api repos/<o>/<r>/actions/oidc/customization/sub` reports, without `repo:`
 (for example `octo@123/app@456`). `claim_environment` defaults to `cf-claim`, a
 dedicated GitHub Environment with no required reviewers and a deployment branch
 rule of the default branch only (create it in each consumer repo); that rule is
-the branch pin. There is no workflow-file pin: any default-branch workflow that
+the branch pin. The claim role has no workflow-file pin: any default-branch workflow that
 runs in the Environment can claim. The accepted worst case is a consumed
 approval and a blocked prod run, which fails safe. Only `sub` and `aud` are used
 because they are the documented IAM condition keys.

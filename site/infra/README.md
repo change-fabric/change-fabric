@@ -30,4 +30,6 @@ against a versioned bucket, so a bad publish can be rolled back; non-current
 versions expire after 30 days.
 
 The OIDC trust policy in `oidc.tf` only trusts `ref:refs/tags/site/v*`, so a run
-on `main` cannot deploy production.
+on `main` cannot deploy production. The repo's customized subject appends
+`:job_workflow_ref:<workflow>@<ref>` after the ref; the trailing `*` in
+`site/v*` absorbs it, so the trust needs no change for that template.

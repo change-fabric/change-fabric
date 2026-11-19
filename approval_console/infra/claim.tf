@@ -36,19 +36,20 @@ data "aws_iam_policy_document" "claim_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # The repo's default immutable subject, matched exactly:
-    # repo:<o>@<oid>/<r>@<rid>:environment:<env>
-    # It pins the repo by owner and repo id and the GitHub Environment, whose
-    # deployment rule (default branch only) is the branch pin. There is no
-    # workflow-file pin: any default-branch workflow that runs in the
-    # environment can claim. Accepted, because a stray claim only consumes an
-    # approval, so the worst case is a blocked prod run (fails safe). Only sub
-    # and aud are documented IAM condition keys for
+    # Consumer repos set the subject template include_claim_keys [repo,
+    # context, job_workflow_ref] so their credential roles can pin cf-prod.yml,
+    # which makes every sub
+    # repo:<o>@<oid>/<r>@<rid>:environment:<env>:job_workflow_ref:<workflow>.
+    # This role pins the repo by id and the Environment, whose deployment rule
+    # (default branch only) is the branch pin, and takes any workflow: only the
+    # trailing job_workflow_ref value is wildcarded. Accepted, because a stray
+    # claim only consumes an approval, so the worst case is a blocked prod run
+    # (fails safe). Only sub and aud are documented IAM condition keys for
     # token.actions.githubusercontent.com, so nothing else is relied on.
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [for repo in var.claim_repos : "repo:${repo}:environment:${var.claim_environment}"]
+      values   = [for repo in var.claim_repos : "repo:${repo}:environment:${var.claim_environment}:job_workflow_ref:*"]
     }
   }
 }

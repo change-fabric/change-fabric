@@ -288,15 +288,15 @@ data "aws_iam_policy_document" "deploy_app_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Both sub shapes, for the same reason site/infra/oidc.tf carries both: this
-    # repo predates 2026-07-15, so it switches to the immutable
-    # owner@ownerId/repo@repoId form on its next rename or transfer.
+    # The repo's subject template is include_claim_keys [repo, context,
+    # job_workflow_ref] with immutable subjects (set for the cf-prod runner's
+    # workflow pin), so sub is the id-pinned repo, the ref, and the workflow
+    # file by name. Matched exactly: only deploy-app-staging.yml on main.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:change-fabric/change-fabric:ref:refs/heads/main",
-        "repo:change-fabric@*/change-fabric@*:ref:refs/heads/main",
+        "repo:change-fabric@311455213/change-fabric@1180238677:ref:refs/heads/main:job_workflow_ref:change-fabric/change-fabric/.github/workflows/deploy-app-staging.yml@refs/heads/main",
       ]
     }
   }
