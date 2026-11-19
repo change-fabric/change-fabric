@@ -129,7 +129,9 @@ module RoastCodex
       schema_path = File.join(tmp, 'schema.json')
       out_path = File.join(tmp, 'last.json')
       File.write(schema_path, JSON.generate(schema))
-      argv = build_argv(model: model, effort: effort, images: images, schema_path: schema_path, out_path: out_path,
+      # The child runs in an empty directory, so a relative path must be
+      # resolved against the caller's directory first.
+      argv = build_argv(model: model, effort: effort, images: images.map { |i| File.expand_path(i) }, schema_path: schema_path, out_path: out_path,
                         dir: work, command: command(env))
       result = runner.call(argv, env: child_env(env), stdin: prompt(system: system, user: user),
                                  timeout: timeout || timeout_for(env), chdir: work)

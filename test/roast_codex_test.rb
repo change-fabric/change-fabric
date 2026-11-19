@@ -69,6 +69,16 @@ class RoastCodexTest < Minitest::Test
     assert_equal "SYS#{RoastCodex::PROMPT_DELIMITER}USER", @seen[:stdin]
   end
 
+  def test_relative_image_paths_are_absolute_in_the_child_argv
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        RoastCodex.call(system: "S", user: "U", images: [ "shot.png" ], model: "m", effort: "low", schema: Roast::SCHEMA,
+                        validate: ->(_) { }, runner: runner_for(result(fixture("exec_ok.jsonl")), answer: fixture("exec_ok_last.json")), env: {})
+        assert_equal File.join(File.realpath(dir), "shot.png"), File.realpath(File.dirname(@seen[:argv][@seen[:argv].index("-i") + 1])) + "/shot.png"
+      end
+    end
+  end
+
   def test_login_status_from_fixtures
     assert_equal [ :ok ], RoastCodex.available?(runner: ->(*, **) { status_result("login_status_chatgpt.txt") }, env: {})
     assert_equal [ :unavailable, :not_logged_in ], RoastCodex.available?(runner: ->(*, **) { status_result("login_status_logged_out.txt") }, env: {})
