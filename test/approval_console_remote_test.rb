@@ -249,6 +249,27 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     assert ChangeOverrideStore.new(SHA).read.dig("proof", "receipt")
   end
 
+  def test_a_non_object_override_record_is_refused
+    path = File.join(@home, ".claude", "cf", "change", "#{SHA}.override")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, "[]")
+    refute gate("remote").overridden?
+    refute gate(nil).overridden?
+  end
+
+  def test_a_refused_step_approval_is_offered_again_and_renewal_replaces_it
+    require_relative "../scripts/change_approve"
+    digest = Canonical.step_digest("run" => "echo hi")
+    store = ChangeApprovalStore.new(SHA)
+    result, = remote_approve(step_attrs)
+    store.record(steps: [ [ "boot.up", digest ] ], by: "t", proof: result.proof.merge("conflict" => "replay"))
+    assert_empty ChangeApprove.standing_approvals(@repo, SHA), "a conflicted approval does not stand"
+
+    store.record(steps: [ [ "boot.up", digest ] ], by: "t", proof: result.proof)
+    assert_equal 1, store.entries.size, "the new proof replaced the refused entry"
+    assert_equal [ [ "boot.up", digest ] ], ChangeApprove.standing_approvals(@repo, SHA)
+  end
+
   def test_malformed_step_proofs_are_refused_not_skipped
     check = ApprovalConsole::ProofCheck.new(level: nil, store: @store)
     [ "not an object", { "kind" => "totp-terminal" } ].each do |proof|

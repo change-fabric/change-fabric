@@ -8,6 +8,8 @@ require_relative 'change_approval_store'
 require_relative 'cf_project_identity'
 require_relative 'approval_console/terminal_prompt'
 require_relative 'approval_console/remote'
+require_relative 'approval_console/proof_check'
+require_relative 'change_policy'
 
 # Human-run approval of host-run step definitions (boot.up, boot.down, command
 # lane entries) that differ from the base branch at one exact commit. cf:change
@@ -128,12 +130,23 @@ module ChangeApprove
   # its unprofiled config), since a profile may override boot and so define a
   # different step. In a monorepo the profiles live in each app's own config.
   def pending_steps(root, sha, base, stderr: $stderr)
-    approvals = ChangeApprovalStore.new(sha).approvals
+    approvals = standing_approvals(root, sha)
     ChangeTrust.profiles_by_app(root, sha).flat_map do |app, profiles|
       profiles.flat_map do |profile|
         pending_for(root, sha, base, app: app, profile: profile, approvals: approvals, stderr: stderr)
       end
     end.uniq { |item| [ item.step, item.digest ] }
+  end
+
+  # The recorded (step, digest) pairs whose proof passes this repo's
+  # require_approval_proof. A refused one is offered for approval again.
+  def standing_approvals(root, sha)
+    level = ChangePolicy.for_repo(root)&.require_approval_proof
+    check = ApprovalConsole::ProofCheck.new(level: level)
+    repo = CfProjectIdentity.for(root).id
+    ChangeApprovalStore.new(sha).entries.group_by { |entry| entry['proof'].is_a?(Hash) ? entry['proof']['body'] : entry.object_id }
+                       .values.select { |group| check.approvals_problem(group, repo: repo, sha: sha).nil? }
+                       .flatten.map { |entry| [ entry['step'].to_s, entry['digest'].to_s.delete_prefix('sha256:') ] }
   end
 
   def pending_for(root, sha, base, app:, profile:, approvals:, stderr:)

@@ -65,7 +65,10 @@ class ChangeGateCheck
     return @override_problem if defined?(@override_problem)
 
     record = ChangeOverrideStore.new(@sha, profile: @profile).read
-    @override_problem = record.is_a?(Hash) ? proof_check.override_problem(record, repo: repo_id, sha: @sha, profile: @profile) : nil
+    @override_problem = if record.nil? then nil
+    elsif record.is_a?(Hash) then proof_check.override_problem(record, repo: repo_id, sha: @sha, profile: @profile)
+    else 'override record is malformed'
+    end
   end
 
   # Missing-proof warnings collected during the compatibility window.

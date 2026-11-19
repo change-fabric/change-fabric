@@ -42,6 +42,9 @@ class ChangeApprovalStore
 
     now = Time.now.utc.iso8601
     existing = Array(read&.fetch('approved', nil))
+    # A new proof supersedes the entries it re-approves, so a refused or
+    # unproven approval can be renewed.
+    existing = existing.reject { |entry| steps.any? { |step, digest| [ entry['step'], normalize(entry['digest']) ] == [ step, normalize(digest) ] } } if proof
     known = existing.map { |entry| [ entry['step'], normalize(entry['digest']) ] }
     added = steps.reject { |step, digest| known.include?([ step, normalize(digest) ]) }.map do |step, digest|
       entry = { 'step' => step, 'digest' => digest, 'at' => now, 'by' => by.to_s }
