@@ -220,3 +220,23 @@ output "bastion_instance_id" {
   description = "Ephemeral bootstrap bastion instance id, or null when provision_bastion is false."
   value       = var.provision_bastion ? aws_instance.bastion[0].id : null
 }
+
+output "app_prod_url" {
+  description = "Production web app URL."
+  value       = "https://${local.app_prod_domain}"
+}
+
+output "app_prod_bucket" {
+  description = "Private S3 bucket holding the production web app. Set as repo variable APP_PROD_BUCKET."
+  value       = aws_s3_bucket.app_prod.bucket
+}
+
+output "app_prod_distribution_id" {
+  description = "CloudFront distribution serving the production web app. Set as repo variable APP_PROD_DISTRIBUTION_ID."
+  value       = aws_cloudfront_distribution.app_prod.id
+}
+
+output "deploy_app_prod_role_arn" {
+  description = "IAM role deploy-app-prod.yml assumes on an app/v* tag. Set as repo variable DEPLOY_APP_PROD_ROLE_ARN."
+  value       = aws_iam_role.deploy_app_prod.arn
+}

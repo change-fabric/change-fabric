@@ -7,15 +7,11 @@ name: deploy-app-prod
 # whole tree at that commit rather than the subset of files the last merge
 # happened to touch.
 #
-# As of this workflow's introduction, app.changefabric.org and the production
-# AWS role it would assume do not exist yet. Provisioning that environment
-# (Terraform apply, the OIDC trust policy, the bucket and distribution, the
+# The production environment (role, bucket, distribution, certificate and DNS)
+# is platform/infra/webapp_prod.tf. Its outputs populate the
 # DEPLOY_APP_PROD_ROLE_ARN / APP_PROD_BUCKET / APP_PROD_DISTRIBUTION_ID repo
-# variables) is a separate, human-led infrastructure task. This workflow wires
-# up the tag namespace and the guard now so both are correct and in place when
-# that infrastructure lands; until then, pushing an app/v* tag will pass the
-# validation step below and then fail at the AWS credentials step for lack of
-# a role to assume.
+# variables. Until those are set, an app/v* tag passes the validation step and
+# then fails at the AWS credentials step.
 
 on:
   push:
@@ -111,4 +107,6 @@ jobs:
         env:
           APP_BUCKET: ${{ vars.APP_PROD_BUCKET }}
           APP_DISTRIBUTION_ID: ${{ vars.APP_PROD_DISTRIBUTION_ID }}
+          # This environment is public: no Basic Auth function to publish.
+          APP_BASIC_AUTH: "off"
         run: ./deploy.sh

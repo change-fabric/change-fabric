@@ -506,6 +506,33 @@ old one is destroyed), which in turn touches every resource that references its
 ARN, the web app distribution, the artifacts distribution, and the API Gateway
 custom domain, all in the same apply.
 
+## The production web app
+
+`webapp_prod.tf` serves the same `platform/web` build at `app.changefabric.org`
+for `deploy-app-prod.yml`, which runs on an `app/v*` tag. It is staging's shape
+minus what staging alone needs: a private bucket (`changefabric-platform-app-prod`,
+versioned, AES256, OAC-only), its own DNS-validated certificate (the staging
+wildcard does not cover `app.`), a CloudFront distribution, one alias record, and
+the role `cf-platform-app-prod-deploy`. There is no Basic Auth function, no
+`/api/*` origin (no production API exists), and so SPA routing uses a
+distribution-wide 403/404 to `/index.html` rewrite, which staging cannot.
+`deploy.sh` skips its Basic Auth step when `APP_BASIC_AUTH=off`, which the
+workflow sets.
+
+The role's trust is `StringEquals` on `aud` and `StringLike` on `sub`
+`repo:change-fabric@311455213/change-fabric@1180238677:ref:refs/tags/app/v*:job_workflow_ref:change-fabric/change-fabric/.github/workflows/deploy-app-prod.yml@refs/tags/app/v*`.
+The workflow declares no `environment:`, so the context is the tag ref; adding
+one would change the sub to `environment:<name>` and break the trust. Its
+permissions are put, delete and list on the prod bucket and one invalidation on
+the prod distribution.
+
+After an apply, set the repo variables from the outputs:
+`DEPLOY_APP_PROD_ROLE_ARN` (`deploy_app_prod_role_arn`), `APP_PROD_BUCKET`
+(`app_prod_bucket`) and `APP_PROD_DISTRIBUTION_ID` (`app_prod_distribution_id`).
+Apply it with `-target` on the `*_prod` resources while the Postgres caveat above
+holds. Expected cost is about $0 to $1 a month: ACM and the OAC are free, and S3
+and CloudFront bill by use.
+
 ## The staging artifacts host
 
 `artifacts.tf` serves published findings runs from
