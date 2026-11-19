@@ -7,3 +7,5 @@ AllCops:
   # .gitignore); never committed, not our code, and not fmt-worthy.
   Exclude:
     - 'telemetry/infra/lambda/*/vendor/**/*'
+    - 'approval_console/infra/build/**/*'
+    - 'approval_console/infra/lambda/vendor/**/*'
