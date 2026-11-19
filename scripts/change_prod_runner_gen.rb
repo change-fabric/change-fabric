@@ -283,14 +283,11 @@ module ChangeProdRunnerGen
 
   def job_id(profile) = "run-#{profile.tr('_', '-')}"
 
-  # The repo segment of an immutable subject: OWNER@OWNER_ID/REPO@REPO_ID, the
-  # sub_claim_prefix that `gh api repos/<o>/<r>/actions/oidc/customization/sub`
-  # reports, without `repo:`. Ids come from --repo-ids.
-  def subject_repo(slug, repo_ids)
-    owner, name = slug.split('/', 2)
-    owner_id, repo_id = (repo_ids || '<owner_id>/<repo_id>').split('/', 2)
-    "#{owner}@#{owner_id}/#{name}@#{repo_id}"
-  end
+  # The repo's sub_claim_prefix, exactly as
+  # `gh api repos/<o>/<r>/actions/oidc/customization/sub` reports it:
+  # repo:<o>@<oid>/<r>@<rid> with immutable subjects, repo:<o>/<r> for a legacy
+  # repo that has not opted in. Taken verbatim so the trust matches either.
+  SUB_PREFIX = %r{\Arepo:[A-Za-z0-9_.-]+(?:@\d+)?/[A-Za-z0-9_.-]+(?:@\d+)?\z}
 
   # True when regenerating from `config` would not reproduce `text`. Whether
   # production was emitted is read from the file's own note, so the check is the
@@ -307,11 +304,11 @@ module ChangeProdRunnerGen
   # deployment rule (default branch only) is the branch pin. There is no
   # workflow-file pin: any default-branch workflow in cf-claim can claim, and
   # the worst case is a consumed approval and a blocked run, which fails safe.
-  def trust_policy(config, repo: nil, repo_ids: nil, blockers: production_blockers)
-    prefix = subject_repo(repo || '<o>/<r>', repo_ids)
+  def trust_policy(config, sub_prefix: nil, blockers: production_blockers)
+    prefix = sub_prefix || '<sub_claim_prefix>'
     claim = ChangeProdClaim.settings(config)
     jobs = environments(runner_config(config), blockers)
-    subject = ->(environment) { "repo:#{prefix}:environment:#{environment}" }
+    subject = ->(environment) { "#{prefix}:environment:#{environment}" }
     entries = [ [ claim[:role], subject.call(CLAIM_ENVIRONMENT) ] ] +
               jobs.map { |_, environment, role| [ role, subject.call(environment) ] }
     entries.map do |role, sub|
@@ -329,7 +326,7 @@ module ChangeProdRunnerGen
       o.on('--config PATH') { |v| opts[:config] = v }
       o.on('--root PATH') { |v| opts[:root] = v }
       o.on('--repo OWNER/NAME') { |v| opts[:repo] = v }
-      o.on('--repo-ids OWNER_ID/REPO_ID', %r{\A\d+/\d+\z}) { |v| opts[:repo_ids] = v }
+      o.on('--sub-prefix PREFIX', SUB_PREFIX) { |v| opts[:sub_prefix] = v }
       o.on('--check') { opts[:check] = true }
     end.parse!(argv)
     return check(opts, stdout, stderr) if opts[:check]
@@ -342,13 +339,13 @@ module ChangeProdRunnerGen
     stdout.puts "wrote #{path}"
     vendor(opts[:root]).each { |file| stdout.puts "wrote #{file}" }
     stdout.puts "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment with deployment branch = default only, no reviewers"
-    unless opts[:repo_ids]
-      stdout.puts "repo ids for the trust subject: gh api repos/#{opts[:repo] || '<o>/<r>'}/actions/oidc/customization/sub " \
-                  '(sub_claim_prefix is repo:<o>@<oid>/<r>@<rid>)'
+    unless opts[:sub_prefix]
+      stdout.puts "sub prefix for the trust subject (pass as --sub-prefix): gh api repos/#{opts[:repo] || '<o>/<r>'}" \
+                  "/actions/oidc/customization/sub --jq .sub_claim_prefix"
     end
     stdout.puts "accepted limit: any default-branch workflow that runs in #{CLAIM_ENVIRONMENT} can claim; " \
                 'the worst case is a blocked prod run, which fails safe'
-    trust_policy(config, repo: opts[:repo], repo_ids: opts[:repo_ids]).each { |line| stdout.puts line }
+    trust_policy(config, sub_prefix: opts[:sub_prefix]).each { |line| stdout.puts line }
     0
   rescue Refused, ChangeProdEnvelope::Invalid, OptionParser::ParseError, KeyError => e
     stderr.puts "[cf-prod] refused: #{e.message}"
