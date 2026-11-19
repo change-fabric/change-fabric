@@ -93,18 +93,10 @@ Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb
 
 Agents start approvals (`--remote`, `request`; `record <id>` resumes); only a
 phone passkey receipt stands, since the TOTP seed and machine key sit on the
-agent's host. `ApprovalConsole::Recorder` alone writes the four stores.
+agent's host. `ApprovalConsole::Recorder` alone writes the four stores. The
+phone shows only signed fields: links, files, base, tag and commit, never agent text.
 
-Enforcer: scripts/approval_console/proof_check.rb, scripts/approval_console/recorder.rb, scripts/secrets_read_guard.rb
-
-## The phone shows only signed fields
-
-Every field on the approval page is part of the body the passkey signs. The
-GitHub links, file list, base, tag and commit come from signed fields and a
-constant host, never from agent text. A `carve-out` request takes its sha from
-the PR head and its files from GitHub, failing closed on 3000 or more files.
-
-Enforcer: approval_console/infra/lambda/pages.rb, test/approval_console_lambda_test.rb
+Enforcer: scripts/approval_console/proof_check.rb, scripts/approval_console/recorder.rb, scripts/secrets_read_guard.rb, approval_console/infra/lambda/pages.rb, test/approval_console_lambda_test.rb
 
 ## Approval policy comes from the base or default branch
 
