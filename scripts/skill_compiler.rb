@@ -1,20 +1,33 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require 'json'
 require_relative 'skill_registry'
+require_relative 'model_roles'
+require_relative 'review_prompt'
 
 # Host syntax is a rendering concern. Workflow tokens are explicit; legacy
 # slash references remain supported while older workflow prose is migrated.
 class SkillCompiler
   HOSTS = %w[claude codex copilot opencode pi].freeze
   REFERENCE = /\{\{skill:([a-z][a-z0-9-]*)\}\}/
+  MODEL_PROSE = /\{\{model:([a-z]+)\}\}/
+  MODEL_JS_TOKEN = /\{\{model-js:/
+  MODEL_JS_PROPERTY = /model:[ \t]*\{\{model-js:([a-z]+)\}\}/
+  # Hosts with an Agent tool that takes a model argument.
+  AGENT_HOSTS = %w[claude].freeze
+  REVIEWER_FALLBACK = 'Use the host-native reviewer or review the files directly when delegation is unavailable'
   LEGACY_REFERENCE = %r{(?<![\w./-])/cf(?::([a-z][a-z0-9-]*))?(?![\w/:-])}
 
-  def initialize(host:, workflows: File.expand_path('../workflows/modes', __dir__))
+  # roles is the resolved {role => model} table for this host. Install passes
+  # the table it is about to snapshot; runtime callers omit it and read the
+  # installed snapshot (else the repo map). nil means the host has no entry.
+  def initialize(host:, workflows: File.expand_path('../workflows/modes', __dir__), roles: :installed)
     raise ArgumentError, "unknown host: #{host}" unless HOSTS.include?(host)
 
     @host = host
     @workflows = workflows
+    @roles = roles
   end
 
   def invocation(id)
@@ -28,8 +41,49 @@ class SkillCompiler
   end
 
   def references(text)
-    text.gsub(REFERENCE) { invocation(Regexp.last_match(1)) }
-        .gsub(LEGACY_REFERENCE) { invocation(Regexp.last_match(1) || 'cf') }
+    render_model_prose(text).gsub(REFERENCE) { invocation(Regexp.last_match(1)) }
+                            .gsub(LEGACY_REFERENCE) { invocation(Regexp.last_match(1) || 'cf') }
+  end
+
+  # {{model:<role>}} in prose: the model name, or a host-neutral phrase when the
+  # host has no entry in the role map.
+  def render_model_prose(text)
+    text.gsub(MODEL_PROSE) do
+      role = Regexp.last_match(1)
+      ModelRoles.check_role!(role)
+      model_for(role) || "the host's #{role}-tier model"
+    end
+  end
+
+  # Only the property form `model: {{model-js:<role>}}` in .js files. With a
+  # model it emits JSON-encoded output; without one it deletes the whole
+  # property (and one adjacent comma) so the agent inherits. Any other use of
+  # the token, or a prose token in JS, raises.
+  def render_model_js(text)
+    raise ArgumentError, 'a {{model:<role>}} prose token does not belong in a .js file; use model: {{model-js:<role>}}' if text.match?(MODEL_PROSE)
+
+    out = +''
+    rest = text
+    while (match = MODEL_JS_PROPERTY.match(rest))
+      role = match[1]
+      ModelRoles.check_role!(role)
+      emitted, rest = js_property(rest[0...match.begin(0)], rest[match.end(0)..], role)
+      out << emitted
+    end
+    out << rest
+    raise ArgumentError, 'misplaced {{model-js:<role>}} token; it is valid only as `model: {{model-js:<role>}}`' if out.match?(MODEL_JS_TOKEN)
+
+    out
+  end
+
+  # The whole REVIEWER Agent expression, role-keyed per host. Hosts with an
+  # Agent tool and a model for the role get the full expression; every other
+  # host gets one fallback sentence, never a partial expression.
+  def rewrite_reviewer(text, role: 'classifier')
+    ModelRoles.check_role!(role)
+    model = AGENT_HOSTS.include?(@host) ? model_for(role) : nil
+    replacement = model ? %(Agent(subagent_type: "general-purpose", model: #{JSON.generate(model)})) : REVIEWER_FALLBACK
+    text.gsub(ReviewPrompt::REVIEWER) { replacement }
   end
 
   def compile(source)
@@ -50,6 +104,29 @@ class SkillCompiler
   end
 
   private
+
+  def model_for(role)
+    roles = @roles == :installed ? ModelRoles.installed_or_repo_roles(@host) : @roles
+    roles&.[](role)
+  end
+
+  # Returns [text to emit for the span before and including the property, the
+  # tail still to scan].
+  def js_property(before, after, role)
+    model = model_for(role)
+    return [ "#{before}model: #{JSON.generate(model)}", after ] unless model.nil?
+
+    if (comma = after.match(/\A[ \t]*,/))
+      after = after[comma.end(0)..]
+      if before.match?(/(\A|\n)[ \t]*\z/) && after.match?(/\A[ \t]*\n/)
+        [ before.sub(/[ \t]*\z/, ''), after.sub(/\A[ \t]*\n/, '') ]
+      else
+        [ before, after.sub(/\A[ \t]+/, '') ]
+      end
+    else
+      [ before.sub(/,[ \t\n]*\z/, ''), after ]
+    end
+  end
 
   def portable(name) = name.downcase.gsub(/[^a-z0-9]+/, '-').sub(/-\z/, '')
 

@@ -5,6 +5,7 @@ require "tmpdir"
 require "fileutils"
 require "stringio"
 require_relative "../scripts/cf_doctor"
+require_relative "../scripts/model_roles"
 require_relative "../scripts/cf_install_manifest"
 require_relative "../scripts/cf_cli"
 require_relative "../install"
@@ -49,6 +50,41 @@ class CfDoctorTest < Minitest::Test
       report = CfDoctor.new(home: @home).report(host: "codex", version: "0.166.0", probe: false, project: project)
       assert_nil report["change_md"]
     end
+  end
+
+  def drift_report(env)
+    CfDoctor.new(home: @home, env: env).report(host: "claude", version: "2.1.0", probe: false)
+  end
+
+  def install_snapshot
+    root = CfState.root(home: @home)
+    ModelRoles.write_snapshot(host: "claude", path: ModelRoles.default_snapshot_path(root),
+                              roles: ModelRoles.table(host: "claude", env: {}, user_file: nil), sources: {})
+    root
+  end
+
+  def test_doctor_is_silent_about_model_roles_without_drift
+    install_snapshot
+    report = drift_report({})
+    assert_empty report.dig("model_roles", "drift")
+    refute(report["next_steps"].any? { |step| step.include?("model roles") })
+  end
+
+  def test_doctor_names_each_drifted_role_and_says_to_rerun_install
+    install_snapshot
+    report = drift_report("CF_MODEL_WORKER" => "opus", "CF_MODEL_CRITIC" => "haiku")
+    line = report["next_steps"].find { |step| step.include?("model roles") }
+    assert line, "doctor prints a drift line"
+    assert_includes line, "worker sonnet -> opus"
+    assert_includes line, "critic opus -> haiku"
+    assert_includes line, "re-run ruby install.rb"
+    assert_equal %w[worker critic].sort, report.dig("model_roles", "drift").keys.sort
+  end
+
+  def test_doctor_reports_user_file_drift
+    root = install_snapshot
+    File.write(ModelRoles.default_user_file(root), YAML.dump("hosts" => { "claude" => { "author" => "sonnet" } }))
+    assert_equal [ "author" ], drift_report({}).dig("model_roles", "drift").keys
   end
 
   def test_manifest_preserves_modified_files_foreign_files_and_state

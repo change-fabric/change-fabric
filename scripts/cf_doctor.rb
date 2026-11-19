@@ -9,12 +9,13 @@ require_relative 'host_capabilities'
 require_relative 'cf_state'
 require_relative 'skill_compiler'
 require_relative 'change_apps'
+require_relative 'model_roles'
 
 # Read-only installation diagnostics. File presence is never called discovery,
 # and configured hooks are never called trusted or active without host evidence.
 class CfDoctor
-  def initialize(home: Dir.home, registry: HostCapabilities.new, xdg_config: ENV.fetch('XDG_CONFIG_HOME', nil))
-    @home, @registry = home, registry
+  def initialize(home: Dir.home, registry: HostCapabilities.new, xdg_config: ENV.fetch('XDG_CONFIG_HOME', nil), env: ENV)
+    @home, @registry, @env = home, registry, env
     # Same fallback as Install::Paths, so doctor looks where install wrote.
     @opencode_root = File.join(xdg_config.to_s.empty? ? File.join(home, '.config') : xdg_config, 'opencode')
   end
@@ -38,6 +39,8 @@ class CfDoctor
     advice = []
     advice << 'Host binary was not detected; installed files do not prove it is available.' unless binary_version
     advice << 'Run ruby install.rb from the toolkit checkout.' if files.empty? || !File.file?(runtime) || !configured
+    drift = model_role_drift(host)
+    advice << ModelRoles.drift_message(drift) unless drift.empty?
     advice << 'Use $cf-roast or /skills; /cf:roast is not a registered Codex command.' if host == 'codex'
     advice << 'Review /hooks and host feature settings. Configured does not mean trusted or active.' if host == 'codex' && configured
     advice << 'This version/surface has no verified adapter claim; run its contract and live smoke checks.' unless profile['version_status'] == 'tested'
@@ -48,10 +51,18 @@ class CfDoctor
       'state_root' => CfState.root(home: @home), 'ruby' => RUBY_VERSION,
       'dependencies' => { 'ruby_supported' => Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('3.2'),
                           'git_present' => executable?('git'), 'node_present' => executable?('node') },
-      'capabilities' => profile, 'change_md' => change_md(project), 'next_steps' => advice }
+      'model_roles' => { 'drift' => drift }, 'capabilities' => profile, 'change_md' => change_md(project), 'next_steps' => advice }
   end
 
   private
+
+  # Roles whose live resolution (env, user file, repo map) no longer matches the
+  # installed snapshot; the fix is always to re-run install.rb.
+  def model_role_drift(host)
+    root = CfState.root(home: @home)
+    ModelRoles.drift(host: host, env: @env, user_file: ModelRoles.default_user_file(root),
+                     path: ModelRoles.default_snapshot_path(root))
+  end
 
   # The project CHANGE.md, validated by the same check as `change_config.rb
   # doctor` (config, policy, and testcase suites). nil when there is none.

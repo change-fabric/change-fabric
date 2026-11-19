@@ -71,8 +71,7 @@ class CfHostHook
     contexts.concat(@rubrics)
     review = review_result
     if review['decision'] == 'block'
-      review['reason'] = @compiler.references(review['reason']).sub(ReviewPrompt::REVIEWER,
-        'Use the host-native reviewer or review the files directly when delegation is unavailable')
+      review['reason'] = @compiler.references(@compiler.rewrite_reviewer(review['reason']))
       return review
     end
 
@@ -257,7 +256,7 @@ class CfHostHook
   def review_result
     return {} unless @event == 'Stop' && @host != 'claude'
 
-    capture(SkillReview.new(legacy_event, skills: @skills))
+    capture(SkillReview.new(legacy_event, skills: @skills, rewrite: false))
   end
 
   def output(result, context)

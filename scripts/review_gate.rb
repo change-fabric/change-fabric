@@ -7,6 +7,7 @@ require_relative 'skill_registry'
 require_relative 'review_queue'
 require_relative 'review_key'
 require_relative 'review_prompt'
+require_relative 'skill_compiler'
 require_relative 'review_scope'
 require_relative 'guarded_command'
 
@@ -67,7 +68,7 @@ class ReviewGate
     return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?(pending)
 
     queue.bump_round(pending)
-    deny(ReviewPrompt.build(pending, registry, keys))
+    deny(SkillCompiler.new(host: 'claude').rewrite_reviewer(ReviewPrompt.build(pending, registry, keys)))
   end
 
   def deny(reason)
