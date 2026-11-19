@@ -59,6 +59,8 @@ class ChangeTagGuard
     return nil if refs.empty?
 
     source = policy_source(root)
+    return ambiguous_violation(root) if source == :ambiguous
+
     trunk = source && default_branch(source)
     policy = trunk ? base_policy(source, trunk) : :unreadable
     return unreadable_violation(root, trunk) if policy == :unreadable
@@ -92,11 +94,30 @@ class ChangeTagGuard
     toks = GuardedCommand.tokens(command)
     idx = toks.index { |t| %w[-R --repo].include?(t) }
     value = idx ? toks[idx + 1] : toks.find { |t| t.start_with?('--repo=') }&.delete_prefix('--repo=')
-    return ChangePolicy::Source.for_destination(root, nil) unless value
+    return default_release_source(root) unless value
 
     parts = value.sub(%r{\Ahttps?://}, '').split('/')
     parts.unshift('github.com') if parts.size == 2
     parts.size == 3 ? ChangePolicy::Source.for_identity(root, parts.map(&:downcase)) : nil
+  end
+
+  # Without --repo, gh releases to its own default repository. When
+  # `gh repo set-default` names a remote other than the push remote, the
+  # destination is ambiguous: :ambiguous, so a governed repo denies and asks
+  # for --repo rather than guess (full gh default resolution is follow-up work).
+  def default_release_source(root)
+    gh_remote = ChangePolicy::Source.gh_default_remote(root)
+    return :ambiguous if gh_remote && gh_remote != ChangePolicy::Source.default_push_remote(root)
+
+    ChangePolicy::Source.for_destination(root, nil)
+  end
+
+  def ambiguous_violation(root)
+    return nil unless File.exist?(File.join(root, 'CHANGE.md'))
+
+    "publishing this release is gated: `gh release create` has no --repo and `gh repo set-default` names a " \
+      "different remote than the push remote, so the destination repository is ambiguous. Pass --repo OWNER/REPO. " \
+      "#{ChangeGateCheck.escape_note}"
   end
 
   # The gating policy as CHANGE.md stands on the destination repository's

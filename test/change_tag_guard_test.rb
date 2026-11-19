@@ -46,7 +46,7 @@ class ChangeTagGuardTest < Minitest::Test
 
     @origin = Dir.mktmpdir
     @repo = Dir.mktmpdir
-    GitFixture.git_init(@origin, "--bare")
+    GitFixture.git_init(@origin, "--bare", "-b", "main")
     GitFixture.git_init(@repo, "-b", "main")
     git("config", "user.email", "test@example.com")
     git("config", "user.name", "Test")
@@ -324,5 +324,29 @@ class ChangeTagGuardTest < Minitest::Test
     guard = ChangeTagGuard.new({})
     source = ChangePolicy::Source.for_destination(@repo, "origin")
     assert_equal :unreadable, guard.send(:base_policy, source, "main")
+  end
+  def test_a_remote_with_a_separate_pushurl_resolves_to_the_push_repository
+    push = Dir.mktmpdir
+    GitFixture.git_init(push, "--bare", "-b", "main")
+    git("remote", "set-url", "--push", "origin", push)
+    source = ChangePolicy::Source.for_destination(@repo, "origin")
+    assert_equal push, source.remote
+  ensure
+    FileUtils.remove_entry(push)
+  end
+
+  def test_release_without_repo_is_denied_when_gh_default_differs_from_push_remote
+    write_change_md(BASIC_POLICY)
+    git("remote", "add", "upstream", @origin)
+    git("config", "remote.upstream.gh-resolved", "base")
+
+    assert_equal "deny", stubbed_decision("gh release create staging/v1.0.0", base_policy: nil)
+  end
+
+  def test_release_without_repo_follows_the_push_remote_when_gh_default_matches
+    write_change_md(BASIC_POLICY)
+    git("config", "remote.origin.gh-resolved", "base")
+
+    assert_nil stubbed_decision("gh release create staging/v1.0.0", base_policy: nil)
   end
 end

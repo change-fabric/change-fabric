@@ -424,13 +424,25 @@ class ChangePolicy
     def self.for_destination(root, destination)
       configured = remotes(root)
       name = destination || default_push_remote(root)
-      return new(root, name, parse_url(configured[name])) if configured.key?(name)
+      return push_source(root, name, configured[name]) if configured.key?(name)
       return nil if destination.nil?
 
       identity = parse_url(destination)
       return new(root, destination, identity) if identity || File.directory?(File.expand_path(destination, root))
 
       nil
+    end
+
+    # A remote publishes to its push URL (`git remote get-url --push`), which
+    # differs from its fetch URL when a pushurl is set. Keep the remote name
+    # (and its fetch identity) when they agree; otherwise read the policy from
+    # the push repository, identified by the pushurl as written.
+    def self.push_source(root, name, url)
+      push = git(root, 'remote', 'get-url', '--push', name)
+      return new(root, name, parse_url(url)) if push.nil? || push == git(root, 'remote', 'get-url', name)
+
+      written = git(root, 'config', '--get', "remote.#{name}.pushurl") || push
+      new(root, written, parse_url(written))
     end
 
     # for_destination, raising Unreadable instead of returning nil.
@@ -444,6 +456,13 @@ class ChangePolicy
       keys = branch ? [ "branch.#{branch}.pushRemote", 'remote.pushDefault', "branch.#{branch}.remote" ] : []
       keys << 'remote.pushDefault' if keys.empty?
       keys.lazy.filter_map { |key| git(root, 'config', '--get', key) }.first || 'origin'
+    end
+
+    # The remote name `gh repo set-default` chose (remote.<name>.gh-resolved),
+    # or nil when no gh default is configured.
+    def self.gh_default_remote(root)
+      out = git(root, 'config', '--get-regexp', '^remote\\..*\\.gh-resolved$') or return nil
+      out.lines.first.split(' ', 2).first.delete_prefix('remote.').delete_suffix('.gh-resolved')
     end
 
     # { name => url } for every configured remote, as written in the config
