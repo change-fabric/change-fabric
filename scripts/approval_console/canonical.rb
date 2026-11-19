@@ -43,6 +43,9 @@ module ApprovalConsole
 
     def serialize(value) = JSON.generate(sort(value))
 
+    # True when the bytes are valid UTF-8, the only encoding a body may use.
+    def utf8?(string) = string.is_a?(String) && string.dup.force_encoding(Encoding::UTF_8).valid_encoding?
+
     def challenge(body) = Digest::SHA256.digest(body.to_s.b)
 
     def body_sha256(body) = Digest::SHA256.hexdigest(body.to_s.b)
@@ -77,6 +80,8 @@ module ApprovalConsole
     # Parses a canonical body string. Raises Invalid for malformed JSON, a
     # non-canonical rendering, or a body that fails `validate`.
     def parse(string)
+      raise Invalid, 'body is not valid UTF-8' unless Canonical.utf8?(string)
+
       body = JSON.parse(string.to_s)
       raise Invalid, 'body is not a JSON object' unless body.is_a?(Hash)
       raise Invalid, 'body is not in canonical form' unless serialize(body) == string
@@ -85,7 +90,7 @@ module ApprovalConsole
       raise Invalid, errors.join('; ') unless errors.empty?
 
       body
-    rescue JSON::ParserError => e
+    rescue JSON::ParserError, JSON::GeneratorError => e
       raise Invalid, "body is not valid JSON: #{e.message}"
     end
 

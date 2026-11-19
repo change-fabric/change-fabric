@@ -223,11 +223,13 @@ module ApprovalConsole
     end
 
     def parse_payload(string)
+      raise Reject, 'receipt payload is not valid UTF-8' unless Canonical.utf8?(string)
+
       payload = JSON.parse(string)
       raise Reject, 'receipt payload is not canonical JSON' unless payload.is_a?(Hash) && Canonical.serialize(payload) == string
 
       payload
-    rescue JSON::ParserError
+    rescue JSON::ParserError, JSON::GeneratorError
       raise Reject, 'receipt payload is not valid JSON'
     end
 

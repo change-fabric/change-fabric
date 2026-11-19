@@ -368,4 +368,10 @@ class ApprovalConsoleVerifierTest < Minitest::Test
     odd = Verifier.new(rp_id: RP_ID, credentials: { @passkey.credential_id => 7 })
     assert_rejected odd.verify(proof, expected: expected), /pinned key/
   end
+
+  def test_rejects_a_body_with_invalid_utf8_instead_of_raising
+    signed = proof
+    signed["body"] = "{\"repo\":\"\xff\"}".b
+    assert_rejected verifier.verify(signed, expected: expected), /UTF-8|JSON/
+  end
 end

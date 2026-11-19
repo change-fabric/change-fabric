@@ -95,4 +95,17 @@ class ApprovalConsoleCanonicalTest < Minitest::Test
     assert_raises(Canonical::Invalid) { Canonical.build(step_attrs(extra: 1)) }
     assert_raises(Canonical::Invalid) { Canonical.build(step_attrs(reason: "also")) }
   end
+
+  def test_parse_refuses_invalid_utf8_instead_of_raising
+    [ "{\"repo\":\"\xff\"}".b, "{\"repo\":\"\xc3\"}".b, "\xff".b ].each do |raw|
+      error = assert_raises(Canonical::Invalid) { Canonical.parse(raw) }
+      assert_match(/UTF-8|JSON/, error.message)
+    end
+  end
+
+  def test_utf8_predicate
+    assert Canonical.utf8?("caf\u00e9")
+    refute Canonical.utf8?("\xff".b)
+    refute Canonical.utf8?(nil)
+  end
 end
