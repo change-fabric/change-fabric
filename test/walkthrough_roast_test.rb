@@ -197,6 +197,22 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  def test_fidelity_gate_records_a_p1_before_the_loop_stops
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P1") ], score: 7)
+      refute WalkthroughRoast.fidelity_verdict(dir)[:stop]
+      assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.fidelity_gate!(dir) }
+    end
+  end
+
+  def test_fidelity_followups_skip_a_rebutted_p1
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P1") ], [ { "verdict" => "rebut", "screen" => "s", "problem" => "foreign type scale" } ], score: 8)
+      assert_empty WalkthroughRoast.fidelity_verdict(dir)[:followups]
+      assert_nil WalkthroughRoast.fidelity_gate!(dir)
+    end
+  end
+
   def test_fidelity_gate_refuses_on_an_open_p0
     Dir.mktmpdir do |dir|
       round(dir, 1, [ fidelity_issue("P0") ], score: 9)

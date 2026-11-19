@@ -392,10 +392,20 @@ module WalkthroughRoast
     return { stop: false, reason: 'no fidelity round yet', blocking: false, followups: [] } if history.empty?
 
     verdict = Roast.decide(history, target: target, cap: rounds)
-    unless verdict[:followups].empty?
-      RoastFollowups.upsert(File.join(dir, "round-#{history.last[:round]}.response.json"), verdict[:followups])
-    end
+    verdict[:followups] = record_fidelity_followups(dir, history) if verdict[:stop] && !verdict[:blocking]
     verdict
+  end
+
+  # The latest round's open (not rebutted) P1s, recorded as pending follow-ups
+  # in its response file; a rerun keeps outcomes already recorded. The gate
+  # records them even before the loop stops, so a P1 never slips past --final.
+  def record_fidelity_followups(dir, history)
+    last = history.last
+    open_p1 = open_blockers([ last ], priorities: %w[P1])
+    rebutted = last[:critic]['issues'].select { |i| i['priority'] == 'P1' && open_p1.none? { |o| o.equal?(i) } }
+    entries = RoastFollowups.from_critic(last[:round], last[:critic], skip: rebutted)
+    RoastFollowups.upsert(File.join(dir, "round-#{last[:round]}.response.json"), entries) unless entries.empty?
+    entries
   end
 
   def record_signoff(dir, verdict)
@@ -424,7 +434,7 @@ module WalkthroughRoast
     end
     blockers = open_blockers(history, priorities: %w[P0])
     raise_open_blockers(blockers, label: 'fidelity', flag: '--allow-fidelity-findings') unless blockers.empty?
-    fidelity_verdict(dir)
+    record_fidelity_followups(dir, history)
     unsettled = RoastFollowups.followups(File.join(dir, "round-#{history.last[:round]}.response.json"))
                               .select { |f| RoastFollowups::UNSETTLED.include?(f['outcome']) }
     return if unsettled.empty?

@@ -33,10 +33,11 @@ module RoastFollowups
       'fix' => issue['fix'], **blank }
   end
 
-  # One pending entry per P1 issue of a round's critic json.
-  def from_critic(round, critic)
+  # One pending entry per P1 issue of a round's critic json, except the issues
+  # in `skip` (compared by identity), such as ones the response rebutted.
+  def from_critic(round, critic, skip: [])
     Array(critic['issues']).each_with_index.filter_map do |issue, i|
-      entry_for(round, i, issue) if issue['priority'] == 'P1'
+      entry_for(round, i, issue) if issue['priority'] == 'P1' && skip.none? { |s| s.equal?(issue) }
     end
   end
 
