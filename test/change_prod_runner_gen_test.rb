@@ -170,12 +170,16 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert Gen.tampered?("name: cf-prod\n")
   end
 
-  def test_cli_writes_the_file_prints_the_oidc_command_and_checks_it
+  def test_cli_writes_the_file_prints_the_template_prerequisite_and_checks_it
     Dir.mktmpdir do |root|
       out = StringIO.new
       assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out)
-      assert_includes out.string, "repos/acme/app/actions/oidc/customization/sub -F use_default=false"
-      assert_includes out.string, "include_claim_keys[]=job_workflow_ref"
+      refute_includes out.string, "-F use_default=true"
+      assert_includes out.string, "accepted limit: any default-branch workflow that runs in cf-claim can claim"
+      assert_includes out.string, "gh api -X PUT repos/acme/app/actions/oidc/customization/sub -F use_default=false " \
+                                  "-F use_immutable_subject=true -f 'include_claim_keys[]=repo' " \
+                                  "-f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
+      assert_includes out.string, "gh api repos/acme/app/actions/oidc/customization/sub --jq .sub_claim_prefix"
       assert_equal 0, Gen.run([ "--check", "--root", root ], stdout: StringIO.new)
       path = File.join(root, Gen::WORKFLOW)
       File.write(path, File.read(path).sub("ubuntu-24.04", "ubuntu-latest"))
@@ -263,20 +267,56 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert Gen.drifted?(text, cfg.merge("change_config" => cfg["change_config"].merge("runners" => { "prod" => runner(cfg).merge("region" => "us-west-2") })))
   end
 
-  def test_prints_the_aws_trust_conditions_next_to_the_oidc_command
+  def test_prints_the_aws_trust_conditions
     out = StringIO.new
     Dir.mktmpdir do |root|
-      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app", "--default-branch", "trunk" ], stdout: out)
+      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app", "--sub-prefix", "repo:acme@11/app@22" ], stdout: out)
     end
     lines = out.string.lines.grep(/trust condition/)
     assert_equal 2, lines.size
-    claim = lines.find { |line| line.include?("cf-prod-claim") }
-    assert_includes claim, "repo:acme/app:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
-    staging = lines.find { |line| line.include?("cf-staging") }
-    assert_includes staging, "repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
-    assert_includes staging, '"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"'
-    assert_includes staging, "StringEquals"
+    claim = JSON.parse(lines.find { |line| line.include?("cf-prod-claim") }[/\{.*\}/])["Condition"]
+    assert_equal({ "token.actions.githubusercontent.com:sub" => "repo:acme@11/app@22:environment:cf-claim:job_workflow_ref:*" },
+                 claim["StringLike"])
+    refute claim["StringEquals"].key?("token.actions.githubusercontent.com:sub")
+    staging = JSON.parse(lines.find { |line| line.include?("cf-staging") }[/\{.*\}/])["Condition"]
+    assert_nil staging["StringLike"]
+    assert_equal({ "token.actions.githubusercontent.com:aud" => "sts.amazonaws.com",
+                   "token.actions.githubusercontent.com:sub" =>
+                     "repo:acme@11/app@22:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/main" },
+                 staging["StringEquals"])
     refute_includes out.string, "role/cf-prod\""
+    refute_includes out.string, "sub prefix for the trust subject"
+    assert_includes out.string, "-F use_immutable_subject=true"
+  end
+
+  def test_change_fabric_claim_subject_matches_its_immutable_sub
+    out = StringIO.new
+    Dir.mktmpdir do |root|
+      args = [ "--config", FIXTURE, "--root", root, "--repo", "change-fabric/change-fabric", "--sub-prefix", "repo:change-fabric@311455213/change-fabric@1180238677" ]
+      assert_equal 0, Gen.run(args, stdout: out)
+    end
+    sub = "repo:change-fabric@311455213/change-fabric@1180238677:environment:cf-claim:job_workflow_ref:*"
+    assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, "\"#{sub}\""
+  end
+
+  def test_legacy_name_only_prefix_is_taken_verbatim_and_default_branch_is_pinned
+    out = StringIO.new
+    Dir.mktmpdir do |root|
+      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--sub-prefix", "repo:acme/app", "--default-branch", "trunk" ], stdout: out)
+    end
+    assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, "\"repo:acme/app:environment:cf-claim:job_workflow_ref:*\""
+    assert_includes out.string, "-F use_immutable_subject=false"
+    refute_includes out.string, "-F use_immutable_subject=true"
+    assert_includes out.string.lines.find { |line| line.include?("cf-staging") },
+                    "\"repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk\""
+  end
+
+  def test_sub_prefix_must_be_a_repo_prefix
+    err = StringIO.new
+    Dir.mktmpdir do |root|
+      assert_equal 1, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app", "--sub-prefix", "repo:acme@*/app@*" ], stdout: StringIO.new, stderr: err)
+    end
+    assert_match(/refused/, err.string)
   end
 
   def test_claim_job_runs_in_the_dedicated_cf_claim_environment
@@ -284,7 +324,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert_equal "cf-claim", claim["environment"]
     out = StringIO.new
     Dir.mktmpdir { |root| Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out) }
-    sub = "repo:acme/app:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/main"
+    sub = "\"<sub_claim_prefix>:environment:cf-claim:job_workflow_ref:*\""
     assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, sub
     assert_match(/create a cf-claim environment with deployment branch = default only, no reviewers/, out.string)
     reserved = config

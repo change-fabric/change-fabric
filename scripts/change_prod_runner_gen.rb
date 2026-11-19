@@ -283,10 +283,11 @@ module ChangeProdRunnerGen
 
   def job_id(profile) = "run-#{profile.tr('_', '-')}"
 
-  def oidc_command(repo)
-    "gh api -X PUT repos/#{repo || '<o>/<r>'}/actions/oidc/customization/sub -F use_default=false " \
-      "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
-  end
+  # The repo's sub_claim_prefix, exactly as
+  # `gh api repos/<o>/<r>/actions/oidc/customization/sub` reports it:
+  # repo:<o>@<oid>/<r>@<rid> with immutable subjects, repo:<o>/<r> for a legacy
+  # repo that has not opted in. Taken verbatim so the trust matches either.
+  SUB_PREFIX = %r{\Arepo:[A-Za-z0-9_.-]+(?:@\d+)?/[A-Za-z0-9_.-]+(?:@\d+)?\z}
 
   # True when regenerating from `config` would not reproduce `text`. Whether
   # production was emitted is read from the file's own note, so the check is the
@@ -296,26 +297,38 @@ module ChangeProdRunnerGen
     generate(config, blockers: blockers) != text
   end
 
-  # The AWS trust conditions the roles need. The sub is matched exactly, so it
-  # pins the repo, the GitHub Environment, the workflow file and the default
-  # branch; aud must be sts.amazonaws.com. They follow the one-time OIDC
-  # customization (repo, context, job_workflow_ref). The claim role trusts the
-  # one `cf-claim` subject; each credential role trusts its own Environment.
-  def trust_policy(config, repo: nil, default_branch: 'main', blockers: production_blockers)
-    slug = repo || '<o>/<r>'
-    job_workflow_ref = "#{slug}/#{WORKFLOW}@refs/heads/#{default_branch}"
+  # The AWS trust conditions the roles need. IAM conditions only on aud and sub,
+  # so the workflow pin rides inside sub: the repo's subject template is
+  # include_claim_keys [repo, context, job_workflow_ref], rendered by GitHub as
+  # <sub_claim_prefix>:environment:<env>:job_workflow_ref:<o>/<r>/<path>@<ref>
+  # (ids only in the repo segment; job_workflow_ref uses names). A credential
+  # role pins its Environment and cf-prod.yml on the default branch, so no other
+  # workflow naming the Environment can assume it and skip ChangeProdGate. The
+  # claim role pins only cf-claim and takes any workflow there (StringLike on the
+  # job_workflow_ref part): a stray claim consumes an approval, which fails safe.
+  def trust_policy(config, sub_prefix: nil, default_branch: 'main', blockers: production_blockers)
+    prefix = sub_prefix || '<sub_claim_prefix>'
     claim = ChangeProdClaim.settings(config)
     jobs = environments(runner_config(config), blockers)
-    subject = ->(environment) { "repo:#{slug}:environment:#{environment}:job_workflow_ref:#{job_workflow_ref}" }
-    entries = [ [ claim[:role], subject.call(CLAIM_ENVIRONMENT) ] ] +
-              jobs.map { |_, environment, role| [ role, subject.call(environment) ] }
-    entries.map do |role, sub|
-      condition = { 'StringEquals' => { 'token.actions.githubusercontent.com:aud' => 'sts.amazonaws.com',
-                                        'token.actions.githubusercontent.com:sub' => sub } }
+    pinned = "#{workflow_owner_repo(sub_prefix)}/#{WORKFLOW}@refs/heads/#{default_branch}"
+    subject = ->(env, workflow) { "#{prefix}:environment:#{env}:job_workflow_ref:#{workflow}" }
+    entries = [ [ claim[:role], 'StringLike', subject.call(CLAIM_ENVIRONMENT, '*') ] ] +
+              jobs.map { |_, env, role| [ role, 'StringEquals', subject.call(env, pinned) ] }
+    entries.map do |role, test, sub|
+      condition = { 'StringEquals' => { 'token.actions.githubusercontent.com:aud' => 'sts.amazonaws.com' } }
+      condition[test] = (condition[test] || {}).merge('token.actions.githubusercontent.com:sub' => sub)
       "trust condition for #{role}: #{JSON.generate('Condition' => condition)}"
     end
   rescue ChangeProdClaim::Unavailable => e
     raise Refused, e.message
+  end
+
+  # job_workflow_ref names the repo by owner/name even under immutable
+  # subjects, so the ids are dropped from the prefix.
+  def workflow_owner_repo(sub_prefix)
+    return '<o>/<r>' unless sub_prefix
+
+    sub_prefix.delete_prefix('repo:').gsub(/@\d+/, '')
   end
 
   def run(argv, stdout: $stdout, stderr: $stderr)
@@ -324,7 +337,8 @@ module ChangeProdRunnerGen
       o.on('--config PATH') { |v| opts[:config] = v }
       o.on('--root PATH') { |v| opts[:root] = v }
       o.on('--repo OWNER/NAME') { |v| opts[:repo] = v }
-      o.on('--default-branch NAME') { |v| opts[:default_branch] = v }
+      o.on('--sub-prefix PREFIX', SUB_PREFIX) { |v| opts[:sub_prefix] = v }
+      o.on('--default-branch BRANCH', %r{\A[A-Za-z0-9._/-]+\z}) { |v| opts[:default_branch] = v }
       o.on('--check') { opts[:check] = true }
     end.parse!(argv)
     return check(opts, stdout, stderr) if opts[:check]
@@ -336,9 +350,8 @@ module ChangeProdRunnerGen
     File.write(path, text)
     stdout.puts "wrote #{path}"
     vendor(opts[:root]).each { |file| stdout.puts "wrote #{file}" }
-    stdout.puts "one-time repo setting (human, once): #{oidc_command(opts[:repo])}"
-    stdout.puts "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment with deployment branch = default only, no reviewers"
-    trust_policy(config, repo: opts[:repo], default_branch: opts[:default_branch] || 'main').each { |line| stdout.puts line }
+    subject_hints(opts).each { |line| stdout.puts line }
+    trust_policy(config, **opts.slice(:sub_prefix, :default_branch)).each { |line| stdout.puts line }
     0
   rescue Refused, ChangeProdEnvelope::Invalid, OptionParser::ParseError, KeyError => e
     stderr.puts "[cf-prod] refused: #{e.message}"
@@ -361,6 +374,21 @@ module ChangeProdRunnerGen
       target = File.join(root, SCRIPTS, name)
       File.exist?(target) && File.read(target) == File.read(File.join(source_root, name))
     end
+  end
+
+  def subject_hints(opts)
+    api = "repos/#{opts[:repo] || '<o>/<r>'}/actions/oidc/customization/sub"
+    hints = [ "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment " \
+              'with deployment branch = default only, no reviewers' ]
+    # Keep the subject format the trust was generated for: a name-only prefix
+    # must not be flipped to immutable ids by the prerequisite below.
+    immutable = !opts[:sub_prefix] || opts[:sub_prefix].include?('@')
+    hints << 'prerequisite (repo-wide, it changes every OIDC sub in the repo, so move other trusts first): ' \
+             "gh api -X PUT #{api} -F use_default=false -F use_immutable_subject=#{immutable} " \
+             "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
+    hints << "then the sub prefix for the trust subject (pass as --sub-prefix and regenerate): gh api #{api} --jq .sub_claim_prefix" unless opts[:sub_prefix]
+    hints << "accepted limit: any default-branch workflow that runs in #{CLAIM_ENVIRONMENT} can claim; " \
+             'the worst case is a blocked prod run, which fails safe'
   end
 
   def check(opts, stdout, stderr)
