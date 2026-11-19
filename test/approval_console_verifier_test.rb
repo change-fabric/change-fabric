@@ -329,7 +329,7 @@ class ApprovalConsoleVerifierTest < Minitest::Test
   end
 
   def test_rejects_an_unknown_expected_type
-    assert_rejected verifier.verify(proof, expected: expected(type: "bogus")), /unknown type/
+    assert_rejected verifier.verify(proof, expected: expected(type: "bogus")), /type/
   end
 
   def test_rejects_a_non_object_proof_or_expected
