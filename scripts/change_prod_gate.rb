@@ -51,6 +51,7 @@ module ChangeProdGate
     refuse('approver machine is not pinned') unless pinned[:machine_ids].include?(body['machine_id'])
     result = check_proof(proof, envelope, body, pinned)
     refuse(LOCAL_REFUSAL) unless %i[passkey receipt].include?(result.level)
+    refuse('the remote approval policy needs a console receipt: a passkey assertion alone does not prove the TOTP factor') if proof_policy(config) == 'remote' && result.level != :receipt
     check_lifetime(body, config, now)
     Result.new(ok: true, envelope: envelope, level: result.level)
   rescue Refuse, ChangeProdEnvelope::Invalid, ChangeProdStore::Error => e
@@ -95,6 +96,16 @@ module ChangeProdGate
     ApprovalConsole::Canonical.parse(proof['body'])
   rescue ApprovalConsole::Canonical::Invalid => e
     refuse("approval body is invalid: #{e.message}")
+  end
+
+  # change_policy.prod_guard.approval.proof: `remote` (the default, and the
+  # floor) needs a console receipt, which is the only evidence the TOTP factor
+  # was checked; `passkey` accepts a bare passkey assertion.
+  def proof_policy(config)
+    value = config.dig('change_policy', 'prod_guard', 'approval', 'proof') if config.is_a?(Hash)
+    value = 'remote' if value.nil?
+    refuse("policy approval proof must be remote or passkey, not #{value.inspect}") unless %w[remote passkey].include?(value)
+    value
   end
 
   def check_proof(proof, envelope, body, pinned)

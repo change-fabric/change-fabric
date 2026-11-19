@@ -3,6 +3,8 @@
 require "minitest/autorun"
 require "tmpdir"
 require "yaml"
+require "open3"
+require "rbconfig"
 require_relative "../scripts/change_prod_runner_gen"
 
 class ChangeProdRunnerGenTest < Minitest::Test
@@ -64,7 +66,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
   def test_only_the_staging_allowlist_is_emitted_while_blocked_whatever_production_is_called
     %w[prod live prd production-eu release].each do |name|
       cfg = config
-      runner(cfg)["environments"][name] = "production"
+      runner(cfg)["environments"] = { "staging" => "staging", name => "production" }
       runner(cfg)["oidc_roles"][name] = "arn:aws:iam::222222222222:role/cf-prod"
       text = generate(cfg)
       assert_equal %w[claim run-staging validate], YAML.safe_load(text)["jobs"].keys.sort, name
@@ -75,7 +77,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
 
   def test_a_staging_key_mapped_to_a_production_environment_is_not_emitted
     cfg = config
-    runner(cfg)["environments"]["staging"] = "production"
+    runner(cfg)["environments"] = { "staging" => "production" }
     assert_refused(/no environment can be emitted/) { generate(cfg) }
   end
 
@@ -167,6 +169,39 @@ class ChangeProdRunnerGenTest < Minitest::Test
       assert_equal 1, Gen.run([ "--check", "--root", root ], stderr: err)
       assert_match(/edited by hand/, err.string)
     end
+  end
+
+  def test_cli_vendors_every_script_the_workflow_calls_and_they_load
+    Dir.mktmpdir do |root|
+      out = StringIO.new
+      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root ], stdout: out)
+      Gen::VENDORED.each { |name| assert File.exist?(File.join(root, Gen::SCRIPTS, name)), name }
+      gate = File.join(root, Gen::SCRIPTS, "change_prod_gate.rb")
+      output, status = Open3.capture2e(RbConfig.ruby, gate, "run")
+      assert_equal 1, status.exitstatus, output
+      assert_match(/no op executor/, output)
+      assert_equal 0, Gen.run([ "--check", "--root", root ], stdout: StringIO.new)
+      File.write(File.join(root, Gen::SCRIPTS, "approval_console/verifier.rb"), "# swapped\n")
+      err = StringIO.new
+      assert_equal 1, Gen.run([ "--check", "--root", root ], stderr: err)
+      assert_match(/vendored scripts are missing or differ/, err.string)
+    end
+  end
+
+  def test_every_required_relative_file_is_vendored
+    sources = Gen::VENDORED.flat_map do |name|
+      File.read(File.join(Gen.source_root, name)).scan(/require_relative '([^']+)'/).flatten
+           .map { |rel| File.join(File.dirname(name), rel).sub(%r{\A\./}, "").then { |path| "#{File.expand_path(path, "/")[1..]}.rb" } }
+    end
+    assert_empty(sources.uniq - Gen::VENDORED)
+  end
+
+  def test_refuses_profiles_that_share_an_environment
+    cfg = config
+    runner(cfg)["environments"]["preview"] = "staging"
+    runner(cfg)["oidc_roles"]["preview"] = "arn:aws:iam::333333333333:role/cf-preview"
+    assert_refused(/share an environment \(staging\)/) { generate(cfg) }
+    assert_refused(/share an environment/) { generate(cfg, blockers: []) }
   end
 
   def test_cli_refuses_a_missing_config

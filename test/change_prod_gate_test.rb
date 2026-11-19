@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "tmpdir"
 require "yaml"
+require "base64"
 require_relative "git_fixture"
 require_relative "support/soft_authenticator"
 require_relative "../scripts/change_prod_gate"
@@ -42,7 +43,17 @@ class ChangeProdGateTest < Minitest::Test
     Canonical.build(context.merge("request_id" => SecureRandom.uuid, "created_at" => created, "expires_at" => expires).merge(overrides))
   end
 
-  def passkey_proof(body) = { "kind" => "webauthn+totp", "body" => body, "totp_step" => 7 }.merge(@passkey.assert(body, rp_id: RP_ID))
+  def bare_passkey_proof(body) = { "kind" => "webauthn+totp", "body" => body, "totp_step" => 7 }.merge(@passkey.assert(body, rp_id: RP_ID))
+
+  # A passkey proof countersigned by the console, as the remote policy requires.
+  def passkey_proof(body)
+    proof = bare_passkey_proof(body)
+    assertion = Digest::SHA256.hexdigest(%w[authenticator_data client_data_json signature].map { |key| Base64.urlsafe_decode64(proof[key]) }.join)
+    fields = { "v" => 1, "kind" => proof["kind"], "machine_id" => MACHINE, "request_id" => Canonical.parse(body)["request_id"],
+               "body_sha256" => Canonical.body_sha256(body), "assertion_sha256" => assertion, "totp_step" => 7,
+               "channel" => "console", "accepted_at" => "2026-11-18T12:05:00Z" }
+    proof.merge("receipt" => @signer.receipt(fields))
+  end
 
   def local_proof(body) = { "kind" => "totp-terminal", "body" => body, "totp_step" => 7, "receipt" => nil }
 
@@ -71,7 +82,7 @@ class ChangeProdGateTest < Minitest::Test
     ready
     result = verify
     assert_predicate result, :ok?, result.reason
-    assert_equal :passkey, result.level
+    assert_equal :receipt, result.level
     assert_equal "staging", result.envelope["environment"]
   end
 
@@ -100,6 +111,41 @@ class ChangeProdGateTest < Minitest::Test
     proof = local_proof(body).merge("receipt" => @signer.receipt({ "v" => 1 }, key: OpenSSL::PKey::EC.generate("prime256v1")))
     ready(proof: proof)
     assert_refused verify, /receipt/
+  end
+
+  def test_remote_policy_refuses_a_passkey_without_a_console_receipt
+    ready(proof: bare_passkey_proof(body_for(@envelope)))
+    assert_refused verify, /needs a console receipt/
+  end
+
+  def test_a_default_policy_is_remote
+    config = YAML.safe_load_file(FIXTURE)
+    config["change_policy"].delete("prod_guard")
+    envelope = ChangeProdEnvelope.build(config: config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                                        profile: "staging", version: @sha, requested_by: "agent:s1", request_id: @id)
+    request(envelope)
+    approve(bare_passkey_proof(body_for(envelope)), envelope: envelope)
+    assert_refused verify(config: config), /needs a console receipt/
+  end
+
+  def test_passkey_policy_accepts_a_bare_passkey_and_unknown_policies_refuse
+    %w[passkey bogus].each do |mode|
+      @store = ChangeProdStore.new(@dir)
+      config = YAML.safe_load_file(FIXTURE)
+      config["change_policy"]["prod_guard"]["approval"]["proof"] = mode
+      envelope = ChangeProdEnvelope.build(config: config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                                          profile: "staging", version: @sha, requested_by: "agent:s1", request_id: @id)
+      request(envelope)
+      approve(bare_passkey_proof(body_for(envelope)), envelope: envelope)
+      result = verify(config: config)
+      if mode == "passkey"
+        assert_equal :passkey, result.level
+      else
+        assert_refused result, /must be remote or passkey/
+      end
+      GitFixture.git(@dir, "update-ref", "-d", @store.ref("requests", @id))
+      GitFixture.git(@dir, "update-ref", "-d", @store.ref("approvals", @id))
+    end
   end
 
   def test_accepts_a_passkey_proof_and_a_receipted_terminal_proof_for_production
