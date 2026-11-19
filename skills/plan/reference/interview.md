@@ -73,6 +73,23 @@ for one plan, and saying so is more useful than a fourth round.
 Stop as soon as a round produces no question that meets the bar. Do not pad a
 round to look thorough.
 
+## Walkthrough round
+
+Runs only when the classifier (SKILL.md, between steps 4 and 5) said yes for a
+phase, and only while the user is present. The questions, their order and the
+"answered when" rules are the Story block question table in
+`skills/walkthrough/reference/storyboard-schema.md`; do not copy it here. Load
+the plan dir's story file if one exists, run
+`ruby ~/.claude/cf/bin/walkthrough_story.rb unanswered <file>`, and ask only
+those keys in table order, up to four per `AskUserQuestion` call: audience,
+hero, guide, perspective, before, turn, after, beats, length, then the tactical
+highlights (real old-UI versus new-UI footage, only what we built versus wider,
+secondary artifacts, other requests). The story has no scene ids at this
+point. Answers are never listed in `assumptions`. Write the result to
+`<plan dir>/story.json` (one walkthrough) or `<plan dir>/story/<slug>.json`
+(several), and check it with `plan_check.rb`. In away mode draft every open
+field from the docs and add its JSON pointer to `assumptions`; never ask.
+
 ## The ledger
 
 Keep a running record. Each entry:

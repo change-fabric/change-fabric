@@ -4,6 +4,7 @@
 require 'json'
 require_relative 'ctx_paths'
 require_relative 'plan_visuals'
+require_relative 'walkthrough_story'
 
 # Mechanically verifies a landed cf:plan triple: plan.md, goal.md, and the
 # workflow.js that operationalizes the plan. Every file must exist and be
@@ -40,9 +41,58 @@ module PlanCheck
     ok &= check_absolute_home_paths(plan_path, 'plan.md', lines)
     ok &= check_workflow(workflow_path, lines) if workflow_path
     ok &= check_visuals(File.dirname(plan_path), lines)
+    ok &= check_stories(File.dirname(plan_path), lines)
 
     warnings = plan_warnings(plan_path)
     Result.new(lines:, warnings:, ok?: ok)
+  end
+
+  WALKTHROUGH_LINE = /^walkthrough:[ \t]*(\S*)[ \t]*$/
+
+  # Walkthrough stories: each `walkthrough: <slug>` line in plan.md declares a
+  # video, and its story file must exist (story.json for a single walkthrough,
+  # story/<slug>.json for several). Every story file on disk, declared or not,
+  # must parse and pass story-only validation. Plans with neither are skipped.
+  def self.check_stories(plan_dir, lines)
+    slugs = declared_slugs(File.join(plan_dir, 'plan.md'))
+    files = Dir.glob(File.join(plan_dir, 'story.json')) + Dir.glob(File.join(plan_dir, 'story', '*.json')).sort
+    ok = slugs.map { |slug| check_story_declared(plan_dir, slug, slugs.size, lines) }.all?
+    files.each { |file| ok &= check_story_file(file, plan_dir, lines) }
+    ok
+  end
+
+  def self.declared_slugs(plan_path)
+    return [] unless File.exist?(plan_path)
+
+    File.read(plan_path).scan(WALKTHROUGH_LINE).flatten.uniq
+  end
+
+  def self.story_rel(slug, count) = count > 1 ? "story/#{slug}.json" : 'story.json'
+
+  def self.check_story_declared(plan_dir, slug, count, lines)
+    rel = story_rel(slug, count)
+    if slug.match?(/\A[a-z0-9][a-z0-9-]*\z/) && File.exist?(File.join(plan_dir, rel))
+      lines << "walkthrough #{slug}: #{rel} present"
+      true
+    else
+      lines << "walkthrough #{slug.inspect}: #{rel} is MISSING (run the walkthrough interview round) or the slug is not [a-z0-9-]"
+      false
+    end
+  end
+
+  def self.check_story_file(path, plan_dir, lines)
+    label = path.delete_prefix("#{plan_dir}/")
+    errs = WalkthroughStory.errors(WalkthroughStory.story_of(JSON.parse(File.read(path))), mode: :story)
+    if errs.empty?
+      lines << "#{label}: story valid"
+      true
+    else
+      errs.each { |e| lines << "#{label}: #{e}" }
+      false
+    end
+  rescue JSON::ParserError => e
+    lines << "#{label}: does NOT parse (#{e.message.lines.first&.strip})"
+    false
   end
 
   VISUAL_TYPE = /data-(?:diagram|chart)-type=/
