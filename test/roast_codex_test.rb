@@ -181,7 +181,24 @@ class RoastCodexTest < Minitest::Test
       assert_operator Time.now - started, :<, 10
       pids = File.read("#{out}.pids").split.map(&:to_i)
       assert_equal 2, pids.size
-      pids.each { |pid| assert_raises(Errno::ESRCH) { Process.kill(0, pid) } }
+      pids.each { |pid| assert gone?(pid), "process #{pid} survived the timeout kill" }
+    end
+  end
+
+  # A killed process can linger as a zombie until init reaps it, so poll (bounded)
+  # for it to be gone or defunct rather than checking once.
+  def gone?(pid, within: 10)
+    deadline = Time.now + within
+    loop do
+      begin
+        Process.kill(0, pid)
+      rescue Errno::ESRCH
+        return true
+      end
+      return true if `ps -o stat= -p #{pid}`.strip.start_with?("Z")
+      return false if Time.now > deadline
+
+      sleep 0.1
     end
   end
 
