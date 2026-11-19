@@ -380,10 +380,13 @@ module ChangeProdRunnerGen
     api = "repos/#{opts[:repo] || '<o>/<r>'}/actions/oidc/customization/sub"
     hints = [ "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment " \
               'with deployment branch = default only, no reviewers' ]
-    hints << "sub prefix for the trust subject (pass as --sub-prefix): gh api #{api} --jq .sub_claim_prefix" unless opts[:sub_prefix]
+    # Keep the subject format the trust was generated for: a name-only prefix
+    # must not be flipped to immutable ids by the prerequisite below.
+    immutable = !opts[:sub_prefix] || opts[:sub_prefix].include?('@')
     hints << 'prerequisite (repo-wide, it changes every OIDC sub in the repo, so move other trusts first): ' \
-             "gh api -X PUT #{api} -F use_default=false -F use_immutable_subject=true " \
+             "gh api -X PUT #{api} -F use_default=false -F use_immutable_subject=#{immutable} " \
              "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
+    hints << "then the sub prefix for the trust subject (pass as --sub-prefix and regenerate): gh api #{api} --jq .sub_claim_prefix" unless opts[:sub_prefix]
     hints << "accepted limit: any default-branch workflow that runs in #{CLAIM_ENVIRONMENT} can claim; " \
              'the worst case is a blocked prod run, which fails safe'
   end

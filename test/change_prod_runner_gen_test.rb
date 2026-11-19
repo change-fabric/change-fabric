@@ -286,6 +286,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
                  staging["StringEquals"])
     refute_includes out.string, "role/cf-prod\""
     refute_includes out.string, "sub prefix for the trust subject"
+    assert_includes out.string, "-F use_immutable_subject=true"
   end
 
   def test_change_fabric_claim_subject_matches_its_immutable_sub
@@ -304,6 +305,8 @@ class ChangeProdRunnerGenTest < Minitest::Test
       assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--sub-prefix", "repo:acme/app", "--default-branch", "trunk" ], stdout: out)
     end
     assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, "\"repo:acme/app:environment:cf-claim:job_workflow_ref:*\""
+    assert_includes out.string, "-F use_immutable_subject=false"
+    refute_includes out.string, "-F use_immutable_subject=true"
     assert_includes out.string.lines.find { |line| line.include?("cf-staging") },
                     "\"repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk\""
   end
