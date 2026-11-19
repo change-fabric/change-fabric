@@ -154,6 +154,39 @@ class CfHostHookTest < Minitest::Test
     assert_includes context("opencode", "SessionStart"), "advisory"
   end
 
+  # minitest/mock is not bundled; swap a singleton method for one block.
+  def with_singleton(object, name, impl)
+    original = object.method(name)
+    object.singleton_class.send(:define_method, name, &impl)
+    yield
+  ensure
+    object.singleton_class.send(:define_method, name, &original)
+  end
+
+  def persist_hint_for(path)
+    text = nil
+    with_singleton(CfRubyPath, :current, -> { path }) { text = context("claude", "SessionStart") }
+    text
+  end
+
+  def test_persist_hint_uses_the_stable_opt_interpreter
+    opt = File.join(@home, "opt", "ruby", "bin", "ruby")
+    text = persist_hint_for(opt)
+    assert_includes text, "run #{opt} "
+    refute_includes text, "Cellar"
+  end
+
+  def test_persist_hint_is_omitted_with_a_repair_notice_when_opt_is_missing
+    cellar = File.join(@home, "Cellar", "ruby", "4.0.10", "bin", "ruby")
+    FileUtils.mkdir_p(File.dirname(cellar))
+    FileUtils.touch(cellar)
+    FileUtils.chmod(0o755, cellar)
+    text = nil
+    with_singleton(RbConfig, :ruby, -> { cellar }) { text = context("claude", "SessionStart") }
+    refute_includes text, "To persist a mode"
+    assert_includes text, "brew link ruby"
+  end
+
   def test_free_form_away_answer_records_active
     hook("claude", "UserPromptSubmit", "prompt" => "/cf:away")
     answer = { "tool_name" => "AskUserQuestion", "tool_input" => { "questions" => [ { "header" => "Scope" } ] },

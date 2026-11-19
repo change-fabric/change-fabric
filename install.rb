@@ -14,6 +14,7 @@ require_relative 'scripts/merge_mode_slug'
 require_relative 'scripts/skill_compiler'
 require_relative 'scripts/native_hook_install'
 require_relative 'scripts/cf_install_manifest'
+require_relative 'scripts/cf_ruby_path'
 require_relative 'scripts/skill_providers'
 require_relative 'scripts/model_roles'
 require_relative 'scripts/cf_state'
@@ -86,6 +87,17 @@ module Install
     def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills') ]
     def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
     def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
+    # Copies under the runtime root, never the checkout or a Homebrew Cellar,
+    # so the host links survive `brew upgrade` plus `brew cleanup`. `shared` is
+    # a sibling because both extensions import ../shared.
+    def extensions_copy_root = File.join(runtime_root, 'extensions')
+    def pi_extension_copy = File.join(extensions_copy_root, 'pi-cf-hooks')
+    def opencode_plugin_copy = File.join(extensions_copy_root, 'opencode-cf-hooks')
+    def opencode_extension_source = File.join(@repo, 'extensions', 'opencode-cf-hooks')
+    def opencode_plugin_target = File.join(opencode_plugin_copy, 'index.ts')
+    def shared_extension_source = File.join(@repo, 'extensions', 'shared')
+    def shared_extension_copy = File.join(extensions_copy_root, 'shared')
+    def extension_backups_root = File.join(runtime_root, 'backups')
     def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
     def opencode_plugins_root   = File.join(opencode_root, 'plugins')
     def opencode_plugin_source  = File.join(@repo, 'extensions', 'opencode-cf-hooks', 'index.ts')
@@ -121,29 +133,68 @@ module Install
       resolved = File.join(RbConfig::CONFIG['bindir'], RbConfig::CONFIG['ruby_install_name'])
       raise 'could not resolve a ruby interpreter' unless File.executable?(resolved)
 
-      stable_homebrew_path(resolved) || resolved
+      CfRubyPath.stable(resolved)
+    end
+  end
+
+  # Copies one extension directory into the runtime root without ever deleting
+  # a file the user changed. The new copy is staged beside the old one; any file
+  # in the old copy whose sha256 differs from the previous installation.json, or
+  # that it never recorded, moves to a timestamped backup before the swap.
+  class ExtensionCopy
+    def initialize(source:, dest:, label:, backup_dir:, manifest:)
+      @source = source
+      @dest = dest
+      @label = label
+      @backup_dir = backup_dir
+      @manifest = manifest
     end
 
-    # RbConfig always reports ruby's real, version-pinned install directory,
-    # even when the process was started through a stable symlink (e.g. a
-    # Homebrew formula's own wrapper, which execs via `opt/ruby/bin/ruby`).
-    # Baking that versioned Cellar path into settings.json means every hook
-    # breaks the moment `brew upgrade ruby` removes the old version's Cellar
-    # directory. Homebrew keeps `opt/<formula>/bin/<exe>` as a symlink that
-    # always points at whichever version is currently linked, so prefer that
-    # stable path whenever the resolved path sits inside a Cellar. Returns nil
-    # (falling back to the resolved path as-is) for any non-Homebrew ruby.
-    def self.stable_homebrew_path(resolved)
-      segments = resolved.split(File::SEPARATOR)
-      cellar_index = segments.index('Cellar')
-      return nil unless cellar_index && segments[cellar_index + 1]
+    def sync
+      stage = "#{@dest}.new-#{Process.pid}"
+      stage_copy(stage)
+      back_up_user_files
+      FileUtils.rm_rf(@dest)
+      File.rename(stage, @dest)
+    end
 
-      prefix = segments[0...cellar_index].join(File::SEPARATOR)
-      formula = segments[cellar_index + 1]
-      candidate = File.join(prefix, 'opt', formula, 'bin', RbConfig::CONFIG['ruby_install_name'])
-      return nil unless File.executable?(candidate)
+    private
 
-      candidate
+    def stage_copy(stage)
+      FileUtils.rm_rf(stage)
+      FileUtils.mkdir_p(File.dirname(@dest))
+      FileUtils.cp_r(@source, stage)
+    rescue StandardError => e
+      FileUtils.rm_rf(stage)
+      raise "could not stage #{@label} into #{File.dirname(@dest)}: #{e.message}"
+    end
+
+    def back_up_user_files
+      return unless File.symlink?(@dest) || File.exist?(@dest)
+
+      files = File.directory?(@dest) && !File.symlink?(@dest) ? old_files : [ @dest ]
+      moved = files.reject { |path| installer_owned?(path) }.map { |path| move_to_backup(path) }
+      warn "  cf: backed up #{moved.size} edited or added file(s) under #{File.join(@backup_dir, @label)}" unless moved.empty?
+    end
+
+    def old_files
+      Dir.glob(File.join(@dest, '**', '*'), File::FNM_DOTMATCH).select { |path| File.file?(path) || File.symlink?(path) }
+    end
+
+    def installer_owned?(path)
+      return false if File.symlink?(path)
+
+      recorded = @manifest.recorded(path)
+      !recorded.nil? && recorded['sha256'] == Digest::SHA256.file(path).hexdigest
+    end
+
+    def move_to_backup(path)
+      target = File.join(@backup_dir, @label, path == @dest ? File.basename(path) : path.delete_prefix("#{@dest}/"))
+      target = "#{target}.#{Process.pid}-#{rand(36**4).to_s(36)}" while File.exist?(target) || File.symlink?(target)
+      FileUtils.mkdir_p(File.dirname(target))
+      FileUtils.mv(path, target)
+      warn "  cf: #{path} was edited or not installed by cf; moved to #{target}"
+      target
     end
   end
 
@@ -452,7 +503,7 @@ module Install
         rendered = compiler.render_model_js(text)
         File.write(path, rendered) unless rendered == text
       end
-      File.write(File.join(dest, MARKER), "source: #{source}\n")
+      File.write(File.join(dest, MARKER), "source: #{source.delete_prefix("#{File.dirname(@paths.skills_dir)}/")}\n")
     end
 
     def host = raise NotImplementedError
@@ -523,6 +574,7 @@ module Install
       place_runtime
       pin_expected_home
       link_skills
+      copy_extensions
       link_pi_extension
       link_opencode_plugin
       mirror_to_codex
@@ -702,20 +754,41 @@ module Install
       end
     end
 
-    def link_pi_extension
-      return if File.exist?(@paths.pi_extension_link) && !File.symlink?(@paths.pi_extension_link)
+    def copy_extensions
+      backup_dir = File.join(@paths.extension_backups_root, "extensions-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}")
+      [ [ @paths.pi_extension_source, @paths.pi_extension_copy, 'pi-cf-hooks' ],
+        [ @paths.opencode_extension_source, @paths.opencode_plugin_copy, 'opencode-cf-hooks' ],
+        [ @paths.shared_extension_source, @paths.shared_extension_copy, 'shared' ] ].each do |source, dest, label|
+        ExtensionCopy.new(source: source, dest: dest, label: label, backup_dir: backup_dir, manifest: install_manifest).sync
+      end
+    end
 
-      FileUtils.mkdir_p(@paths.pi_extensions_root)
-      FileUtils.rm_f(@paths.pi_extension_link)
-      FileUtils.ln_sf(@paths.pi_extension_source, @paths.pi_extension_link)
+    def link_pi_extension
+      link_extension(@paths.pi_extension_link, @paths.pi_extensions_root, @paths.pi_extension_copy, 'extensions/pi-cf-hooks')
     end
 
     def link_opencode_plugin
-      return if File.exist?(@paths.opencode_plugin_link) && !File.symlink?(@paths.opencode_plugin_link)
+      link_extension(@paths.opencode_plugin_link, @paths.opencode_plugins_root, @paths.opencode_plugin_target,
+                     'extensions/opencode-cf-hooks/index.ts')
+    end
 
-      FileUtils.mkdir_p(@paths.opencode_plugins_root)
-      FileUtils.rm_f(@paths.opencode_plugin_link)
-      FileUtils.ln_sf(@paths.opencode_plugin_source, @paths.opencode_plugin_link)
+    def link_extension(link, root, target, legacy_suffix)
+      return if File.exist?(link) && !File.symlink?(link)
+      return warn "  cf: #{link} points elsewhere; left alone (wanted #{target})" unless replaceable_link?(link, target, legacy_suffix)
+
+      FileUtils.mkdir_p(root)
+      FileUtils.rm_f(link)
+      FileUtils.ln_sf(target, link)
+    end
+
+    # A link is ours to repoint when it is absent, already right, recorded by an
+    # earlier install, or aims at an extension dir of a checkout or Cellar.
+    def replaceable_link?(link, target, legacy_suffix)
+      return true unless File.symlink?(link)
+
+      current = File.readlink(link)
+      recorded = install_manifest.recorded(link)
+      current == target || recorded&.fetch('link', nil) == current || current.end_with?("/#{legacy_suffix}")
     end
 
     # Removes skill symlinks this installer owns - those pointing into the repo's
@@ -794,14 +867,20 @@ module Install
         link = @paths.skill_link(SkillName.of(source))
         files << link if points_into_repo_skills?(link)
       end
-      [ [ @paths.pi_extension_link, @paths.pi_extension_source ], [ @paths.opencode_plugin_link, @paths.opencode_plugin_source ] ].each do |link, source|
-        files << link if File.symlink?(link) && File.readlink(link) == source
+      [ @paths.pi_extension_copy, @paths.opencode_plugin_copy, @paths.shared_extension_copy ].each do |dir|
+        files.concat(Dir.glob(File.join(dir, '**', '*'), File::FNM_DOTMATCH).select { |file| File.file?(file) })
+      end
+      [ [ @paths.pi_extension_link, @paths.pi_extension_copy ], [ @paths.opencode_plugin_link, @paths.opencode_plugin_target ] ].each do |link, target|
+        files << link if File.symlink?(link) && File.readlink(link) == target
       end
       launcher = File.expand_path('../../bin/cf', @paths.runtime_root)
       files.delete(launcher) unless File.file?(launcher) && !File.symlink?(launcher) && File.read(launcher).include?('# change-fabric managed launcher')
+      install_manifest.record(files, 'required_providers' => @required_providers)
+    end
+
+    def install_manifest
       home = File.expand_path('../../..', @paths.runtime_root)
       CfInstallManifest.new(path: File.join(@paths.runtime_root, 'installation.json'), home: home)
-                       .record(files, 'required_providers' => @required_providers)
     end
 
     def wire_native_hooks
@@ -869,5 +948,11 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   paths = Install::Paths.new(repo: __dir__, home: Dir.home, xdg_config: ENV.fetch('XDG_CONFIG_HOME', nil))
-  Install::Installer.new(paths: paths, ruby: Install::RubyInterpreter.path).install
+  begin
+    ruby = Install::RubyInterpreter.path
+  rescue CfRubyPath::UnstableInterpreter => e
+    warn "cf install: #{e.message}"
+    exit 1
+  end
+  Install::Installer.new(paths: paths, ruby: ruby).install
 end
