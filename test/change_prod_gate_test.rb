@@ -294,15 +294,16 @@ class ChangeProdGateTest < Minitest::Test
   end
 
   def test_claim_is_single_use
-    first = Gate.claim(store: @store, request_id: @id, run_id: 7, now: NOW, push: false)
+    first = Gate.claim(store: @store, request_id: @id, run_id: 7, attempt: 1, now: NOW, push: false)
     assert_predicate first, :ok?
-    again = Gate.claim(store: @store, request_id: @id, run_id: 8, now: NOW, push: false)
+    again = Gate.claim(store: @store, request_id: @id, run_id: 8, attempt: 1, now: NOW, push: false)
     assert_refused again, /already consumed/
     assert_equal "7", @store.read("claims", @id)["run_id"]
+    assert_equal "1", @store.read("claims", @id)["run_attempt"]
   end
 
   def test_claim_refuses_a_malformed_request_id
-    assert_refused Gate.claim(store: @store, request_id: "x", run_id: 1, push: false), /not a uuid/
+    assert_refused Gate.claim(store: @store, request_id: "x", run_id: 1, attempt: 1, push: false), /not a uuid/
   end
 
   def test_provenance_requires_default_branch_exact_checkout_and_reachability
@@ -323,28 +324,96 @@ class ChangeProdGateTest < Minitest::Test
     assert_match(/no op executor/, err.string)
   end
 
-  def test_recheck_refuses_an_approval_that_expired_while_the_job_waited
+  def remote_runner
     origin = Dir.mktmpdir
-    clone = File.join(Dir.mktmpdir, "runner")
+    @clone = File.join(Dir.mktmpdir, "runner")
     GitFixture.git_init(origin, "--bare", "-b", "main")
     GitFixture.git(@dir, "remote", "add", "origin", origin)
     GitFixture.git(@dir, "push", "-q", "origin", "main")
     @store.create("requests", @id, @envelope)
     @store.create("approvals", @id, { "protocol" => "cf.prod.approval/2", "request_id" => @id, "digest" => @envelope["digest"],
                                       "proof" => passkey_proof(body_for(@envelope)) })
-    GitFixture.git(origin, "clone", "-q", origin, clone)
-    creds = File.join(clone, "creds.json")
+    GitFixture.git(origin, "clone", "-q", origin, @clone)
+    creds = File.join(@clone, "creds.json")
     File.write(creds, JSON.generate(credentials))
-    argv = [ "recheck", "--request-id", @id, "--repo", clone, "--config", FIXTURE, "--credentials", creds, "--allow-environments", "staging",
-             "--version-root", clone ]
-    env = { "GITHUB_REF" => "refs/heads/main" }
-    assert_equal 0, Gate.run(argv.dup, env: env, stdout: StringIO.new, now: NOW)
+    @origin = origin
+    @base = [ "--request-id", @id, "--repo", @clone, "--config", FIXTURE, "--credentials", creds, "--allow-environments", "staging",
+              "--version-root", @clone ]
+  end
+
+  def cli(verb, run: "5", attempt: "1", now: NOW)
     err = StringIO.new
-    assert_equal 1, Gate.run(argv.dup, env: env, stderr: err, now: Time.utc(2026, 11, 18, 12, 31, 0))
-    assert_match(/approval has expired/, err.string)
-    refute @store.exists?("claims", @id), "recheck never creates a claim"
+    env = { "GITHUB_REF" => "refs/heads/main", "GITHUB_RUN_ID" => run, "GITHUB_RUN_ATTEMPT" => attempt }
+    [ Gate.run([ verb ] + @base, env: env, stdout: StringIO.new, stderr: err, now: now), err.string ]
+  end
+
+  def test_recheck_refuses_an_approval_that_expired_while_the_job_waited
+    remote_runner
+    assert_equal 0, cli("claim").first
+    assert_equal 0, cli("recheck").first
+    code, err = cli("recheck", now: Time.utc(2026, 11, 18, 12, 31, 0))
+    assert_equal 1, code
+    assert_match(/approval has expired/, err)
   ensure
-    FileUtils.remove_entry(origin) if origin
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_recheck_issues_credentials_once_per_attempt
+    remote_runner
+    assert_equal 0, cli("claim").first
+    assert_equal 0, cli("recheck").first
+    code, err = cli("recheck")
+    assert_equal 1, code
+    assert_match(/credentials were already issued/, err)
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_a_rerun_at_a_higher_attempt_is_refused_and_issues_nothing
+    remote_runner
+    assert_equal 0, cli("claim").first
+    code, err = cli("recheck", attempt: "2")
+    assert_equal 1, code
+    assert_match(/this run did not claim the approval/, err)
+    ChangeProdStore.new(@clone).fetch
+    refute ChangeProdStore.new(@clone).exists?("issued", @id, env: "staging")
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_a_mismatched_run_id_is_refused
+    remote_runner
+    assert_equal 0, cli("claim", run: "5").first
+    code, err = cli("recheck", run: "6")
+    assert_equal 1, code
+    assert_match(/did not claim/, err)
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_recheck_without_a_claim_or_run_identity_is_refused
+    remote_runner
+    code, err = cli("recheck")
+    assert_equal 1, code
+    assert_match(/no claim exists/, err)
+    assert_equal 0, cli("claim").first
+    assert_equal 1, cli("recheck", run: "", attempt: "").first
+    assert_equal 1, cli("claim", run: "", attempt: "").first
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_issued_markers_are_per_environment_and_create_only
+    name = @store.ref("issued", @id, env: "staging")
+    assert_equal "refs/cf-prod/issued/#{@id}/staging", name
+    assert_raises(ChangeProdStore::Error) { @store.ref("issued", @id) }
+    assert_raises(ChangeProdStore::Error) { @store.ref("claims", @id, env: "staging") }
+    assert_raises(ChangeProdStore::Error) { @store.ref("issued", @id, env: "../x") }
+    # a claim and an issued marker coexist: they are not nested at one path
+    @store.create("claims", @id, { "a" => 1 }, push: false)
+    @store.create("issued", @id, { "a" => 1 }, push: false, env: "staging")
+    @store.create("issued", @id, { "a" => 1 }, push: false, env: "production")
+    assert_raises(ChangeProdStore::Exists) { @store.create("issued", @id, { "a" => 2 }, push: false, env: "staging") }
   end
 
   def test_cli_refuses_when_the_remote_cannot_be_fetched
@@ -373,7 +442,7 @@ class ChangeProdGateTest < Minitest::Test
     out = File.join(clone, "out")
     base = [ "--request-id", @id, "--repo", clone, "--config", FIXTURE, "--credentials", creds, "--allow-environments", "staging",
              "--version-root", clone ]
-    env = { "GITHUB_OUTPUT" => out, "GITHUB_REF" => "refs/heads/main", "GITHUB_RUN_ID" => "5" }
+    env = { "GITHUB_OUTPUT" => out, "GITHUB_REF" => "refs/heads/main", "GITHUB_RUN_ID" => "5", "GITHUB_RUN_ATTEMPT" => "1" }
     assert_equal 0, Gate.run([ "verify" ] + base, env: env, stdout: StringIO.new, now: NOW)
     assert_equal "environment=staging\nversion=#{@sha}\n", File.read(out)
     assert_equal 0, Gate.run([ "claim" ] + base, env: env, stdout: StringIO.new, now: NOW)
@@ -392,10 +461,10 @@ class ChangeProdGateTest < Minitest::Test
     origin = Dir.mktmpdir
     GitFixture.git_init(origin, "--bare", "-b", "main")
     GitFixture.git(@dir, "remote", "add", "origin", origin)
-    first = Gate.claim(store: @store, request_id: @id, run_id: 1, now: NOW)
+    first = Gate.claim(store: @store, request_id: @id, run_id: 1, attempt: 1, now: NOW)
     assert_predicate first, :ok?
     second = ChangeProdStore.new(clone_of(origin))
-    assert_refused Gate.claim(store: second, request_id: @id, run_id: 2, now: NOW), /already consumed/
+    assert_refused Gate.claim(store: second, request_id: @id, run_id: 2, attempt: 1, now: NOW), /already consumed/
   ensure
     FileUtils.remove_entry(origin) if origin
   end

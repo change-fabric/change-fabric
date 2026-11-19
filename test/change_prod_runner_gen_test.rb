@@ -97,7 +97,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
     jobs = YAML.safe_load(generate(blockers: []))["jobs"]
     staging = jobs["run-staging"]
     assert_equal "staging", staging["environment"]
-    assert_equal({ "id-token" => "write", "contents" => "read" }, staging["permissions"])
+    assert_equal({ "id-token" => "write", "contents" => "write" }, staging["permissions"])
     assert_equal({ "contents" => "write" }, jobs["claim"]["permissions"])
     assert_equal({ "contents" => "read" }, jobs["validate"]["permissions"])
     assert_equal %w[validate claim], staging["needs"]

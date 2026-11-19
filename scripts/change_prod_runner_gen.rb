@@ -213,6 +213,9 @@ module ChangeProdRunnerGen
     YAML
   end
 
+  # contents: write is for the one-time issued marker that `recheck` creates
+  # just before the credential step (a create-only ref, so a rerun cannot reuse
+  # the claim). Nothing else in this job writes.
   def environment_job(profile, environment, role, region)
     <<~YAML.gsub(/^(?=.)/, '  ')
       #{job_id(profile)}:
@@ -222,7 +225,7 @@ module ChangeProdRunnerGen
         environment: #{environment}
         permissions:
           id-token: write
-          contents: read
+          contents: write
         steps:
           - uses: actions/checkout@v5
             with:
