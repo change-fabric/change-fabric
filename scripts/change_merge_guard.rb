@@ -126,7 +126,7 @@ class ChangeMergeGuard
   def gate_violation(base, sha, policy, kind:)
     profile = policy.profile_for(base)
     apps = ChangeGateCheck.required_apps(repo_root, policy.apps_for(base))
-    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: repo_root)
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: repo_root, proof_level: policy.require_approval_proof)
     return check.overridden? ? nil : testcases_violation(base, sha, policy, check, kind: kind) if check.satisfied?
 
     conditions = policy.admin_bypass_conditions

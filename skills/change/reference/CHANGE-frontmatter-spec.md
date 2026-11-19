@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.24.0
+Schema version: 0.25.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -1052,6 +1052,7 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.promotion.<ref>.require_prior_tag` | string (glob) | no | (0.9.0) Tag rules only. A published tag matching this glob must already point at the same commit. |
 | `change_policy.promotion.<ref>.require_scheduled.<schedule>.max_age_days` | integer | no | (0.20.0) An opt-in freshness gate: the named `change_config.schedules` entry must have passed within this many days (1 to 90). Off unless a rule sets it; a PR merge into trunk never waits on it. `doctor` warns when a branch rule names a `runner: local` schedule, since the merge can be checked on another machine. |
 | `change_policy.promotion.<ref>.require_testcases` | boolean | no (default false) | (0.10.0) Additionally requires the recorded comprehensive pass for this ref to carry a passing `testcases` lane. Opt-in and stricter than `require_change_pass` alone, which asks only whether the run passed overall and is satisfied by a run that never ran the lane. Fails closed: a record with no entry for the lane is not a pass. |
+| `change_policy.require_approval_proof` | `local` or `remote` | no (default unset) | (0.25.0) What the merge and tag gates require of the approval records (`change_approve.rb`) and overrides (`change_override.rb`) for the commit. An invalid, tampered or sync-conflicted proof is refused at every setting. `local` also refuses a record with no proof and accepts any proof that verifies, terminal TOTP included. `remote` accepts only a proof carrying a signed approval console receipt: a phone passkey approval, or a terminal approval the console accepted live or on sync. Unset is the compatibility window: a record with no proof still passes, with a warning. Any other value is a schema error. |
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
@@ -1892,3 +1893,6 @@ root `RELEASING.md`.
   `change_policy.delivery` (absolute guards, pacing, human checkpoints, and
   a flag-off-first breach response with roast-gated, time-boxed triage).
   Validated with schema-fixed floors and reported by `doctor`.
+- 0.25.0: additive. Adds `change_policy.require_approval_proof` (`local` or
+  `remote`). The merge and tag gates verify every approval and override
+  proof offline; unset, a record with no proof still passes with a warning.

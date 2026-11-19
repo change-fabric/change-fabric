@@ -36,7 +36,7 @@ class ChangeApprovalStore
   # `steps` is [[step, digest], ...]. Merges into what is already on record for
   # this sha, so approving a second profile's steps keeps the first. An
   # optional `proof` (see scripts/approval_console) rides on each added entry;
-  # nothing reads or enforces it yet.
+  # ChangeGateCheck verifies it.
   def record(steps:, by:, proof: nil)
     return if @sha.empty?
 
@@ -52,6 +52,26 @@ class ChangeApprovalStore
   end
 
   def path = File.join(@root, "#{@sha}.json")
+
+  # The raw entries on record, proofs included, for the gate's proof check.
+  def entries = Array(read&.fetch('approved', nil)).select { |entry| entry.is_a?(Hash) }
+
+  # Rewrites the proof of every entry whose proof body is `body` (a sync
+  # attaching a console receipt, or marking a conflict). Returns the count.
+  def update_proofs(body)
+    record = read
+    return 0 unless record
+
+    count = 0
+    record['approved'] = Array(record['approved']).map do |entry|
+      next entry unless entry.is_a?(Hash) && entry.dig('proof', 'body') == body
+
+      count += 1
+      entry.merge('proof' => yield(entry['proof']))
+    end
+    write(record) if count.positive?
+    count
+  end
 
   private
 

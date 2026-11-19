@@ -18,6 +18,19 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.25.0] - 2026-11-19
+
+Approval proofs at the release gates. Additive for CHANGE.md.
+
+### Added
+
+- `change_policy.require_approval_proof` (`local` or `remote`). The merge and
+  tag gates verify every stored approval and override proof offline. `local`
+  refuses a record without a proof; `remote` also requires a signed approval
+  console receipt. An invalid or sync-conflicted proof is refused at every
+  setting, and unset keeps the compatibility window: a record with no proof
+  still passes, with a warning.
+
 ## [0.24.0] - 2026-11-18
 
 Progressive delivery: a flagged feature walks named cohorts under absolute

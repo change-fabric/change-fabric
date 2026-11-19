@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.24.0'
+  VERSION = '0.25.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -562,6 +562,10 @@ module ChangeSchema
     # freshness gate; the named schedule must have passed within
     # max_age_days. Off unless a rule sets it; PR merges never wait on it.
     'change_policy.promotion.<ref>.require_scheduled.<schedule>.max_age_days',
+    # require_approval_proof (0.25.0): local accepts any verified approval
+    # proof, remote only one carrying a console receipt; unset, a record with
+    # no proof still passes with a warning. An invalid proof always fails.
+    'change_policy.require_approval_proof',
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
     'change_policy.admin_bypass.conditions',
@@ -696,6 +700,15 @@ module ChangeSchema
   # The accepted change_policy.gate.require_on values (0.14.0).
   GATE_SCOPES = %w[every_merge promotion].freeze
   GATE_KEYS = %w[require_on trunk require_change_pass].freeze
+
+  APPROVAL_PROOF_LEVELS = %w[local remote].freeze
+
+  def self.approval_proof_errors(policy)
+    return [] unless policy.is_a?(Hash) && policy.key?('require_approval_proof')
+    return [] if APPROVAL_PROOF_LEVELS.include?(policy['require_approval_proof'])
+
+    [ "change_policy.require_approval_proof must be one of #{APPROVAL_PROOF_LEVELS.join(', ')}" ]
+  end
 
   # Every problem with change_policy.gate.require_on / gate.trunk, as messages
   # naming the field. Empty when both are absent or valid.

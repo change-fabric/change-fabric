@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.25.0": {
+    version: "0.25.0",
+    date: "2026-11-19",
+    headline: "Approval proofs: the release gates verify who approved a step or an override.",
+    highlights: [
+      {
+        title: "change_policy.require_approval_proof",
+        body:
+          "local accepts any verified approval proof, terminal TOTP included; remote requires a signed approval console receipt. An invalid proof is refused at every setting.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. Unset, records without a proof still pass with a warning.",
+  },
   "0.24.0": {
     version: "0.24.0",
     date: "2026-11-18",
