@@ -1,0 +1,5 @@
+{"_unverified":true,"README":"Synthesized from binary strings (usage_limit_reached, 'You have hit your usage limit for') in the shape of the verified exec_model_rejected.jsonl error events. Not a real capture."}
+{"type":"thread.started","thread_id":"00000000-0000-7000-8000-000000000002"}
+{"type":"turn.started"}
+{"type":"error","message":"{\"type\":\"error\",\"status\":429,\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"You've hit your usage limit for GPT-5.5. Try again later.\",\"resets_in_seconds\":3600}}"}
+{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":429,\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"You've hit your usage limit for GPT-5.5. Try again later.\",\"resets_in_seconds\":3600}}"}}

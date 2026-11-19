@@ -279,6 +279,8 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   begin
+    # A roast critic call must not fire cf hooks: allow, do nothing.
+    (puts '{}'; exit 0) if ENV['CF_ROAST_CRITIC'] == '1'
     host, event = ARGV
     puts JSON.generate(CfHostHook.new(host: host, event: event, payload: JSON.parse($stdin.read)).call)
   rescue StandardError => e
