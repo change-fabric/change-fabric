@@ -99,13 +99,15 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     out = StringIO.new
     status = nil
     sleeper = lambda do |_s|
-      body = @db.items.values.find { |item| item["sk"].to_s.start_with?("REQ#") }["body"]
+      body = pending_request_body
       status ||= phone_approve(body, totp: totp)
       @now += 3
     end
     result = ApprovalConsole::Remote.approve(attrs, store: @store, client: client, out: out, sleeper: sleeper, clock: -> { @now })
     [ result, out.string, status ]
   end
+
+  def pending_request_body = @db.items.values.find { |item| item["sk"].to_s.start_with?("REQ#") }["body"]
 
   def terminal(attrs, typed: code)
     stdin = StringIO.new("#{typed}\n")
@@ -114,8 +116,8 @@ class ApprovalConsoleRemoteTest < Minitest::Test
 
   def gate(level) = ChangeGateCheck.new(sha: SHA, profile: nil, root: @repo, proof_level: level, proof_store: @store)
 
-  def record_override(proof)
-    ChangeOverrideStore.new(SHA).record(reason: "hotfix", recorded_by: "t", proof: proof)
+  def record_override(proof, reason: "hotfix")
+    ChangeOverrideStore.new(SHA).record(reason: reason, recorded_by: "t", proof: proof)
   end
 
   # ----- the phone path --------------------------------------------------
@@ -246,7 +248,7 @@ class ApprovalConsoleRemoteTest < Minitest::Test
 
   def test_a_hand_fabricated_terminal_proof_passes_local_only
     body = ApprovalConsole::Remote.build_body(override_attrs, @store, now: @now)
-    record_override("kind" => "totp-terminal", "body" => body, "totp_step" => 1, "receipt" => nil)
+    record_override({ "kind" => "totp-terminal", "body" => body, "totp_step" => 1, "receipt" => nil })
     assert gate("local").overridden?, "local accepts a terminal proof the CLI could have written"
     refute gate("remote").overridden?
   end
@@ -263,8 +265,8 @@ class ApprovalConsoleRemoteTest < Minitest::Test
 
   def test_an_override_proof_for_another_reason_is_refused
     result = terminal(override_attrs(reason: "something else"))
-    record_override(result.proof)
-    refute gate(nil).overridden?
+    record_override(result.proof, reason: "hotfix")
+    refute gate(nil).overridden?, "the proof signs another reason than the record states"
   end
 
   def test_step_approvals_are_verified_as_a_group
@@ -279,12 +281,14 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     assert_match(/items do not match/, problem, "an entry riding on another approval's proof is refused")
   end
 
+  FakeStdin = Struct.new(:tty?)
+
   # ----- CLI verbs -------------------------------------------------------
 
   def cli(argv, tty: true, env: {}, io: {}, reveal: StringIO.new)
     out = StringIO.new
     err = StringIO.new
-    stdin = Struct.new(:tty?).new(tty)
+    stdin = FakeStdin.new(tty)
     status = ApprovalConsoleCli.run(argv, stdin: stdin, stdout: out, stderr: err, env: env, store: @store, tty_open: -> { reveal },
                                           parents: -> { [] }, io: { client: client, clock: -> { @now } }.merge(io))
     [ status, out.string, err.string ]
@@ -292,7 +296,7 @@ class ApprovalConsoleRemoteTest < Minitest::Test
 
   def test_request_for_a_carve_out_waits_and_prints_the_verified_proof
     sleeper = lambda do |_s|
-      body = @db.items.values.find { |item| item["sk"].to_s.start_with?("REQ#") }["body"]
+      body = pending_request_body
       phone_approve(body)
       @now += 3
     end
@@ -340,16 +344,18 @@ class ApprovalConsoleRemoteTest < Minitest::Test
   class FakeOperator
     attr_reader :puts_made
 
-    def initialize(test, creds: {})
-      @test = test
+    def initialize(receipt_pem:, creds: {}, url: "https://#{HOST}/")
+      @receipt_pem = receipt_pem
       @creds = creds
+      @url = url
       @puts_made = []
+      @calls = 0
     end
 
-    def function_url(_name) = "https://#{HOST}/"
+    def function_url(_name) = @url
     def function_env(_name) = { "TABLE_NAME" => "t", "SEED_KEY_ID" => "seed", "RECEIPT_KEY_ID" => "receipt" }
     def encrypt_seed(_key, _seed, _mid, dir:) = "cipher"
-    def receipt_public_pem(_key) = @test.signer_pem
+    def receipt_public_pem(_key) = @receipt_pem
 
     def put_new(_table, item)
       @puts_made << item
@@ -357,15 +363,13 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     end
 
     def credentials(_table)
-      @calls = @calls.to_i + 1
+      @calls += 1
       @calls > 1 ? @creds.merge("new-cred" => "cose") : @creds
     end
   end
 
-  def signer_pem = @signer.public_pem
-
   def test_enroll_seeds_rows_shows_the_token_on_the_tty_only_and_pins
-    operator = FakeOperator.new(self)
+    operator = FakeOperator.new(receipt_pem: @signer.public_pem)
     reveal = StringIO.new
     status, out, err = cli(%W[enroll --url https://#{HOST}/ --profile personal], reveal: reveal,
                                                                                 io: { operator: ->(**) { operator }, sleeper: ->(_) { } })
@@ -379,7 +383,7 @@ class ApprovalConsoleRemoteTest < Minitest::Test
   end
 
   def test_enroll_skips_the_token_when_a_passkey_exists_and_refuses_agents_and_bad_urls
-    operator = FakeOperator.new(self, creds: @passkey.pinned)
+    operator = FakeOperator.new(receipt_pem: @signer.public_pem, creds: @passkey.pinned)
     status, = cli(%W[enroll --url https://#{HOST}/ --profile personal], io: { operator: ->(**) { operator } })
     assert_equal 0, status
     assert_equal %w[META SEED], operator.puts_made.map { |item| item["sk"] }
@@ -387,12 +391,12 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     status, _, err = cli(%W[enroll --url https://#{HOST}/ --profile personal], env: { "CLAUDECODE" => "1" })
     assert_equal 2, status
     assert_match(/agent harness/, err)
-    assert_equal 1, cli(%w[enroll --url https://example.com/ --profile personal])[0]
+    status, = cli(%w[enroll --url https://example.com/ --profile personal])
+    assert_equal 1, status
   end
 
   def test_enroll_refuses_when_the_function_answers_on_another_url
-    operator = FakeOperator.new(self)
-    def operator.function_url(_name) = "https://other.lambda-url.us-east-1.on.aws/"
+    operator = FakeOperator.new(receipt_pem: @signer.public_pem, url: "https://other.lambda-url.us-east-1.on.aws/")
     status, _, err = cli(%W[enroll --url https://#{HOST}/ --profile personal], io: { operator: ->(**) { operator } })
     assert_equal 2, status
     assert_match(/answers on/, err)
