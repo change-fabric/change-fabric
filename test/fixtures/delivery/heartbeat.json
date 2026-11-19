@@ -1,0 +1,8 @@
+{
+  "protocol": "cf.heartbeat/1",
+  "controller_id": "worker-1",
+  "fencing_token": 12,
+  "rollout": "new-checkout",
+  "rollout_revision": 3,
+  "at": "2026-11-18T12:01:00Z"
+}

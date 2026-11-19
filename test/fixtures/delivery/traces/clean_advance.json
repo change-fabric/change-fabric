@@ -1,0 +1,108 @@
+{
+  "name": "clean_advance",
+  "description": "Passing windows past dwell and min_requests advance to the next stage, and the clock restarts there.",
+  "policy": {
+    "max_telemetry_age_s": 180,
+    "min_baseline_requests": 50
+  },
+  "rollout": {
+    "stages": [
+      {
+        "cohort": "internal",
+        "dwell_minutes": 60,
+        "min_requests": 20
+      },
+      {
+        "cohort": "pilot",
+        "dwell_minutes": 60,
+        "min_requests": 50
+      },
+      {
+        "cohort": "everyone"
+      }
+    ],
+    "pacing": {
+      "advance": "auto",
+      "money_affecting": false
+    },
+    "guards": {
+      "new_5xx_on_flagged_spans": {
+        "max": 0
+      },
+      "new_exceptions_on_flagged_spans": {
+        "max": 0
+      },
+      "p95_ms_vs_baseline": {
+        "max_ratio": 1.25
+      }
+    }
+  },
+  "steps": [
+    {
+      "requests": 30,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 0
+    },
+    {
+      "requests": 30,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 1800
+    },
+    {
+      "requests": 30,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 3600
+    },
+    {
+      "requests": 30,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 5400
+    }
+  ],
+  "expect": [
+    {
+      "step": 0,
+      "verdict": "pass",
+      "action": "hold",
+      "stage": "internal"
+    },
+    {
+      "step": 1,
+      "verdict": "pass",
+      "action": "hold",
+      "stage": "internal"
+    },
+    {
+      "step": 2,
+      "verdict": "pass",
+      "action": "advance",
+      "stage": "pilot"
+    },
+    {
+      "step": 3,
+      "verdict": "pass",
+      "action": "hold",
+      "stage": "pilot"
+    }
+  ]
+}

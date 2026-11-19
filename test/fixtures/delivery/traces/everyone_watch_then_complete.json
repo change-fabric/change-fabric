@@ -1,0 +1,82 @@
+{
+  "name": "everyone_watch_then_complete",
+  "description": "At everyone the guards keep running for 7 days; then the rollout is complete.",
+  "policy": {
+    "max_telemetry_age_s": 180,
+    "min_baseline_requests": 50
+  },
+  "rollout": {
+    "stages": [
+      {
+        "cohort": "everyone"
+      }
+    ],
+    "pacing": {
+      "advance": "auto",
+      "money_affecting": false
+    },
+    "guards": {
+      "new_5xx_on_flagged_spans": {
+        "max": 0
+      },
+      "new_exceptions_on_flagged_spans": {
+        "max": 0
+      },
+      "p95_ms_vs_baseline": {
+        "max_ratio": 1.25
+      }
+    }
+  },
+  "steps": [
+    {
+      "requests": 30,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 0
+    },
+    {
+      "requests": 30,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 86400
+    },
+    {
+      "requests": 30,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 604800
+    }
+  ],
+  "expect": [
+    {
+      "step": 0,
+      "verdict": "pass",
+      "action": "hold",
+      "stage": "everyone"
+    },
+    {
+      "step": 1,
+      "verdict": "pass",
+      "action": "hold",
+      "stage": "everyone"
+    },
+    {
+      "step": 2,
+      "verdict": "pass",
+      "action": "complete",
+      "stage": "everyone"
+    }
+  ]
+}

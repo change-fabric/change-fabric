@@ -1,0 +1,76 @@
+{
+  "name": "zero_traffic_unknown",
+  "description": "Zero traffic in a window is unknown, never pass, and never advances.",
+  "policy": {
+    "max_telemetry_age_s": 180,
+    "min_baseline_requests": 50
+  },
+  "rollout": {
+    "stages": [
+      {
+        "cohort": "internal",
+        "dwell_minutes": 60,
+        "min_requests": 20
+      },
+      {
+        "cohort": "pilot",
+        "dwell_minutes": 60,
+        "min_requests": 50
+      },
+      {
+        "cohort": "everyone"
+      }
+    ],
+    "pacing": {
+      "advance": "auto",
+      "money_affecting": false
+    },
+    "guards": {
+      "new_5xx_on_flagged_spans": {
+        "max": 0
+      },
+      "new_exceptions_on_flagged_spans": {
+        "max": 0
+      },
+      "p95_ms_vs_baseline": {
+        "max_ratio": 1.25
+      }
+    }
+  },
+  "steps": [
+    {
+      "requests": 0,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 0
+    },
+    {
+      "requests": 0,
+      "new_5xx": 0,
+      "new_exceptions": 0,
+      "p95_ratio": 1.0,
+      "baseline_requests": 500,
+      "coverage": "complete",
+      "telemetry_age_s": 10,
+      "at_s": 3600
+    }
+  ],
+  "expect": [
+    {
+      "step": 0,
+      "verdict": "unknown",
+      "action": "hold",
+      "stage": "internal"
+    },
+    {
+      "step": 1,
+      "verdict": "unknown",
+      "action": "hold",
+      "stage": "internal"
+    }
+  ]
+}
