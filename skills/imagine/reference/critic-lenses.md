@@ -1,6 +1,6 @@
 # Critic lenses
 
-Each round launches these four critics as parallel background agents. Give each the brief, the current `draft.md`, the picks, the evidence paths, and its lens below. Each returns findings with a verdict (keep, change, cut), a reason, and a severity (blocker, major, minor). A finding names where in the draft it applies.
+Each round launches these four critics as parallel background agents (model {{model:critic}}, each description starting `[role:critic]`). Give each the brief, the current `draft.md`, the picks, the evidence paths, and its lens below. Each returns findings with a verdict (keep, change, cut), a reason, and a severity (blocker, major, minor). A finding names where in the draft it applies.
 
 When `ui: true`, also run cf:design's usability, accessibility, and simplicity critics as described in `skills/design/SKILL.md`.
 

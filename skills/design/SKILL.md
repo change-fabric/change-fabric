@@ -51,7 +51,7 @@ Each round runs the same five steps. At most `critic_rounds` rounds, read from `
 
 1. Read evidence. Record each source path and the anchor (heading or line) you will cite.
 2. Draft. Write an opinionated DESIGN.md in memory from `reference/design-md-template.md`, plus a draft tokens.css. Name the module set, base unit, and scale ratio per cf:fractal. On round two and later, draft from the previous round's revision.
-3. Critique. Spawn four background critic agents in parallel, each given the existing system (if any), the draft, and the evidence paths:
+3. Critique. Spawn four background critic agents in parallel (model {{model:critic}}, each description starting `[role:critic]`), each given the existing system (if any), the draft, and the evidence paths:
    - usability: loads cf:usability by name and inspects the draft against each heuristic it names
    - accessibility: checks against cf:prototyping's `reference/wcag-design-time.md`; AA is required, AAA advisory
    - brand: does the system say what the product is, and does it honor the brand assets; also checks the draft against `reference/banned-defaults.md` (dated generic AI-look defaults)

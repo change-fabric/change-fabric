@@ -1,7 +1,7 @@
 # cf:qa validation prompt (run on a host with real Docker access)
 
-This repo's cloud session proved the `cf:qa` orchestration (opus scope ->
-clarify -> opus refine -> sonnet execute -> report) end to end against a
+This repo's cloud session proved the `cf:qa` orchestration (author-role scope ->
+clarify -> author-role refine -> worker-role execute -> report) end to end on the role defaults against a
 throwaway two-page Express app, using the sandbox's pre-installed local
 Chromium in place of the ephemeral browserless Docker container, because
 Docker registry pulls are network-blocked in that sandbox (the daemon runs,
@@ -24,13 +24,13 @@ them when done. For each app, invoke `cf:qa` ad hoc with a natural-language
 target describing a real flow in that app, let it run its full phase
 sequence, and confirm:
 
-- Phase 1 (opus, background) produces a plan with concrete, disambiguated
+- Phase 1 (author role, background) produces a plan with concrete, disambiguated
   assertions and only flags `open_questions` that are genuinely ambiguous.
 - Phase 2 only calls `AskUserQuestion` when phase 1 actually found ambiguity.
 - Phase 3 correctly loops on your answers (test at least one app with a
   deliberately ambiguous target to exercise a second round) and hard-stops at
   3 rounds.
-- Phase 4 (sonnet, background) launches the browserless Chromium image with
+- Phase 4 (worker role, background) launches the browserless Chromium image with
   `docker run --rm ...` (verify with `docker ps` mid-run that a container
   exists, and that it is gone after), connects Playwright over CDP, and tears
   the container down even when a flow fails.

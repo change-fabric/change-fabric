@@ -58,10 +58,10 @@ Privacy: before any call, the brief, `--text` files, the transcript, and prior r
 
 ## Lenses
 
-A lens is the body of a cf rubric skill (for example cf:terraform, cf:aws, cf:refactoring) added to the critic prompt as an extra rubric. cf:simplicity, the anti-over-engineering rubric, is a lens only: it has no `auto:` block, so the path router never suggests it and it applies only when named with `--lens cf:simplicity`. `--lens NAME` (repeatable) takes `aws` or `cf:aws`. Ruby routes, a haiku agent culls:
+A lens is the body of a cf rubric skill (for example cf:terraform, cf:aws, cf:refactoring) added to the critic prompt as an extra rubric. cf:simplicity, the anti-over-engineering rubric, is a lens only: it has no `auto:` block, so the path router never suggests it and it applies only when named with `--lens cf:simplicity`. `--lens NAME` (repeatable) takes `aws` or `cf:aws`. Ruby routes, a classifier-role agent culls:
 
 1. Run `ruby ~/.claude/cf/bin/roast.rb infer --text FILE...` and read the `roast lenses suggested:` line, the rubric skills whose paths match the inputs (including the `+++ b/` paths inside a diff). Nothing is applied silently.
-2. If candidates exist and the user named no lens, run one Agent (subagent_type general-purpose, model haiku, foreground). Give it the input file paths and each candidate's `~/.claude/skills/cf:NAME/SKILL.md`. Ask for a JSON list of the candidates whose rubric clearly applies to the input, with a one-line reason each. Drop any name it returns that is not in the candidate list.
+2. If candidates exist and the user named no lens, run one Agent (subagent_type general-purpose, model {{model:classifier}}, description starting `[role:classifier]`, foreground). Give it the input file paths and each candidate's `~/.claude/skills/cf:NAME/SKILL.md`. Ask for a JSON list of the candidates whose rubric clearly applies to the input, with a one-line reason each. Drop any name it returns that is not in the candidate list.
 3. Pass each kept name as `--lens cf:NAME`. A lens the user named always applies, culled or not.
 4. Only `group: rubrics` skills are lenses; any other name exits 2. Lenses apply to stills, text, and `--video` roasts; in video mode they append to the video rubric as they do for stills. Lens bodies join the cache key, the estimate, and the sensitive-term scan.
 

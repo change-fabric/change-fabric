@@ -15,7 +15,7 @@ class ModelRolesLintTest < Minitest::Test
   TIER = /\b(opus|sonnet|haiku)\b/i
   MARKER = /model-roles: allow(?<reason>.*)/
   # file => why a marker may stay once the allowlist is gone (Phase 6).
-  MARKER_EXCEPTIONS = {}.freeze
+  MARKER_EXCEPTIONS = { "skills/walkthrough/reference/storyboard-schema.md" => "Opus names the audio codec" }.freeze
 
   def self.key(path, line) = Digest::SHA256.hexdigest("#{path}\n#{line}")
 
