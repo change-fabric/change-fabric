@@ -26,6 +26,10 @@ class StubTagGuard < ChangeTagGuard
 
   def repo_root = @root
 
+  def default_branch(_root)
+    "main"
+  end
+
   def base_policy(root, trunk)
     return super if @stub_base_policy == :same_as_root
 
@@ -281,5 +285,32 @@ class ChangeTagGuardTest < Minitest::Test
     git("tag", "staging/v1.0.0")
 
     assert_nil stubbed_decision("git push origin staging/v1.0.0", base_policy: nil)
+  end
+
+  def test_trunk_and_ancestor_rule_come_from_the_base_not_the_working_tree
+    write_change_md(ANCESTOR_POLICY)
+    git("tag", "production/v1.0.0")
+    record_pass
+    # Base requires an ancestor of main; the tagged commit is on main, so it
+    # allows. A working-tree CHANGE.md redirecting the trunk and dropping the
+    # ancestor rule must not change that, and must not make a non-ancestor pass.
+    File.write(File.join(@repo, "CHANGE.md"),
+               "---\nchange_policy:\n  gate: { trunk: other }\n  promotion: {}\n---\n\nbody\n")
+    assert_nil stubbed_decision("git push origin production/v1.0.0", base_policy: :same_as_root)
+
+    git("checkout", "-q", "-b", "feature")
+    write_file("f.txt", "x")
+    git("add", "f.txt")
+    git("commit", "-q", "-m", "off trunk")
+    git("tag", "production/v2.0.0")
+    record_pass
+    assert_equal "deny", stubbed_decision("git push origin production/v2.0.0", base_policy: :same_as_root)
+  end
+
+  def test_default_branch_is_resolved_from_origin_head
+    git("fetch", "-q", "origin")
+    git("remote", "set-head", "origin", "main")
+    guard = ChangeTagGuard.new({})
+    assert_equal "main", guard.send(:default_branch, @repo)
   end
 end

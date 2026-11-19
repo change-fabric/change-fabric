@@ -55,9 +55,8 @@ class ChangeTagGuard
   # check.
   def violation
     root = repo_root or return nil
-    local_policy = ChangePolicy.for_repo(root) or return nil
-    trunk = local_policy.trunk_branch
-    policy = base_policy(root, trunk)
+    trunk = default_branch(root)
+    policy = trunk ? base_policy(root, trunk) : :unreadable
     return unreadable_violation(root, trunk) if policy == :unreadable
     return nil if policy.nil?
     return nil if policy.protected_tag_patterns.empty?
@@ -69,11 +68,23 @@ class ChangeTagGuard
     reasons.empty? ? nil : reasons.join(' ')
   end
 
-  # The gating policy as CHANGE.md stands on the trunk branch, never the
-  # working tree (#553). Only the *name* of the trunk branch is read locally
-  # (via `local_policy`, above) - a low-stakes bootstrap, not itself a
-  # gating decision - before the policy content that actually decides
-  # anything is re-read from that branch's own published CHANGE.md.
+  # The gating policy as CHANGE.md stands on the repo's default branch,
+  # never the working tree (#553). The trunk name comes from origin itself,
+  # not from CHANGE.md, so a PR cannot redirect the guard by editing its own
+  # copy; every tag-rule field (require_trunk_ancestor included) is then read
+  # from that branch's published CHANGE.md only.
+  def default_branch(root)
+    out, status = Open3.capture2e('git', '-C', root, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD')
+    return out.strip.delete_prefix('origin/') if status.success? && !out.strip.empty?
+
+    out, status = Open3.capture2e('gh', 'repo', 'view', '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name',
+                                  chdir: root)
+    name = out.strip
+    status.success? && !name.empty? ? name : nil
+  rescue StandardError
+    nil
+  end
+
   def base_policy(root, trunk)
     Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', trunk)
     ChangePolicy.for_ref(root, "origin/#{trunk}")
@@ -84,7 +95,7 @@ class ChangeTagGuard
   def unreadable_violation(root, trunk)
     return nil unless File.exist?(File.join(root, 'CHANGE.md'))
 
-    "publishing this tag is gated: the trunk branch's ('#{trunk}') CHANGE.md could not be read " \
+    "publishing this tag is gated: the default branch's ('#{trunk || 'unresolved'}') CHANGE.md could not be read " \
       "(fetch or git show failed), so this guard fails closed rather than judge the tag " \
       "by the working tree's own copy. #{ChangeGateCheck.escape_note}"
   end
