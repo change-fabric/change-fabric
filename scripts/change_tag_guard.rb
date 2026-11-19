@@ -56,13 +56,13 @@ class ChangeTagGuard
   def violation
     root = repo_root or return nil
     trunk = default_branch(root)
+    refs = ChangeTagRefs.for_command(command, root)
+    return nil if refs.empty?
+
     policy = trunk ? base_policy(root, trunk) : :unreadable
     return unreadable_violation(root, trunk) if policy == :unreadable
     return nil if policy.nil?
     return nil if policy.protected_tag_patterns.empty?
-
-    refs = ChangeTagRefs.for_command(command, root)
-    return nil if refs.empty?
 
     reasons = refs.flat_map { |tag, sha| tag_violations(policy, tag, sha, root) }
     reasons.empty? ? nil : reasons.join(' ')
@@ -86,7 +86,9 @@ class ChangeTagGuard
   end
 
   def base_policy(root, trunk)
-    Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', trunk)
+    _out, fetched = Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', trunk)
+    return :unreadable unless fetched.success?
+
     ChangePolicy.for_ref(root, "origin/#{trunk}")
   rescue ChangePolicy::Unreadable
     :unreadable

@@ -72,10 +72,19 @@ class ChangePolicy
   # read it cannot trust.
   def self.for_ref(root, ref)
     out, ok, err = git_show_change_md(root, ref)
-    return new(ChangeFrontmatter.parse(out)['change_policy'], "#{ref}:CHANGE.md") if ok
+    return parse_ref_policy(out, ref) if ok
     return nil if err =~ /does not exist in/
 
     raise Unreadable, "cannot read CHANGE.md at #{ref} in #{root}: #{err.strip}"
+  end
+
+  # Any parse failure (Psych::DisallowedClass for an unquoted date,
+  # Psych::AliasesNotEnabled, a syntax error) becomes Unreadable so gating
+  # callers fail closed instead of a stray exception being swallowed.
+  def self.parse_ref_policy(out, ref)
+    new(ChangeFrontmatter.parse(out)['change_policy'], "#{ref}:CHANGE.md")
+  rescue StandardError => e
+    raise Unreadable, "cannot parse CHANGE.md at #{ref}: #{e.class}: #{e.message}"
   end
 
   def self.git_show_change_md(root, ref)

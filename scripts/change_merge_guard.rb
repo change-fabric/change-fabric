@@ -70,7 +70,9 @@ class ChangeMergeGuard
   # so `violation` can decide fail-open-vs-fail-closed against the
   # working-tree CHANGE.md's mere presence.
   def base_policy(root, base)
-    Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', base)
+    _out, fetched = Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', base)
+    return :unreadable unless fetched.success?
+
     ChangePolicy.for_ref(root, "origin/#{base}")
   rescue ChangePolicy::Unreadable
     :unreadable

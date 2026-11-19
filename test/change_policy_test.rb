@@ -328,4 +328,12 @@ class ChangePolicyTest < Minitest::Test
       assert_raises(ChangePolicy::Unreadable) { ChangePolicy.for_ref(not_a_repo, "HEAD") }
     end
   end
+
+  def test_for_ref_raises_unreadable_when_safe_load_rejects_the_yaml
+    ref_repo do |root|
+      commit_change_md(root, "date: 2026-11-19\nchange_policy:\n  promotion:\n    staging: { require_change_pass: true }\n")
+
+      assert_raises(ChangePolicy::Unreadable) { ChangePolicy.for_ref(root, "HEAD") }
+    end
+  end
 end

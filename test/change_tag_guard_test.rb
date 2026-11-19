@@ -313,4 +313,17 @@ class ChangeTagGuardTest < Minitest::Test
     guard = ChangeTagGuard.new({})
     assert_equal "main", guard.send(:default_branch, @repo)
   end
+
+  def test_unreadable_trunk_policy_still_allows_a_push_that_publishes_no_tag
+    write_change_md(BASIC_POLICY)
+
+    assert_nil stubbed_decision("git push origin feature", base_policy: :unreadable)
+  end
+
+  def test_a_failed_fetch_reads_as_unreadable_even_with_a_cached_trunk
+    git("fetch", "-q", "origin")
+    git("remote", "set-url", "origin", File.join(@repo, "no-such-remote"))
+    guard = ChangeTagGuard.new({})
+    assert_equal :unreadable, guard.send(:base_policy, @repo, "main")
+  end
 end
