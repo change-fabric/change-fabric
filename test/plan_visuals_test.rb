@@ -77,12 +77,66 @@ class PlanVisualsTest < Minitest::Test
   def test_a_complete_set_passes
     chart = '<svg data-chart-type="bar"><title>Cost</title></svg>'
     files = { "diagrams/flow.svg" => GOOD_SVG, "diagrams/cost.svg" => chart,
-              "roast/round-1.json" => "{}", "roast/round-1.response.json" => "{}" }
+              "roast/round-1.json" => ROUND, "roast/round-1.response.json" => RESPONSE }
     with_plan(plan: "#{VISUALS}- diagrams/cost.svg, bar, cost.\n\n## Roast\n\nOne round.\n", files:) do |ok, lines|
       assert ok, lines.join("\n")
       assert_includes lines, "visuals: diagrams/cost.svg present"
       assert_includes lines, "roast/round-1.json: response present"
     end
+  end
+
+  ROUND = JSON.generate("score" => 7, "issues" => [ { "priority" => "P1", "where" => "Phase 1", "problem" => "p", "fix" => "f" } ])
+  RESPONSE = JSON.generate("responses" => [ { "where" => "Phase 1", "problem" => "p", "verdict" => "accept", "change" => "f" } ])
+
+  def test_a_response_with_the_wrong_shape_fails
+    files = { "diagrams/flow.svg" => GOOD_SVG, "roast/round-1.json" => ROUND, "roast/round-1.response.json" => "{}" }
+    with_plan(plan: VISUALS, files:) do |ok, lines|
+      refute ok
+      assert(lines.any? { |l| l.start_with?("roast/round-1.response.json: INVALID") }, lines.join("\n"))
+    end
+  end
+
+  def test_a_response_that_does_not_parse_fails
+    files = { "diagrams/flow.svg" => GOOD_SVG, "roast/round-1.json" => ROUND, "roast/round-1.response.json" => "{nope" }
+    with_plan(plan: VISUALS, files:) do |ok, lines|
+      refute ok
+      assert(lines.any? { |l| l.start_with?("roast/round-1.response.json: INVALID") }, lines.join("\n"))
+    end
+  end
+
+  def test_a_pending_visual_is_not_path_checked
+    with_plan(plan: "## Visuals\n\n- diagrams/flow.svg (pending), flow, the phase order.\n") do |ok, lines|
+      assert ok, lines.join("\n")
+      assert_includes lines, "visuals: diagrams/flow.svg pending, not drawn yet"
+    end
+  end
+
+  def test_visuals_deferred_with_a_reason_passes
+    plan = "## Visuals\n\nvisuals deferred: no Docker on this host\n\n- diagrams/flow.svg, flow, the phase order.\n"
+    with_plan(plan:) do |ok, lines|
+      assert ok, lines.join("\n")
+      assert_includes lines, "visuals: deferred (no Docker on this host)"
+    end
+  end
+
+  def test_visuals_deferred_without_a_reason_fails
+    with_plan(plan: "## Visuals\n\nvisuals deferred:\n") do |ok, lines|
+      refute ok
+      assert_includes lines, "visuals: deferred needs a reason (visuals deferred: <reason>)"
+    end
+  end
+
+  STEP_SEVEN = File.read(File.expand_path("../skills/plan/SKILL.md", __dir__))[/^7\. \*\*Write\.\*\*.*?(?=^7a\.)/m]
+
+  def test_write_step_defines_the_pending_and_deferred_forms
+    assert_includes STEP_SEVEN, "(pending)"
+    assert_includes STEP_SEVEN, "visuals deferred: <reason>"
+  end
+
+  def test_roast_step_documents_the_response_shape_helper_and_lens
+    assert_includes ROAST_STEP, '"responses"'
+    assert_includes ROAST_STEP, "roast.rb respond"
+    assert_includes ROAST_STEP, "--lens"
   end
 
   def test_a_section_with_no_visuals_passes
