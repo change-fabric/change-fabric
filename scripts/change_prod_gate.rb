@@ -7,6 +7,7 @@ require 'optparse'
 require 'time'
 require_relative 'approval_console/canonical'
 require_relative 'approval_console/verifier'
+require_relative 'change_prod_claim'
 require_relative 'change_prod_envelope'
 require_relative 'change_prod_store'
 
@@ -159,46 +160,46 @@ module ChangeProdGate
     out
   end
 
-  # Single use: the claim ref is created before any credential is requested. A
-  # create that fails means the approval was already consumed. It records the
-  # run id and attempt so credentials can be bound to exactly this attempt.
-  def claim(store:, request_id:, run_id:, attempt:, now: Time.now, push: true)
+  # Single use: a conditional put in the console's table, made before any
+  # credential is requested. A put that finds the key taken means the approval
+  # was already consumed; a missing table or role fails closed. The run id and
+  # attempt are recorded so credentials can be bound to exactly this attempt.
+  def claim(claim_store:, envelope:, run_id:, attempt:, now: Time.now)
     refuse('GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT are required to claim') if run_id.to_s.empty? || attempt.to_s.empty?
-    store.create('claims', request_id, { 'request_id' => request_id, 'run_id' => run_id.to_s, 'run_attempt' => attempt.to_s,
-                                         'claimed_at' => now.utc.iso8601 }, push: push)
-    Result.new(ok: true)
-  rescue ChangeProdStore::Exists => e
+    claim_store.put(ChangeProdClaim.item(request_id: envelope['request_id'], digest: envelope['digest'], run_id: run_id, attempt: attempt, now: now))
+    Result.new(ok: true, envelope: envelope)
+  rescue ChangeProdClaim::Exists => e
     Result.new(ok: false, reason: "approval already consumed: #{e.message}")
-  rescue ChangeProdStore::Error, Refuse => e
+  rescue ChangeProdClaim::Unavailable, Refuse => e
     Result.new(ok: false, reason: e.message)
   end
 
-  # Gate to the credential step. Read-only: only the run attempt that made the
-  # claim may proceed. A rerun of any job carries a higher attempt, and a job
-  # runs once per attempt, so a rerun needs a fresh approval.
-  def issue(store:, envelope:, run_id:, attempt:)
-    claimed = store.read('claims', envelope['request_id'])
-    same = !run_id.to_s.empty? && !attempt.to_s.empty? && claimed['run_id'] == run_id.to_s && claimed['run_attempt'] == attempt.to_s
-    refuse('this run attempt did not claim the approval; a rerun needs a fresh approval') unless same
+  # Gate to the credential step, read-only. The claim job exports the identity
+  # it claimed with; only that run attempt, for that digest, may proceed. A
+  # rerun of any job carries a higher attempt, so it needs a fresh approval.
+  # (If the console exposes a read path for claims, check it here as well.)
+  def issue(envelope:, run_id:, attempt:, claimed:)
+    same = [ run_id, attempt ].none? { |value| value.to_s.empty? } &&
+           claimed.values_at(:run_id, :attempt, :digest).none? { |value| value.to_s.empty? } &&
+           claimed[:run_id] == run_id.to_s && claimed[:attempt] == attempt.to_s && claimed[:digest] == envelope['digest']
+    refuse('this run attempt did not claim this approval; a rerun needs a fresh approval') unless same
     Result.new(ok: true, envelope: envelope)
-  rescue ChangeProdStore::Missing
-    Result.new(ok: false, reason: 'no claim exists for this approval')
-  rescue ChangeProdStore::Error, Refuse => e
+  rescue Refuse => e
     Result.new(ok: false, reason: e.message)
   end
 
   # CLI used by the generated workflow. Exit 0 only when every check passed.
-  def run(argv, env: ENV, stdout: $stdout, stderr: $stderr, now: Time.now)
+  def run(argv, env: ENV, stdout: $stdout, stderr: $stderr, now: Time.now, claim_store: nil)
     verb = argv.shift
     opts = parse(argv)
     case verb
     when 'verify' then cli_verify(opts, env, stdout, stderr, now)
-    when 'claim' then cli_claim(opts, env, stdout, stderr, now)
+    when 'claim' then cli_claim(opts, env, stdout, stderr, now, claim_store)
     when 'recheck' then cli_recheck(opts, env, stdout, stderr, now)
     when 'run' then refuse_run(stderr)
     else usage(stderr)
     end
-  rescue OptionParser::ParseError, ChangeProdEnvelope::Invalid, ChangeProdStore::Error, SystemCallError, JSON::ParserError => e
+  rescue OptionParser::ParseError, ChangeProdEnvelope::Invalid, ChangeProdStore::Error, ChangeProdClaim::Unavailable, SystemCallError, JSON::ParserError => e
     stderr.puts "[cf-prod] refused: #{e.message}"
     1
   end
@@ -214,6 +215,9 @@ module ChangeProdGate
       o.on('--default-branch NAME') { |v| opts[:default_branch] = v }
       o.on('--version-root PATH') { |v| opts[:version_root] = v }
       o.on('--remote NAME') { |v| opts[:remote] = v }
+      o.on('--claimed-run-id ID') { |v| opts[:claimed_run_id] = v }
+      o.on('--claimed-attempt N') { |v| opts[:claimed_attempt] = v }
+      o.on('--claimed-digest DIGEST') { |v| opts[:claimed_digest] = v }
     end.parse!(argv)
     opts
   end
@@ -224,6 +228,7 @@ module ChangeProdGate
     config = ChangeProdEnvelope.load_config(opts.fetch(:config))
     credentials = JSON.parse(File.read(opts.fetch(:credentials)))
     result = verify(store: store, request_id: opts.fetch(:request_id), config: config, credentials: credentials, allowed: opts[:allowed], now: now)
+    opts[:loaded_config] = config
     return [ store, result ] unless result.ok? && opts[:version_root]
 
     prov = provenance(root: opts[:version_root], envelope: result.envelope, github_ref: env['GITHUB_REF'].to_s, default_branch: opts[:default_branch])
@@ -236,32 +241,39 @@ module ChangeProdGate
     _store, result = verified(opts, env, now)
     return fail_with(stderr, result) unless result.ok?
 
-    output = env['GITHUB_OUTPUT']
-    lines = { 'environment' => result.envelope['environment'], 'version' => result.envelope['version'] }.map { |k, v| "#{k}=#{v}" }
-    output ? File.open(output, 'a') { |file| file.puts(lines) } : stdout.puts(lines)
+    export(env, stdout, 'environment' => result.envelope['environment'], 'version' => result.envelope['version'])
     stdout.puts "[cf-prod] verified #{result.envelope['digest'][0, 19]} (proof level #{result.level})"
     0
   end
 
-  def cli_claim(opts, env, stdout, stderr, now)
-    store, result = verified(opts, env, now)
+  def cli_claim(opts, env, stdout, stderr, now, claim_store)
+    _store, result = verified(opts, env, now)
     return fail_with(stderr, result) unless result.ok?
 
-    claim = claim(store: store, request_id: opts.fetch(:request_id), run_id: env['GITHUB_RUN_ID'], attempt: env['GITHUB_RUN_ATTEMPT'], now: now)
+    settings = ChangeProdClaim.settings(opts[:loaded_config])
+    claim_store ||= ChangeProdClaim::DynamoStore.new(table: settings[:table], region: settings[:region])
+    claim = claim(claim_store: claim_store, envelope: result.envelope, run_id: env['GITHUB_RUN_ID'], attempt: env['GITHUB_RUN_ATTEMPT'], now: now)
     return fail_with(stderr, claim) unless claim.ok?
 
+    export(env, stdout, 'claim_run_id' => env['GITHUB_RUN_ID'], 'claim_attempt' => env['GITHUB_RUN_ATTEMPT'], 'claim_digest' => result.envelope['digest'])
     stdout.puts '[cf-prod] claimed'
     0
+  end
+
+  def export(env, stdout, pairs)
+    lines = pairs.map { |key, value| "#{key}=#{value}" }
+    env['GITHUB_OUTPUT'] ? File.open(env['GITHUB_OUTPUT'], 'a') { |file| file.puts(lines) } : stdout.puts(lines)
   end
 
   # Run in the credential job, just before it assumes a role: the approval may
   # have expired while the job waited, and a job rerun must not reuse the claim.
   # Verifies again and checks this is the claiming attempt.
   def cli_recheck(opts, env, stdout, stderr, now)
-    store, result = verified(opts, env, now)
+    _store, result = verified(opts, env, now)
     return fail_with(stderr, result) unless result.ok?
 
-    issued = issue(store: store, envelope: result.envelope, run_id: env['GITHUB_RUN_ID'], attempt: env['GITHUB_RUN_ATTEMPT'])
+    claimed = { run_id: opts[:claimed_run_id], attempt: opts[:claimed_attempt], digest: opts[:claimed_digest] }
+    issued = issue(envelope: result.envelope, run_id: env['GITHUB_RUN_ID'], attempt: env['GITHUB_RUN_ATTEMPT'], claimed: claimed)
     return fail_with(stderr, issued) unless issued.ok?
 
     stdout.puts '[cf-prod] approval still valid for this attempt'

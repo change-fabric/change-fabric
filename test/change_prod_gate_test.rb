@@ -6,6 +6,7 @@ require "yaml"
 require "base64"
 require_relative "git_fixture"
 require_relative "support/soft_authenticator"
+require_relative "support/fake_claim_store"
 require_relative "../scripts/change_prod_gate"
 
 class ChangeProdGateTest < Minitest::Test
@@ -339,17 +340,75 @@ class ChangeProdGateTest < Minitest::Test
     assert_refused verify, /dated in the future/
   end
 
-  def test_claim_is_single_use
-    first = Gate.claim(store: @store, request_id: @id, run_id: 7, attempt: 1, now: NOW, push: false)
+  def test_claim_is_a_conditional_put_with_the_run_identity
+    claims = FakeClaimStore.new
+    first = Gate.claim(claim_store: claims, envelope: @envelope, run_id: 7, attempt: 1, now: NOW)
     assert_predicate first, :ok?
-    again = Gate.claim(store: @store, request_id: @id, run_id: 8, attempt: 1, now: NOW, push: false)
+    item = claims.items.fetch("CLAIM##{@id}")
+    assert_equal [ @envelope["digest"], "7", "1" ], item.values_at("digest", "run_id", "run_attempt").map { |value| value["S"] }
+    assert_equal "2026-11-18T12:10:00Z", item["claimed_at"]["S"]
+    assert_equal (NOW.to_i + 7200).to_s, item["expires_at"]["N"]
+    again = Gate.claim(claim_store: claims, envelope: @envelope, run_id: 8, attempt: 1, now: NOW)
     assert_refused again, /already consumed/
-    assert_equal "7", @store.read("claims", @id)["run_id"]
-    assert_equal "1", @store.read("claims", @id)["run_attempt"]
+    assert_equal "7", claims.items.fetch("CLAIM##{@id}")["run_id"]["S"]
   end
 
-  def test_claim_refuses_a_malformed_request_id
-    assert_refused Gate.claim(store: @store, request_id: "x", run_id: 1, attempt: 1, push: false), /not a uuid/
+  def test_deleting_a_git_ref_cannot_reopen_a_consumed_approval
+    claims = FakeClaimStore.new
+    Gate.claim(claim_store: claims, envelope: @envelope, run_id: 1, attempt: 1, now: NOW)
+    assert_empty @store.send(:git, "for-each-ref", "refs/cf-prod/claims").first.to_s
+    assert_raises(ChangeProdStore::Error) { @store.ref("claims", @id) }
+    assert_refused Gate.claim(claim_store: claims, envelope: @envelope, run_id: 2, attempt: 1, now: NOW), /already consumed/
+  end
+
+  def test_claim_fails_closed_when_the_table_or_role_is_unavailable_or_the_identity_is_empty
+    assert_refused Gate.claim(claim_store: FakeClaimStore.new(down: true), envelope: @envelope, run_id: 1, attempt: 1, now: NOW), /could not be written/
+    claims = FakeClaimStore.new
+    assert_refused Gate.claim(claim_store: claims, envelope: @envelope, run_id: "", attempt: 1, now: NOW), /required to claim/
+    assert_refused Gate.claim(claim_store: claims, envelope: @envelope, run_id: 1, attempt: nil, now: NOW), /required to claim/
+    assert_equal 0, claims.puts
+  end
+
+  def test_claim_settings_are_required_and_validated
+    ok = ChangeProdClaim.settings(@config)
+    assert_equal({ table: "cf-approval-console", role: "arn:aws:iam::333333333333:role/cf-prod-claim", region: "us-east-1" }, ok)
+    [ [ "claim_table", nil ], [ "claim_table", "x" ], [ "claim_role", nil ], [ "claim_role", "arn:aws:iam::1:role/r" ], [ "region", "mars" ] ].each do |key, value|
+      cfg = YAML.safe_load_file(FIXTURE)
+      value.nil? ? cfg["change_config"]["runners"]["prod"].delete(key) : cfg["change_config"]["runners"]["prod"][key] = value
+      assert_raises(ChangeProdClaim::Unavailable, key) { ChangeProdClaim.settings(cfg) }
+    end
+    assert_raises(ChangeProdClaim::Unavailable) { ChangeProdClaim.settings({}) }
+  end
+
+  def test_the_dynamo_store_puts_conditionally_and_maps_failures
+    calls = []
+    runner = lambda do |argv|
+      calls << argv
+      [ "", true ]
+    end
+    store = ChangeProdClaim::DynamoStore.new(table: "t-1", region: "us-east-1", runner: runner)
+    store.put(ChangeProdClaim.item(request_id: @id, digest: "d", run_id: 1, attempt: 1, now: NOW))
+    argv = calls.first
+    assert_equal %w[aws dynamodb put-item], argv.first(3)
+    assert_equal "attribute_not_exists(PK)", argv[argv.index("--condition-expression") + 1]
+    assert_equal "t-1", argv[argv.index("--table-name") + 1]
+    taken = ChangeProdClaim::DynamoStore.new(table: "t-1", region: "us-east-1", runner: ->(_) { [ "An error occurred (ConditionalCheckFailedException)", false ] })
+    assert_raises(ChangeProdClaim::Exists) { taken.put({ "PK" => { "S" => "CLAIM#x" } }) }
+    denied = ChangeProdClaim::DynamoStore.new(table: "t-1", region: "us-east-1", runner: ->(_) { [ "AccessDeniedException", false ] })
+    assert_raises(ChangeProdClaim::Unavailable) { denied.put({ "PK" => { "S" => "CLAIM#x" } }) }
+    missing = ChangeProdClaim::DynamoStore.new(table: "t-1", region: "us-east-1", runner: ->(_) { [ "aws: not found", false ] })
+    assert_raises(ChangeProdClaim::Unavailable) { missing.put({ "PK" => { "S" => "CLAIM#x" } }) }
+  end
+
+  def test_issue_binds_credentials_to_the_claimed_attempt_and_digest
+    claimed = { run_id: "5", attempt: "1", digest: @envelope["digest"] }
+    assert_predicate Gate.issue(envelope: @envelope, run_id: "5", attempt: "1", claimed: claimed), :ok?
+    assert_refused Gate.issue(envelope: @envelope, run_id: "5", attempt: "2", claimed: claimed), /did not claim this approval; a rerun needs a fresh approval/
+    assert_refused Gate.issue(envelope: @envelope, run_id: "6", attempt: "1", claimed: claimed), /did not claim/
+    assert_refused Gate.issue(envelope: @envelope, run_id: "5", attempt: "1", claimed: claimed.merge(digest: "sha256:#{'0' * 64}")), /did not claim/
+    assert_refused Gate.issue(envelope: @envelope, run_id: "5", attempt: "1", claimed: claimed.merge(run_id: "")), /did not claim/
+    assert_refused Gate.issue(envelope: @envelope, run_id: "5", attempt: "1", claimed: { run_id: nil, attempt: nil, digest: nil }), /did not claim/
+    assert_refused Gate.issue(envelope: @envelope, run_id: "", attempt: "", claimed: { run_id: "", attempt: "", digest: "" }), /did not claim/
   end
 
   def test_provenance_requires_default_branch_exact_checkout_and_reachability
@@ -370,93 +429,119 @@ class ChangeProdGateTest < Minitest::Test
     assert_match(/no op executor/, err.string)
   end
 
-  def remote_runner
+  def remote_runner(config_path: FIXTURE, envelope: @envelope)
     origin = Dir.mktmpdir
     @clone = File.join(Dir.mktmpdir, "runner")
     GitFixture.git_init(origin, "--bare", "-b", "main")
     GitFixture.git(@dir, "remote", "add", "origin", origin)
     GitFixture.git(@dir, "push", "-q", "origin", "main")
-    @store.create("requests", @id, @envelope)
-    @store.create("approvals", @id, { "protocol" => "cf.prod.approval/2", "request_id" => @id, "digest" => @envelope["digest"],
-                                      "proof" => passkey_proof(body_for(@envelope)) })
+    @id = envelope["request_id"]
+    @store.create("requests", @id, envelope)
+    @store.create("approvals", @id, { "protocol" => "cf.prod.approval/2", "request_id" => @id, "digest" => envelope["digest"],
+                                      "proof" => passkey_proof(body_for(envelope)) })
     GitFixture.git(origin, "clone", "-q", origin, @clone)
     creds = File.join(@clone, "creds.json")
     File.write(creds, JSON.generate(credentials))
     @origin = origin
-    @base = [ "--request-id", @id, "--repo", @clone, "--config", FIXTURE, "--credentials", creds, "--allow-environments", "staging",
+    @claims = FakeClaimStore.new
+    @base = [ "--request-id", @id, "--repo", @clone, "--config", config_path, "--credentials", creds, "--allow-environments", "staging",
               "--version-root", @clone ]
   end
 
-  def cli(verb, run: "5", attempt: "1", now: NOW)
+  def cli(verb, run: "5", attempt: "1", now: NOW, claimed: nil, out: nil)
     err = StringIO.new
     env = { "GITHUB_REF" => "refs/heads/main", "GITHUB_RUN_ID" => run, "GITHUB_RUN_ATTEMPT" => attempt }
-    [ Gate.run([ verb ] + @base, env: env, stdout: StringIO.new, stderr: err, now: now), err.string ]
+    env["GITHUB_OUTPUT"] = out if out
+    extra = claimed ? [ "--claimed-run-id", claimed[0], "--claimed-attempt", claimed[1], "--claimed-digest", claimed[2] ] : []
+    [ Gate.run([ verb ] + @base + extra, env: env, stdout: StringIO.new, stderr: err, now: now, claim_store: @claims), err.string ]
+  end
+
+  def claimed_identity(run: "5", attempt: "1") = [ run, attempt, @envelope["digest"] ]
+
+  def test_cli_claim_puts_once_and_exports_the_identity
+    remote_runner
+    out = File.join(@clone, "out")
+    assert_equal 0, cli("claim", out: out).first
+    assert_equal "claim_run_id=5\nclaim_attempt=1\nclaim_digest=#{@envelope['digest']}\n", File.read(out)
+    code, err = cli("claim")
+    assert_equal 1, code
+    assert_match(/already consumed/, err)
+    assert_equal 1, @claims.items.size
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_cli_claim_and_recheck_fail_closed_without_claim_settings
+    cfg = YAML.safe_load_file(FIXTURE)
+    cfg["change_config"]["runners"]["prod"].delete("claim_table")
+    envelope = ChangeProdEnvelope.build(config: cfg, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                                        profile: "staging", version: @sha, requested_by: "agent:s1")
+    path = File.join(Dir.mktmpdir, "c.yml")
+    File.write(path, YAML.dump(cfg))
+    remote_runner(config_path: path, envelope: envelope)
+    code, err = cli("claim")
+    assert_equal 1, code
+    assert_match(/claim_table is missing/, err)
+    assert_equal 0, @claims.puts
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_cli_claim_refuses_when_the_table_is_down
+    remote_runner
+    @claims = FakeClaimStore.new(down: true)
+    code, err = cli("claim")
+    assert_equal 1, code
+    assert_match(/could not be written/, err)
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
   end
 
   def test_recheck_refuses_an_approval_that_expired_while_the_job_waited
     remote_runner
-    assert_equal 0, cli("claim").first
-    assert_equal 0, cli("recheck").first
-    assert_equal 0, cli("recheck").first, "recheck is read-only, so the same attempt may repeat it"
-    code, err = cli("recheck", now: Time.utc(2026, 11, 18, 12, 31, 0))
+    assert_equal 0, cli("recheck", claimed: claimed_identity).first
+    assert_equal 0, cli("recheck", claimed: claimed_identity).first, "recheck is read-only"
+    code, err = cli("recheck", claimed: claimed_identity, now: Time.utc(2026, 11, 18, 12, 31, 0))
     assert_equal 1, code
     assert_match(/approval has expired/, err)
   ensure
     FileUtils.remove_entry(@origin) if @origin
   end
 
-  def test_a_rerun_at_a_higher_attempt_is_refused_and_issues_nothing
+  def test_a_rerun_at_a_higher_attempt_is_refused
     remote_runner
-    assert_equal 0, cli("claim").first
-    code, err = cli("recheck", attempt: "2")
+    code, err = cli("recheck", attempt: "2", claimed: claimed_identity)
     assert_equal 1, code
-    assert_match(/did not claim the approval; a rerun needs a fresh approval/, err)
+    assert_match(/rerun needs a fresh approval/, err)
   ensure
     FileUtils.remove_entry(@origin) if @origin
   end
 
-  def test_a_mismatched_run_id_is_refused
+  def test_a_mismatched_run_id_and_missing_claim_outputs_are_refused
     remote_runner
-    assert_equal 0, cli("claim", run: "5").first
-    code, err = cli("recheck", run: "6")
-    assert_equal 1, code
-    assert_match(/did not claim/, err)
-  ensure
-    FileUtils.remove_entry(@origin) if @origin
-  end
-
-  def test_recheck_without_a_claim_or_run_identity_is_refused
-    remote_runner
+    assert_equal 1, cli("recheck", run: "6", claimed: claimed_identity).first
     code, err = cli("recheck")
     assert_equal 1, code
-    assert_match(/no claim exists/, err)
-    assert_equal 0, cli("claim").first
-    assert_equal 1, cli("recheck", run: "", attempt: "").first
+    assert_match(/did not claim this approval/, err)
+    assert_equal 1, cli("recheck", run: "", attempt: "", claimed: [ "", "", "" ]).first
     assert_equal 1, cli("claim", run: "", attempt: "").first
   ensure
     FileUtils.remove_entry(@origin) if @origin
   end
 
   def test_claim_and_recheck_refuse_a_second_runner_too
-    remote_runner
     config = config_with_runner("other")
-    path = File.join(@clone, "other.yml")
+    path = File.join(Dir.mktmpdir, "other.yml")
     File.write(path, YAML.dump(config))
     envelope = ChangeProdEnvelope.build(config: config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
                                         profile: "staging", version: @sha, requested_by: "agent:s1")
-    id = envelope["request_id"]
-    @store.create("requests", id, envelope)
-    @store.create("approvals", id, { "protocol" => "cf.prod.approval/2", "request_id" => id, "digest" => envelope["digest"],
-                                     "proof" => passkey_proof(body_for(envelope)) })
-    base = @base.each_slice(2).map { |flag, value| [ flag, flag == "--request-id" ? id : flag == "--config" ? path : value ] }.flatten
-    env = { "GITHUB_REF" => "refs/heads/main", "GITHUB_RUN_ID" => "5", "GITHUB_RUN_ATTEMPT" => "1" }
+    remote_runner(config_path: path, envelope: envelope)
     %w[verify claim recheck].each do |verb|
-      err = StringIO.new
-      assert_equal 1, Gate.run([ verb ] + base, env: env, stdout: StringIO.new, stderr: err, now: NOW), verb
-      assert_match(/bound to runner "other", not prod/, err.string, verb)
+      code, err = cli(verb, claimed: claimed_identity)
+      assert_equal 1, code, verb
+      assert_match(/bound to runner "other", not prod/, err, verb)
     end
-    ChangeProdStore.new(@clone).fetch
-    refute ChangeProdStore.new(@clone).exists?("claims", id)
+    assert_equal 0, @claims.puts
   ensure
     FileUtils.remove_entry(@origin) if @origin
   end
@@ -472,52 +557,22 @@ class ChangeProdGateTest < Minitest::Test
     assert_equal 1, Gate.run([ "verify" ], stderr: StringIO.new)
   end
 
+
   def test_cli_verifies_and_claims_through_a_real_remote_once
-    origin = Dir.mktmpdir
-    clone = File.join(Dir.mktmpdir, "runner")
-    GitFixture.git_init(origin, "--bare", "-b", "main")
-    GitFixture.git(@dir, "remote", "add", "origin", origin)
-    GitFixture.git(@dir, "push", "-q", "origin", "main")
-    @store.create("requests", @id, @envelope)
-    @store.create("approvals", @id, { "protocol" => "cf.prod.approval/2", "request_id" => @id, "digest" => @envelope["digest"],
-                                      "proof" => passkey_proof(body_for(@envelope)) })
-    GitFixture.git(origin, "clone", "-q", origin, clone)
-    creds = File.join(clone, "creds.json")
-    File.write(creds, JSON.generate(credentials))
-    out = File.join(clone, "out")
-    base = [ "--request-id", @id, "--repo", clone, "--config", FIXTURE, "--credentials", creds, "--allow-environments", "staging",
-             "--version-root", clone ]
-    env = { "GITHUB_OUTPUT" => out, "GITHUB_REF" => "refs/heads/main", "GITHUB_RUN_ID" => "5", "GITHUB_RUN_ATTEMPT" => "1" }
-    assert_equal 0, Gate.run([ "verify" ] + base, env: env, stdout: StringIO.new, now: NOW)
+    remote_runner
+    out = File.join(@clone, "out")
+    assert_equal 0, cli("verify", out: out).first
     assert_equal "environment=staging\nversion=#{@sha}\n", File.read(out)
-    assert_equal 0, Gate.run([ "claim" ] + base, env: env, stdout: StringIO.new, now: NOW)
+    assert_equal 0, cli("claim").first
+    assert_equal 1, cli("claim").first
+    code, err = cli("verify", now: Time.utc(2026, 12, 1))
+    assert_equal 1, code
+    assert_match(/approval has expired/, err)
+    env = { "GITHUB_REF" => "refs/heads/evil", "GITHUB_RUN_ID" => "5", "GITHUB_RUN_ATTEMPT" => "1" }
     err = StringIO.new
-    assert_equal 1, Gate.run([ "claim" ] + base, env: env, stdout: StringIO.new, stderr: err, now: NOW)
-    assert_match(/already consumed/, err.string)
-    err = StringIO.new
-    assert_equal 1, Gate.run([ "verify" ] + base, env: env.merge("GITHUB_REF" => "refs/heads/evil"), stderr: err, now: NOW)
+    assert_equal 1, Gate.run([ "verify" ] + @base, env: env, stderr: err, now: NOW)
     assert_match(/not refs\/heads\/main/, err.string)
-    assert_equal 1, Gate.run([ "verify" ] + base, env: env, stderr: err, now: Time.utc(2026, 12, 1))
   ensure
-    FileUtils.remove_entry(origin) if origin
-  end
-
-  def test_claim_through_a_real_remote_is_single_use
-    origin = Dir.mktmpdir
-    GitFixture.git_init(origin, "--bare", "-b", "main")
-    GitFixture.git(@dir, "remote", "add", "origin", origin)
-    first = Gate.claim(store: @store, request_id: @id, run_id: 1, attempt: 1, now: NOW)
-    assert_predicate first, :ok?
-    second = ChangeProdStore.new(clone_of(origin))
-    assert_refused Gate.claim(store: second, request_id: @id, run_id: 2, attempt: 1, now: NOW), /already consumed/
-  ensure
-    FileUtils.remove_entry(origin) if origin
-  end
-
-  def clone_of(origin)
-    dir = Dir.mktmpdir
-    GitFixture.git(dir, "init", "-q")
-    GitFixture.git(dir, "remote", "add", "origin", origin)
-    dir
+    FileUtils.remove_entry(@origin) if @origin
   end
 end

@@ -11,7 +11,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
   Gen = ChangeProdRunnerGen
   FIXTURE = File.expand_path("fixtures/prod/runner.yml", __dir__)
   GOLDEN = File.expand_path("fixtures/prod/cf-prod.staging.golden.yml", __dir__)
-  BLOCKED = [ "blocked in the golden" ].freeze
+  BLOCKED = [ ChangeProdRunnerGen::NOT_EMITTED ].freeze
 
   def config = YAML.safe_load_file(FIXTURE)
 
@@ -31,8 +31,8 @@ class ChangeProdRunnerGenTest < Minitest::Test
   def test_production_is_not_emitted_while_anything_blocks_it
     jobs = YAML.safe_load(generate)["jobs"]
     assert_equal %w[claim run-staging validate], jobs.keys.sort
-    refute_includes generate, "role/cf-prod"
-    assert_includes generate, "# production is not emitted: blocked in the golden"
+    refute_includes generate, "role/cf-prod\""
+    assert_includes generate, Gen::NOT_EMITTED
   end
 
   def test_the_real_checkout_blocks_production_until_the_executor_lands
@@ -70,7 +70,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
       runner(cfg)["oidc_roles"][name] = "arn:aws:iam::222222222222:role/cf-prod"
       text = generate(cfg)
       assert_equal %w[claim run-staging validate], YAML.safe_load(text)["jobs"].keys.sort, name
-      refute_includes text, "role/cf-prod", name
+      refute_includes text, "role/cf-prod\"", name
       refute_includes text, "environment: production", name
     end
   end
@@ -99,10 +99,11 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert_equal "staging", staging["environment"]
     assert_equal({ "id-token" => "write", "contents" => "read" }, staging["permissions"])
     assert_equal({ "id-token" => "write", "contents" => "read" }, jobs["run-production"]["permissions"])
-    assert_equal({ "contents" => "write" }, jobs["claim"]["permissions"])
+    assert_equal({ "id-token" => "write", "contents" => "read" }, jobs["claim"]["permissions"])
     assert_equal({ "contents" => "read" }, jobs["validate"]["permissions"])
     assert_equal %w[validate claim], staging["needs"]
-    refute jobs["claim"]["steps"].any? { |step| step["uses"].to_s.include?("configure-aws-credentials") }
+    claim_role = jobs["claim"]["steps"].find { |step| step["uses"].to_s.include?("configure-aws-credentials") }
+    assert_equal "arn:aws:iam::333333333333:role/cf-prod-claim", claim_role["with"]["role-to-assume"]
   end
 
   def test_the_workflow_never_cancels_and_only_runs_from_the_default_branch
@@ -216,6 +217,67 @@ class ChangeProdRunnerGenTest < Minitest::Test
     runner(cfg)["oidc_roles"]["preview"] = "arn:aws:iam::333333333333:role/cf-preview"
     assert_refused(/share an environment \(staging\)/) { generate(cfg) }
     assert_refused(/share an environment/) { generate(cfg, blockers: []) }
+  end
+
+  def test_refuses_a_missing_or_malformed_claim_role_or_table
+    [ [ "claim_role", nil ], [ "claim_role", "arn:aws:iam::1:role/x" ], [ "claim_table", nil ], [ "claim_table", "bad table\nx: 1" ] ].each do |key, value|
+      cfg = config
+      value.nil? ? runner(cfg).delete(key) : runner(cfg)[key] = value
+      assert_refused(/#{key}/) { generate(cfg) }
+    end
+  end
+
+  def test_the_validate_job_checks_for_drift_before_anything_else
+    steps = YAML.safe_load(generate)["jobs"]["validate"]["steps"]
+    check = steps.index { |step| step["run"].to_s.include?("change_prod_runner_gen.rb --check") }
+    verify = steps.index { |step| step["run"].to_s.include?("change_prod_gate.rb verify") }
+    assert_operator check, :<, verify
+  end
+
+  def test_the_environment_job_passes_the_claimed_identity_through_env
+    text = generate
+    %w[CLAIMED_RUN_ID CLAIMED_ATTEMPT CLAIMED_DIGEST].each { |name| assert_includes text, "#{name}: ${{ needs.claim.outputs" }
+    refute(text.lines.grep(/\brun:/).any? { |line| line.include?("${{") })
+  end
+
+  def test_check_with_a_config_flags_a_role_that_drifted
+    Dir.mktmpdir do |root|
+      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root ], stdout: StringIO.new)
+      path = File.join(root, Gen::WORKFLOW)
+      config_path = File.join(root, "base.yml")
+      File.write(config_path, File.read(FIXTURE))
+      assert_equal 0, Gen.run([ "--check", "--root", root, "--config", config_path ], stdout: StringIO.new)
+      drifted = File.read(FIXTURE).sub("role/cf-staging", "role/cf-staging-new")
+      File.write(config_path, drifted)
+      err = StringIO.new
+      assert_equal 1, Gen.run([ "--check", "--root", root, "--config", config_path ], stderr: err)
+      assert_match(/drifted from the base config/, err.string)
+      File.write(config_path, File.read(FIXTURE).sub("role/cf-prod-claim", "role/cf-prod-claim-new"))
+      assert_equal 1, Gen.run([ "--check", "--root", root, "--config", config_path ], stderr: StringIO.new)
+    end
+  end
+
+  def test_drift_is_judged_the_same_for_a_workflow_generated_with_production
+    cfg = config
+    text = generate(cfg, blockers: [])
+    refute Gen.drifted?(text, cfg)
+    assert Gen.drifted?(text, cfg.merge("change_config" => cfg["change_config"].merge("runners" => { "prod" => runner(cfg).merge("region" => "us-west-2") })))
+  end
+
+  def test_prints_the_aws_trust_conditions_next_to_the_oidc_command
+    out = StringIO.new
+    Dir.mktmpdir do |root|
+      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app", "--default-branch", "trunk" ], stdout: out)
+    end
+    lines = out.string.lines.grep(/trust condition/)
+    assert_equal 2, lines.size
+    claim = lines.find { |line| line.include?("cf-prod-claim") }
+    assert_includes claim, "repo:acme/app:ref:refs/heads/trunk:workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
+    staging = lines.find { |line| line.include?("cf-staging") }
+    assert_includes staging, "repo:acme/app:environment:staging:workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
+    assert_includes staging, '"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"'
+    assert_includes staging, "StringEquals"
+    refute_includes out.string, "role/cf-prod\""
   end
 
   def test_cli_refuses_a_missing_config

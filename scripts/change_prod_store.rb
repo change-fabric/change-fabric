@@ -7,15 +7,16 @@ require_relative 'change_prod_envelope'
 # The runner's state: JSON payloads held as single parentless commits under
 # refs/cf-prod/<kind>/<request_id>. Creation is conditional: the local
 # update-ref names a zero old value and the push is never forced, so a ref that
-# already exists (here or on the remote) refuses. That is what makes a claim a
-# real single-use lock. The admin token can still write these refs outside
+# already exists (here or on the remote) refuses. These refs are records, not
+# locks: whoever can write the repo can delete one, so single use lives in
+# ChangeProdClaim, not here. The admin token can still write these refs outside
 # hooks (documented in PRINCIPLES.md).
 class ChangeProdStore
   class Error < StandardError; end
   class Exists < Error; end
   class Missing < Error; end
 
-  KINDS = %w[requests approvals claims].freeze
+  KINDS = %w[requests approvals].freeze
   PAYLOAD = 'payload.json'
   ZERO = '0' * 40
 

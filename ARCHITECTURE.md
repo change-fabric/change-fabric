@@ -60,7 +60,7 @@ Bounded prod ops: an agent files a cf.prod.request/1 envelope
 (`change_prod_request.rb`, state in refs/cf-prod git refs); a human approves
 its digest (`change_prod_approve.rb`); `change_prod_runner_gen.rb` generates
 the cf-prod workflow, whose jobs verify the approval offline through
-`change_prod_gate.rb` and claim it once before any credential. This release
+`change_prod_gate.rb` and claim it once (a conditional put in the approval console's table, never a git ref) before any credential. This release
 emits staging only and has no op executor; `prod_approval_guard.rb` denies the
 agent the approval paths.
 Rubric skills are matched to edited files by `skill_detect.rb` and

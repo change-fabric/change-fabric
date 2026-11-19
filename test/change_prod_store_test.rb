@@ -33,14 +33,14 @@ class ChangeProdStoreTest < Minitest::Test
   end
 
   def test_create_is_conditional_locally_and_on_the_remote
-    @store.create("claims", ID, { "n" => 1 })
-    assert_raises(ChangeProdStore::Exists) { @store.create("claims", ID, { "n" => 2 }) }
-    assert_equal 1, @store.read("claims", ID)["n"]
+    @store.create("approvals", ID, { "n" => 1 })
+    assert_raises(ChangeProdStore::Exists) { @store.create("approvals", ID, { "n" => 2 }) }
+    assert_equal 1, @store.read("approvals", ID)["n"]
     fresh = Dir.mktmpdir
     GitFixture.git_init(fresh, "-b", "main")
     GitFixture.git(fresh, "remote", "add", "origin", @origin)
-    assert_raises(ChangeProdStore::Exists) { ChangeProdStore.new(fresh).create("claims", ID, { "n" => 3 }) }
-    refute ChangeProdStore.new(fresh).exists?("claims", ID), "a refused push leaves no local ref"
+    assert_raises(ChangeProdStore::Exists) { ChangeProdStore.new(fresh).create("approvals", ID, { "n" => 3 }) }
+    refute ChangeProdStore.new(fresh).exists?("approvals", ID), "a refused push leaves no local ref"
   ensure
     FileUtils.remove_entry(fresh) if fresh
   end

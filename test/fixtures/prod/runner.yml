@@ -4,6 +4,8 @@ change_config:
       kind: github_actions
       workflow: .github/workflows/cf-prod.yml
       region: us-east-1
+      claim_role: arn:aws:iam::333333333333:role/cf-prod-claim
+      claim_table: cf-approval-console
       environments: { staging: staging, production: production }
       oidc_roles:
         staging: arn:aws:iam::111111111111:role/cf-staging
