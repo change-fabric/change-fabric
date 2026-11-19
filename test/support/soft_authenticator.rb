@@ -32,9 +32,9 @@ class SoftAuthenticator
   def pinned = { credential_id => self.class.b64(cose_public_key) }
 
   # Returns the assertion fields of an approval proof, base64url encoded.
-  def assert(body, rp_id:, origin: nil, type: "webauthn.get", up: true, uv: true, challenge: nil, sign_key: nil, hash_rp_id: nil)
+  def assert(body, rp_id:, origin: nil, type: "webauthn.get", up: true, uv: true, challenge: nil, sign_key: nil, hash_rp_id: nil, counter: 7)
     flags = (up ? 0x01 : 0) | (uv ? 0x04 : 0)
-    auth_data = Digest::SHA256.digest(hash_rp_id || rp_id) + [ flags, 7 ].pack("CN")
+    auth_data = Digest::SHA256.digest(hash_rp_id || rp_id) + [ flags, counter ].pack("CN")
     client = JSON.generate("type" => type, "challenge" => self.class.b64(challenge || Digest::SHA256.digest(body)),
                            "origin" => origin || "https://#{rp_id}", "crossOrigin" => false)
     signature = sign(sign_key || @key, auth_data + Digest::SHA256.digest(client))

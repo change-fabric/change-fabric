@@ -4,8 +4,10 @@ Terraform for the remote approval console, deployed into your own AWS account,
 us-east-1. One Lambda (ruby3.4, arm64) behind a function URL, one DynamoDB
 table (`cf-approval-console`), a seed key and a receipt signing key (KMS), the
 IAM roles, a log group, one error alarm, and a 5 USD monthly budget. The
-handler is a 503 placeholder until the console Lambda ships; the point of this
-root is to create the function URL, whose host is the WebAuthn rpId.
+function URL host is the WebAuthn rpId. The handler is `lambda/` (entry
+`handler.rb`, routes in `console.rb`, DynamoDB in `store.rb`, KMS and DM in
+`clients.rb`, pages in `pages.rb`); it shares `canonical`, `cbor`, `totp` and
+`verifier` with the CLI, copied from `scripts/approval_console/` by `build.sh`.
 
 ## NEVER recreate the function or its URL
 
@@ -27,6 +29,9 @@ whose `cf-prod.yml` may assume `cf-prod-claim`).
 
 ## Apply
 
+`build.sh` stages the package in a linux/arm64 Lambda build container (Docker
+and network needed; `CF_SKIP_GEMS=1` skips the gems for a plan-only dry run).
+
 ```
 cd approval_console/infra
 ./build.sh
@@ -47,6 +52,29 @@ set behind the profile that runs the CLI verbs (an account admin needs nothing).
 Seed the DM parameters out of band (the handler skips the DM when missing):
 `/cf/approval-console/dm-token` (SecureString) and
 `/cf/approval-console/dm-recipient` (String).
+
+## Routes
+
+All under the function URL. Page GETs and registration are unauthenticated;
+every other call needs the machine signature (`x-cf-timestamp`, `x-cf-signature`
+over method, path, SHA-256 of the body and the timestamp) or a passkey
+assertion plus TOTP.
+
+| Route | Auth |
+| --- | --- |
+| `GET /register`, `POST /register/options`, `POST /register/verify` | one-time bootstrap token written by the CLI over IAM; a second credential also needs an assertion |
+| `POST /m/<id>/requests` | machine signature; 20 per hour per machine |
+| `GET /m/<id>/r/<request_id>` | none (page) |
+| `POST /m/<id>/r/<request_id>/approve` | passkey assertion (UV) plus TOTP |
+| `GET /m/<id>/r/<request_id>/proof` | machine signature |
+| `POST /m/<id>/terminal-approve`, `POST /m/<id>/sync` | machine signature plus TOTP |
+| `GET`/`POST /m/<id>/totp-enroll` | passkey assertion, once |
+
+Rows the CLI writes over IAM (operator policy): `M#<id>/META` (`machine_key` PEM,
+`label`, `version` 0), `M#<id>/SEED` (`ciphertext`, base64url KMS blob under the
+`machine_id` context), `BOOT#<sha256 of token>/BOOT` (`machine_id`, `valid_until`
+epoch, `expires_at` epoch). Pages carry a per-response nonce CSP with no
+external script, and `Cache-Control: no-store`. Logs hold route and status only.
 
 ## Prod claim
 
