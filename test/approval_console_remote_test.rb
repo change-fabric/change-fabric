@@ -237,6 +237,27 @@ class ApprovalConsoleRemoteTest < Minitest::Test
 
   # ----- the gate --------------------------------------------------------
 
+  def test_queued_offline_approvals_sync_before_a_phone_request
+    @up = false
+    offline = terminal(override_attrs)
+    record_override(offline.proof)
+    @up = true
+    @now += 30
+    result, = remote_approve(step_attrs)
+    assert_predicate result, :ok?, result.error
+    assert_empty @store.pending, "the queued approval synced, not conflicted"
+    assert ChangeOverrideStore.new(SHA).read.dig("proof", "receipt")
+  end
+
+  def test_malformed_step_proofs_are_refused_not_skipped
+    check = ApprovalConsole::ProofCheck.new(level: nil, store: @store)
+    [ "not an object", { "kind" => "totp-terminal" } ].each do |proof|
+      entries = [ { "step" => "boot.up", "digest" => "a" * 64, "proof" => proof } ]
+      assert_match(/malformed/, check.approvals_problem(entries, repo: repo_id, sha: SHA), proof.inspect)
+    end
+    assert_nil check.approvals_problem([ { "step" => "boot.up", "digest" => "a" * 64 } ], repo: repo_id, sha: SHA)
+  end
+
   def test_a_missing_proof_warns_unset_and_is_refused_under_local
     ChangeOverrideStore.new(SHA).record(reason: "hotfix", recorded_by: "t")
     check = gate(nil)

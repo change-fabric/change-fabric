@@ -26,6 +26,9 @@ module ApprovalConsole
     # Entries that share one proof body were approved together, so the signed
     # item set must equal exactly those entries.
     def approvals_problem(entries, repo:, sha:)
+      malformed = entries.find { |entry| entry.key?('proof') && !(entry['proof'].is_a?(Hash) && entry['proof']['body'].is_a?(String)) }
+      return "approval proof for #{malformed['step']} is refused: the proof is malformed" if malformed
+
       entries.group_by { |entry| entry.dig('proof', 'body') }.each do |body, group|
         steps = group.map { |entry| entry['step'] }.join(', ')
         if body.nil?
@@ -44,8 +47,9 @@ module ApprovalConsole
 
     # nil, or why the override record's proof does not stand.
     def override_problem(record, repo:, sha:, profile:)
+      return missing('override') unless record.key?('proof')
+
       proof = record['proof']
-      return missing('override') if proof.nil?
 
       expected = { 'type' => 'override', 'repo' => repo, 'sha' => sha, 'profile' => profile, 'reason' => record['reason'] }
       problem = proof_problem(proof, expected)

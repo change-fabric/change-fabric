@@ -6,6 +6,7 @@ require_relative 'canonical'
 require_relative 'client'
 require_relative 'local_store'
 require_relative 'verifier'
+require_relative 'sync'
 
 module ApprovalConsole
   # The console path: post a canonical body, print the link, poll for the
@@ -54,7 +55,10 @@ module ApprovalConsole
     end
 
     # Posts the request and returns [body, url]. Raises Client errors.
+    # Queued offline approvals are synced first: a phone approval advances the
+    # console's last_step past them, which would turn them into conflicts.
     def submit(attrs, store:, client:, now:, ttl: LIFETIME)
+      Sync.run(store: store, client: client) unless store.unsynced.empty?
       body = build_body(attrs, store, now: now, ttl: ttl)
       data = client.create_request(body)
       [ body, data['url'].to_s ]
