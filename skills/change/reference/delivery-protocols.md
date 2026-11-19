@@ -58,7 +58,7 @@ agree with it):
 
 ### Disable as an operation
 
-Disable is attempted first, idempotently, with retries for up to 120 seconds,
+Disable is attempted first, idempotently, with retries for up to 120 seconds (a hard bound: each call gets only the time left, and expiry reports a timeout),
 then confirmed by a `get` that reads the off state
 (`ChangeFlagsProtocol.disable_confirmed`). Timeout, outage, an ambiguous
 outcome or an unconfirmed off state is `disable_unconfirmed`: page at once and
@@ -71,11 +71,12 @@ an app-side kill switch.
 honors every rule above. It is what tests and dogfood dry runs use.
 
 ```
-ruby scripts/change_delivery.rb flags new-checkout enable --config CHANGE.md
+ruby scripts/change_delivery.rb flags new-checkout get              # CHANGE.md from the base branch
+ruby scripts/change_delivery.rb flags new-checkout enable --config CHANGE.md   # local dry run, working tree
 ruby scripts/change_delivery.rb flags new-checkout set_cohort --cohort internal --expected-revision 1
 ```
 
-A `kind: command` adapter is the consumer's own CLI; cf reaches it only for
+`flags` reads the wiring from CHANGE.md on the base branch (the destination's default branch, via `ChangePolicy::Source`), so a branch cannot repoint the adapter it is judged by; `--config` reads the working tree and is labelled a local dry run. A command adapter's reply is validated against cf.flags/1 (and must answer the same request); a malformed reply is a failure, never `ok`. A `kind: command` adapter is the consumer's own CLI; cf reaches it only for
 staging and dry runs.
 
 ## cf.verdict/1

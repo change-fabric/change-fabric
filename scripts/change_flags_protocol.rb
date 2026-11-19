@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'timeout'
 
 # cf.flags/1: the adapter protocol between cf and a consumer's feature-flag
 # CLI. One JSON request on stdin, one JSON reply on stdout. This module holds
@@ -228,27 +229,34 @@ module ChangeFlagsProtocol
 
   # --- disable as an operation ----------------------------------------------
 
-  # Disables a flag idempotently, retrying for up to DISABLE_RETRY_WINDOW_S,
-  # then confirms the off state with a `get`. `call` takes a request hash and
-  # returns a reply hash (or raises). Returns {status:, reply:, attempts:}
-  # where status is :confirmed or :disable_unconfirmed; the latter must page at
-  # once and halt automatic recovery. `clock` and `pause` are injectable.
+  # Disables a flag idempotently, retrying for up to `window` seconds (default
+  # DISABLE_RETRY_WINDOW_S), then confirms the off state with a `get`. The
+  # window is a hard bound: each adapter call gets only the time left in it
+  # (passed as a second argument when `call` takes one, and enforced with a
+  # timeout either way), and a pause never sleeps past it. `call` takes a request
+  # hash and returns a reply hash (or raises); a reply that fails reply_errors
+  # counts as a failed call. Returns {status:, reply:, attempts:, reason:}
+  # where status is :confirmed or :disable_unconfirmed, and reason is :timeout
+  # when the window expired. :disable_unconfirmed must page at once and halt
+  # automatic recovery. `clock` and `pause` are injectable.
   def disable_confirmed(call, flag:, env:, incident_key:, expected_revision: 0, fencing_token: nil,
                         clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }, pause: ->(seconds) { sleep(seconds) },
                         window: DISABLE_RETRY_WINDOW_S)
-    started = clock.call
+    deadline = clock.call + window
+    left = -> { deadline - clock.call }
     attempts = 0
-    loop do
+    applied = nil
+    while left.call.positive?
       attempts += 1
-      applied = safe_call(call, base_request('disable', flag, env, "disable-#{incident_key}", attempts, expected_revision, fencing_token))
-      if applied&.fetch('ok', false)
-        confirmed = safe_call(call, base_request('get', flag, env, "confirm-#{incident_key}-#{attempts}", attempts, expected_revision, nil))
+      applied = bounded_call(call, base_request('disable', flag, env, "disable-#{incident_key}", attempts, expected_revision, fencing_token), left.call)
+      if applied&.fetch('ok', false) && left.call.positive?
+        confirm = base_request('get', flag, env, "confirm-#{incident_key}-#{attempts}", attempts, expected_revision, nil)
+        confirmed = bounded_call(call, confirm, left.call)
         return { status: :confirmed, reply: confirmed, attempts: attempts } if confirmed && confirmed['ok'] && confirmed.dig('state', 'enabled') == false
       end
-      return { status: :disable_unconfirmed, reply: applied, attempts: attempts } if clock.call - started >= window
-
-      pause.call(retry_delay(attempts))
+      pause.call([ retry_delay(attempts), [ left.call, 0 ].max ].min)
     end
+    { status: :disable_unconfirmed, reply: applied, attempts: attempts, reason: :timeout }
   end
 
   def retry_delay(attempts) = [ 2**attempts, 15 ].min
@@ -258,9 +266,14 @@ module ChangeFlagsProtocol
       'expected_revision' => revision }.tap { |request| request['fencing_token'] = token if token }
   end
 
-  def safe_call(call, request)
-    call.call(request)
-  rescue StandardError
+  # One adapter call, never longer than `seconds`. Raises, timeouts and replies
+  # that break the protocol all read as nil (a failed call).
+  def bounded_call(call, request, seconds)
+    return nil unless seconds.positive?
+
+    reply = Timeout.timeout(seconds) { call.arity == 1 ? call.call(request) : call.call(request, seconds) }
+    reply_errors(reply).empty? ? reply : nil
+  rescue StandardError, Timeout::Error
     nil
   end
 

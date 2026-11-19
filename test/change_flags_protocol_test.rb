@@ -248,4 +248,39 @@ class ChangeFlagsProtocolTest < Minitest::Test
       assert_equal 1, ChangeFlagsFixture.new(path).call(request("get"))["flag_state_version"]
     end
   end
+
+  def test_disable_never_exceeds_its_window_even_with_a_hanging_adapter
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    hang = ->(_req) { sleep 30 }
+    result = P.disable_confirmed(hang, flag: "f", env: "staging", incident_key: "i6", window: 1, pause: ->(_) { })
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
+    assert_equal :disable_unconfirmed, result[:status]
+    assert_equal :timeout, result[:reason]
+  end
+
+  def test_each_call_gets_only_the_time_left_and_pauses_are_clamped
+    now = 0.0
+    budgets = []
+    pauses = []
+    call = lambda do |_req, left|
+      budgets << left
+      now += 40
+      nil
+    end
+    result = P.disable_confirmed(call, flag: "f", env: "staging", incident_key: "i7", clock: -> { now }, pause: ->(s) { pauses << s })
+    assert_equal [ 120.0, 80.0, 40.0 ], budgets
+    assert_equal :timeout, result[:reason]
+    assert_operator pauses.sum, :<=, 120
+    assert_equal 3, result[:attempts]
+  end
+
+  def test_a_malformed_adapter_reply_is_a_failed_call
+    now = 0.0
+    garbage = lambda do |_req|
+      now += 50
+      { "ok" => true }
+    end
+    result = P.disable_confirmed(garbage, flag: "f", env: "staging", incident_key: "i8", clock: -> { now }, pause: ->(_) { })
+    assert_equal :disable_unconfirmed, result[:status]
+  end
 end

@@ -11,13 +11,15 @@ require 'yaml'
 require_relative 'change_flags_fixture'
 require_relative 'change_flags_protocol'
 require_relative 'change_frontmatter'
+require_relative 'change_policy'
 require_relative 'change_verdict'
 
 # Progressive-delivery commands.
 #
 #   validate-verdict <file> [--now ISO] [--max-age S]
-#   flags <rollout> <get|set_cohort|disable|enable> [--config CHANGE.md] [--cohort C]
-#         [--expected-revision N] [--fencing-token N] [--env ENV]
+#   flags <rollout> <get|set_cohort|disable|enable> [--ref REF | --config CHANGE.md]
+#         [--cohort C] [--expected-revision N] [--fencing-token N] [--env ENV]
+#         (default: CHANGE.md from the base branch; --config is a local dry run)
 #   conformance [--traces DIR] -- <controller argv...>
 #
 # `flags` dispatches one cf.flags/1 request to the adapter the rollout names. It
@@ -33,7 +35,7 @@ require_relative 'change_verdict'
 module ChangeDelivery
   TRACES_DIR = File.expand_path('../test/fixtures/delivery/traces', __dir__)
   TRANSITION_KEYS = %w[step verdict action stage].freeze
-  FLAG_OPTIONS = %w[cohort expected_revision fencing_token env config].freeze
+  FLAG_OPTIONS = %w[cohort expected_revision fencing_token env config ref].freeze
 
   module_function
 
@@ -80,12 +82,12 @@ module ChangeDelivery
     rollout, op = parser.parse(args)
     return usage(stderr, 'flags <rollout> <get|set_cohort|disable|enable>') unless rollout && op
 
-    adapter, flag, env = resolve_adapter(rollout, options.fetch(:config, 'CHANGE.md'), options[:env])
+    adapter, flag, env = resolve_adapter(rollout, options, stderr)
     request = build_request(op, flag, env, options)
     reply = adapter.call(request)
     stdout.puts JSON.pretty_generate(reply)
     reply['ok'] ? 0 : 1
-  rescue KeyError, ArgumentError, Errno::ENOENT, JSON::ParserError => e
+  rescue KeyError, ArgumentError, Errno::ENOENT, JSON::ParserError, ChangePolicy::Unreadable => e
     stderr.puts "[delivery] #{e.message}"
     2
   end
@@ -98,13 +100,48 @@ module ChangeDelivery
     end
   end
 
-  # Returns [callable, flag key, adapter env] for a rollout in CHANGE.md.
-  def resolve_adapter(rollout, config_path, env_override)
-    config = ChangeFrontmatter.parse_file(config_path).dig('change_config', 'delivery') || {}
-    entry = config.dig('rollouts', rollout) or raise KeyError, "no rollout '#{rollout}' in #{config_path}"
-    spec = config.dig('flags', entry['flags']) or raise KeyError, "rollout '#{rollout}' names no flags adapter"
-    env = env_override || spec.dig('environments', entry['profile']) || entry['profile'].to_s
-    [ adapter_for(spec, File.dirname(File.expand_path(config_path))), entry['flag'], env ]
+  # Returns [callable, flag key, adapter env] for a rollout. The wiring is read
+  # from CHANGE.md on the BASE branch (the destination's default branch, fetched
+  # through ChangePolicy::Source, or `--ref REF` as it stands at that ref), so a
+  # branch cannot repoint the adapter it is judged by. `--config PATH` reads a
+  # working-tree file instead and is a local dry run only; the output says so.
+  def resolve_adapter(rollout, options, stderr)
+    delivery, root = load_delivery(options, stderr)
+    entry = delivery.dig('rollouts', rollout) or raise KeyError, "no rollout '#{rollout}' in the delivery config"
+    spec = delivery.dig('flags', entry['flags']) or raise KeyError, "rollout '#{rollout}' names no flags adapter"
+    env = options[:env] || spec.dig('environments', entry['profile']) || entry['profile'].to_s
+    [ adapter_for(spec, root), entry['flag'], env ]
+  end
+
+  def load_delivery(options, stderr)
+    if options[:config]
+      stderr.puts "[delivery] LOCAL DRY RUN: reading the working-tree #{options[:config]}, not the base branch"
+      path = File.expand_path(options[:config])
+      return [ ChangeFrontmatter.parse_file(path).dig('change_config', 'delivery') || {}, File.dirname(path) ]
+    end
+
+    root = git_toplevel
+    ref = options[:ref] || base_ref(root)
+    sha = ChangePolicy.resolve_commit(root, ref)
+    text, ok, err = ChangePolicy.git_show_change_md(root, sha)
+    raise ChangePolicy::Unreadable, "cannot read CHANGE.md at #{ref}: #{err.strip}" unless ok
+
+    stderr.puts "[delivery] config: base branch #{ref} @ #{sha[0, 12]}"
+    [ ChangeFrontmatter.parse(text).dig('change_config', 'delivery') || {}, root ]
+  end
+
+  def git_toplevel
+    out, status = Open3.capture2e('git', 'rev-parse', '--show-toplevel')
+    raise ChangePolicy::Unreadable, 'not inside a git repository; pass --config for a local dry run' unless status.success?
+
+    out.strip
+  end
+
+  # The destination repository's default branch, fetched fresh.
+  def base_ref(root)
+    source = ChangePolicy::Source.resolve!(root, nil)
+    branch = source.default_branch || 'main'
+    source.fetch(branch) or raise ChangePolicy::Unreadable, "cannot fetch #{branch} from the destination remote"
   end
 
   def adapter_for(spec, root)
@@ -120,7 +157,9 @@ module ChangeDelivery
   def command_adapter(spec, root, request)
     cwd = spec['cwd'] == 'repo' || spec['cwd'].nil? ? root : File.expand_path(spec['cwd'], root)
     out, status = run_with_timeout(spec.fetch('argv'), JSON.generate(request), cwd, spec.fetch('timeout_s', 30))
-    status.success? ? JSON.parse(out) : unavailable(request, "adapter exited #{status.exitstatus}")
+    return unavailable(request, "adapter exited #{status.exitstatus}") unless status.success?
+
+    checked_reply(request, JSON.parse(out))
   rescue Timeout::Error, JSON::ParserError, SystemCallError => e
     unavailable(request, "#{e.class}: #{e.message}")
   end
@@ -162,6 +201,17 @@ module ChangeDelivery
     Process.kill('KILL', -pid)
   rescue Errno::ESRCH, Errno::EPERM
     nil
+  end
+
+  # A reply that breaks cf.flags/1, or answers a different request, is a
+  # failure, never an ok.
+  def checked_reply(request, reply)
+    problems = ChangeFlagsProtocol.reply_errors(reply)
+    if reply.is_a?(Hash)
+      problems << 'request_id does not match the request' unless reply['request_id'] == request['request_id']
+      problems << 'flag or env does not match the request' unless reply['flag'] == request['flag'] && reply['env'] == request['env']
+    end
+    problems.empty? ? reply : unavailable(request, "malformed adapter reply: #{problems.join('; ')}")
   end
 
   def unavailable(request, message)

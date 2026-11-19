@@ -153,4 +153,90 @@ class ChangeDeliveryTest < Minitest::Test
       assert_equal "unavailable", JSON.parse(out).dig("error", "code")
     end
   end
+
+  def adapter_script(dir, body)
+    path = File.join(dir, "adapter.rb")
+    File.write(path, body)
+    path
+  end
+
+  def test_a_malformed_command_adapter_reply_is_a_failure_not_ok
+    Dir.mktmpdir do |dir|
+      [ "{\"ok\": true}", "[]", "not json" ].each do |printed|
+        script = adapter_script(dir, "puts #{printed.inspect}")
+        config = write_change(dir, "{ kind: command, argv: [ruby, '#{script}'], timeout_s: 20 }")
+        code, out, = cli("flags", "new-checkout", "get", "--config", config)
+        assert_equal 1, code, printed
+        assert_equal "unavailable", JSON.parse(out).dig("error", "code"), printed
+      end
+    end
+  end
+
+  def test_a_reply_for_a_different_request_is_a_failure
+    Dir.mktmpdir do |dir|
+      script = adapter_script(dir, <<~RUBY)
+        require "json"
+        req = JSON.parse($stdin.read)
+        puts JSON.generate("protocol" => "cf.flags/1", "request_id" => "someone-else", "ok" => true, "flag" => req["flag"], "env" => req["env"],
+                           "state" => { "enabled" => false, "cohorts" => [], "incident" => "closed" }, "flag_state_version" => 0)
+      RUBY
+      config = write_change(dir, "{ kind: command, argv: [ruby, '#{script}'] }")
+      code, out, = cli("flags", "new-checkout", "get", "--config", config)
+      assert_equal 1, code
+      assert_includes JSON.parse(out).dig("error", "message"), "malformed adapter reply"
+    end
+  end
+
+  def git(dir, *args) = system("git", "-C", dir, *args, out: File::NULL, err: File::NULL) || raise("git #{args.join(" ")} failed")
+
+  def with_repo
+    Dir.mktmpdir do |dir|
+      origin = File.join(dir, "origin.git")
+      work = File.join(dir, "work")
+      system("git", "init", "-q", "--bare", "-b", "main", origin) || raise("init")
+      system("git", "clone", "-q", origin, work, err: File::NULL) || raise("clone")
+      %w[user.email user.name].each { |k| git(work, "config", k, "t") }
+      write_change(work, "{ kind: fixture, path: base-state.json, environments: { production: base-env } }")
+      git(work, "add", "CHANGE.md")
+      git(work, "commit", "-qm", "base")
+      git(work, "push", "-q", "origin", "HEAD:main")
+      # the branch under review repoints the adapter in its working tree
+      write_change(work, "{ kind: fixture, path: evil-state.json, environments: { production: evil-env } }")
+      yield work
+    end
+  end
+
+  def test_flags_reads_the_base_branch_not_the_working_tree
+    with_repo do |work|
+      Dir.chdir(work) do
+        code, out, err = cli("flags", "new-checkout", "get")
+        assert_equal 0, code, err
+        assert_equal "base-env", JSON.parse(out)["env"]
+        assert_includes err, "base branch"
+        refute_includes err, "LOCAL DRY RUN"
+        code, out, = cli("flags", "new-checkout", "get", "--ref", "HEAD")
+        assert_equal 0, code
+        assert_equal "base-env", JSON.parse(out)["env"], "an explicit ref is read from git, never the dirty working tree"
+      end
+    end
+  end
+
+  def test_config_flag_is_labelled_a_local_dry_run
+    with_repo do |work|
+      code, out, err = cli("flags", "new-checkout", "get", "--config", File.join(work, "CHANGE.md"))
+      assert_equal 0, code
+      assert_equal "evil-env", JSON.parse(out)["env"]
+      assert_includes err, "LOCAL DRY RUN"
+    end
+  end
+
+  def test_flags_fails_closed_when_the_base_cannot_be_read
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        code, _out, err = cli("flags", "new-checkout", "get")
+        assert_equal 2, code
+        assert_includes err, "[delivery]"
+      end
+    end
+  end
 end
