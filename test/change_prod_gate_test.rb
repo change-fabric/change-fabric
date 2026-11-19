@@ -323,6 +323,30 @@ class ChangeProdGateTest < Minitest::Test
     assert_match(/no op executor/, err.string)
   end
 
+  def test_recheck_refuses_an_approval_that_expired_while_the_job_waited
+    origin = Dir.mktmpdir
+    clone = File.join(Dir.mktmpdir, "runner")
+    GitFixture.git_init(origin, "--bare", "-b", "main")
+    GitFixture.git(@dir, "remote", "add", "origin", origin)
+    GitFixture.git(@dir, "push", "-q", "origin", "main")
+    @store.create("requests", @id, @envelope)
+    @store.create("approvals", @id, { "protocol" => "cf.prod.approval/2", "request_id" => @id, "digest" => @envelope["digest"],
+                                      "proof" => passkey_proof(body_for(@envelope)) })
+    GitFixture.git(origin, "clone", "-q", origin, clone)
+    creds = File.join(clone, "creds.json")
+    File.write(creds, JSON.generate(credentials))
+    argv = [ "recheck", "--request-id", @id, "--repo", clone, "--config", FIXTURE, "--credentials", creds, "--allow-environments", "staging",
+             "--version-root", clone ]
+    env = { "GITHUB_REF" => "refs/heads/main" }
+    assert_equal 0, Gate.run(argv.dup, env: env, stdout: StringIO.new, now: NOW)
+    err = StringIO.new
+    assert_equal 1, Gate.run(argv.dup, env: env, stderr: err, now: Time.utc(2026, 11, 18, 12, 31, 0))
+    assert_match(/approval has expired/, err.string)
+    refute @store.exists?("claims", @id), "recheck never creates a claim"
+  ensure
+    FileUtils.remove_entry(origin) if origin
+  end
+
   def test_cli_refuses_when_the_remote_cannot_be_fetched
     ready
     err = StringIO.new

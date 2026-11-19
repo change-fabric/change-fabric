@@ -173,6 +173,7 @@ module ChangeProdGate
     case verb
     when 'verify' then cli_verify(opts, env, stdout, stderr, now)
     when 'claim' then cli_claim(opts, env, stdout, stderr, now)
+    when 'recheck' then cli_recheck(opts, env, stdout, stderr, now)
     when 'run' then refuse_run(stderr)
     else usage(stderr)
     end
@@ -232,6 +233,17 @@ module ChangeProdGate
     0
   end
 
+  # Run in the credential job, just before it assumes a role: the approval may
+  # have expired while the job waited for a reviewer or a runner. Verifies again
+  # and creates nothing, since the claim is already spent.
+  def cli_recheck(opts, env, stdout, stderr, now)
+    _store, result = verified(opts, env, now)
+    return fail_with(stderr, result) unless result.ok?
+
+    stdout.puts '[cf-prod] approval still valid'
+    0
+  end
+
   def refuse_run(stderr)
     stderr.puts '[cf-prod] refused: no op executor ships in this release; the runner verifies and claims only'
     1
@@ -243,7 +255,7 @@ module ChangeProdGate
   end
 
   def usage(stderr)
-    stderr.puts 'usage: change_prod_gate.rb verify|claim|run --request-id ID --repo PATH --config PATH --credentials PATH --allow-environments LIST'
+    stderr.puts 'usage: change_prod_gate.rb verify|claim|recheck|run --request-id ID --repo PATH --config PATH --credentials PATH --allow-environments LIST'
     2
   end
 end

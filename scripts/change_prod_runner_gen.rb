@@ -237,6 +237,11 @@ module ChangeProdRunnerGen
           - uses: ruby/setup-ruby@v1
             with:
               ruby-version: "3.4"
+          - name: recheck the approval has not expired before any credential
+            env:
+              REQUEST_ID: ${{ inputs.request_id }}
+              DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+            run: #{gate('recheck', environment).sub('--default-branch', '--version-root version --default-branch')}
           - uses: aws-actions/configure-aws-credentials@v4
             with:
               role-to-assume: "#{role}"

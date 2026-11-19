@@ -81,6 +81,18 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert_refused(/no environment can be emitted/) { generate(cfg) }
   end
 
+  def test_the_credential_step_comes_after_a_recheck_in_every_environment_job
+    jobs = YAML.safe_load(generate(blockers: []))["jobs"]
+    %w[run-staging run-production].each do |name|
+      steps = jobs[name]["steps"]
+      recheck = steps.index { |step| step["run"].to_s.include?("change_prod_gate.rb recheck") }
+      credentials = steps.index { |step| step["uses"].to_s.include?("configure-aws-credentials") }
+      refute_nil recheck, name
+      assert_operator recheck, :<, credentials, name
+      assert_includes steps[recheck]["run"], "--version-root version"
+    end
+  end
+
   def test_each_job_has_a_literal_environment_and_role_and_least_privilege
     jobs = YAML.safe_load(generate(blockers: []))["jobs"]
     staging = jobs["run-staging"]
