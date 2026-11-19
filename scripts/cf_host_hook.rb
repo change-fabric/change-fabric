@@ -6,6 +6,7 @@ require 'digest'
 require 'stringio'
 require 'shellwords'
 require 'rbconfig'
+require_relative 'cf_ruby_path'
 require_relative 'cf_runtime'
 require_relative 'skill_compiler'
 require_relative 'skill_detect'
@@ -63,9 +64,7 @@ class CfHostHook
     result = apply_mode(request) || result if @event == 'UserPromptSubmit' || @event == 'SessionStart'
     result = record_choice(request) || result if @event == 'PostToolUse'
     restate = CONTEXT_EVENTS.include?(@event) || result['decision'] == 'deny'
-    identity = Shellwords.join([ RbConfig.ruby, File.join(__dir__, 'cf_cli.rb'), 'mode', '--host', @host,
-      '--project', result.fetch('project'), '--session', session_id, '--mode' ])
-    persist = "[cf] To persist a mode selected implicitly, run #{identity} SELECTED_MODE. Use this session identity; never infer another session from cwd." if restate
+    persist = persist_hint(result) if restate
     contexts = [ @confirmation, (result.fetch('context') if restate), persist, plan_refusal(result) ].compact
     @rubrics = rubric_contexts
     contexts.concat(@rubrics)
@@ -104,6 +103,16 @@ class CfHostHook
       @rubrics = []
       output({ 'decision' => 'deny', 'reason' => reason }, '')
     end
+  end
+
+  # The mode-persist hint names a stable interpreter. With no usable opt/ link
+  # the hint is dropped for a one-line repair notice; a hook never fails on it.
+  def persist_hint(result)
+    identity = Shellwords.join([ CfRubyPath.current, File.join(__dir__, 'cf_cli.rb'), 'mode', '--host', @host,
+      '--project', result.fetch('project'), '--session', session_id, '--mode' ])
+    "[cf] To persist a mode selected implicitly, run #{identity} SELECTED_MODE. Use this session identity; never infer another session from cwd."
+  rescue CfRubyPath::UnstableInterpreter => e
+    "[cf] Mode-persist hint omitted: #{e.message}"
   end
 
   def plan_refusal(result)

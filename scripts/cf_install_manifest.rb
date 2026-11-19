@@ -23,6 +23,12 @@ class CfInstallManifest
     File.rename("#{@path}.tmp", @path)
   end
 
+  # The previous entry recorded for `path`, or nil when none was.
+  def recorded(path)
+    leaf = canonical_leaf(path)
+    entries.find { |entry| entry['path'] == leaf }
+  end
+
   def plan
     entries.map { |entry| { 'path' => entry['path'], 'action' => unchanged?(entry) ? 'remove' : 'preserve-modified-or-missing' } }
   end

@@ -5,13 +5,15 @@ require "minitest/autorun"
 require "json"
 require "tmpdir"
 require "fileutils"
+require "open3"
+require "rbconfig"
 
 require_relative "../install"
 require_relative "../scripts/change_lane_a11y"
 require_relative "../scripts/walkthrough_diagram"
 require_relative "../scripts/walkthrough_render"
 
-class RubyInterpreterTest < Minitest::Test
+class CfRubyPathTest < Minitest::Test
   def setup
     @dir = Dir.mktmpdir
   end
@@ -20,37 +22,47 @@ class RubyInterpreterTest < Minitest::Test
     FileUtils.remove_entry(@dir)
   end
 
+  def executable(*parts)
+    path = File.join(@dir, *parts)
+    FileUtils.mkdir_p(File.dirname(path))
+    FileUtils.touch(path)
+    FileUtils.chmod(0o755, path)
+    path
+  end
+
   def test_prefers_the_stable_opt_symlink_over_a_versioned_cellar_path
-    exe = RbConfig::CONFIG["ruby_install_name"]
-    cellar_ruby = File.join(@dir, "Cellar", "ruby", "3.4.5", "bin", exe)
-    opt_ruby = File.join(@dir, "opt", "ruby", "bin", exe)
-    FileUtils.mkdir_p(File.dirname(cellar_ruby))
-    FileUtils.mkdir_p(File.dirname(opt_ruby))
-    FileUtils.touch(cellar_ruby)
-    FileUtils.chmod(0o755, cellar_ruby)
-    FileUtils.touch(opt_ruby)
-    FileUtils.chmod(0o755, opt_ruby)
+    cellar_ruby = executable("Cellar", "ruby", "3.4.5", "bin", "ruby")
+    opt_ruby = executable("opt", "ruby", "bin", "ruby")
 
-    assert_equal opt_ruby, Install::RubyInterpreter.stable_homebrew_path(cellar_ruby)
+    assert_equal opt_ruby, CfRubyPath.stable(cellar_ruby)
   end
 
-  def test_falls_back_to_nil_when_no_opt_symlink_exists
-    exe = RbConfig::CONFIG["ruby_install_name"]
-    cellar_ruby = File.join(@dir, "Cellar", "ruby", "3.4.5", "bin", exe)
-    FileUtils.mkdir_p(File.dirname(cellar_ruby))
-    FileUtils.touch(cellar_ruby)
-    FileUtils.chmod(0o755, cellar_ruby)
+  def test_missing_opt_link_is_a_hard_error_naming_the_cellar_path_and_the_repair
+    cellar_ruby = executable("Cellar", "ruby", "3.4.5", "bin", "ruby")
 
-    assert_nil Install::RubyInterpreter.stable_homebrew_path(cellar_ruby)
+    error = assert_raises(CfRubyPath::UnstableInterpreter) { CfRubyPath.stable(cellar_ruby) }
+    assert_includes error.message, cellar_ruby
+    assert_includes error.message, "brew link ruby"
+    assert_includes error.message, "opt/ruby/bin/ruby"
   end
 
-  def test_falls_back_to_nil_for_a_non_homebrew_ruby
-    rbenv_ruby = File.join(@dir, "rbenv", "versions", "3.4.10", "bin", "ruby")
-    FileUtils.mkdir_p(File.dirname(rbenv_ruby))
-    FileUtils.touch(rbenv_ruby)
-    FileUtils.chmod(0o755, rbenv_ruby)
+  def test_a_non_homebrew_ruby_is_returned_unchanged
+    rbenv_ruby = executable("rbenv", "versions", "3.4.10", "bin", "ruby")
 
-    assert_nil Install::RubyInterpreter.stable_homebrew_path(rbenv_ruby)
+    assert_equal rbenv_ruby, CfRubyPath.stable(rbenv_ruby)
+  end
+
+  def test_install_script_exits_before_writing_settings_for_an_unstable_ruby
+    home = File.join(@dir, "home")
+    FileUtils.mkdir_p(home)
+    fake = executable("Cellar", "ruby", "3.4.5", "bin", "ruby")
+    script = "require 'rbconfig'; RbConfig::CONFIG['bindir'] = #{File.dirname(fake).dump}; RbConfig::CONFIG['ruby_install_name'] = 'ruby'; " \
+             "$PROGRAM_NAME = #{File.expand_path("../install.rb", __dir__).dump}; load $PROGRAM_NAME"
+    _out, err, status = Open3.capture3({ "HOME" => home }, RbConfig.ruby, "-e", script)
+
+    refute status.success?
+    assert_includes err, "brew link ruby"
+    refute File.exist?(File.join(home, ".claude", "settings.json"))
   end
 end
 
@@ -353,7 +365,37 @@ class InstallerTest < Minitest::Test
   def test_links_pi_hook_extension
     paths = install
     assert File.symlink?(paths.pi_extension_link), "Pi hook extension should be symlinked"
-    assert_equal paths.pi_extension_source, File.readlink(paths.pi_extension_link)
+    assert_equal paths.pi_extension_copy, File.readlink(paths.pi_extension_link)
+  end
+
+  def cellar_repo
+    repo = File.join(@home, "Cellar", "change-fabric", "9.9.9")
+    FileUtils.mkdir_p(repo)
+    %w[skills scripts config extensions].each { |dir| File.symlink(File.join(@repo, dir), File.join(repo, dir)) }
+    repo
+  end
+
+  def test_links_point_at_runtime_copies_never_the_cellar
+    repo = cellar_repo
+    paths = Install::Paths.new(repo: repo, home: @home)
+    capture_io { Install::Installer.new(paths: paths, ruby: "/usr/bin/ruby").install }
+    root = paths.runtime_root
+    [ paths.pi_extension_link, paths.opencode_plugin_link ].each do |link|
+      target = File.readlink(link)
+      assert target.start_with?("#{root}/"), "#{target} should live under #{root}"
+      refute_includes target, "Cellar"
+    end
+    %w[pi-cf-hooks/index.ts opencode-cf-hooks/index.ts shared/cf-client.ts shared/mode-slug.ts].each do |rel|
+      assert_equal File.binread(File.join(@repo, "extensions", rel)), File.binread(File.join(root, "extensions", rel))
+    end
+    markers = Dir.glob(File.join(@home, "**", ".cf-generated-from-claude"), File::FNM_DOTMATCH)
+    refute_empty markers
+    markers.each do |marker|
+      text = File.read(marker)
+      refute_includes text, "Cellar"
+      refute_includes text, repo
+      assert_match(%r{\Asource: skills/[^/\n]+\n\z}, text)
+    end
   end
 
   def test_preserves_unmanaged_pi_extension_dir
@@ -368,9 +410,9 @@ class InstallerTest < Minitest::Test
     paths = install
     assert File.symlink?(paths.opencode_plugin_link), "OpenCode hook plugin should be symlinked"
     assert_equal ".ts", File.extname(paths.opencode_plugin_link), "OpenCode only loads top-level .ts/.js plugins"
-    assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
+    assert_equal paths.opencode_plugin_target, File.readlink(paths.opencode_plugin_link)
     install
-    assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
+    assert_equal paths.opencode_plugin_target, File.readlink(paths.opencode_plugin_link)
   end
 
   def test_opencode_paths_follow_xdg_config_home

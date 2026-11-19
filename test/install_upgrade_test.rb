@@ -87,4 +87,112 @@ class InstallUpgradeTest < Minitest::Test
       refute_match KEY_TEXT, out, command
     end
   end
+
+  # minitest/mock is not bundled; swap a singleton method for one block.
+  def with_singleton(object, name, impl)
+    original = object.method(name)
+    object.singleton_class.send(:define_method, name, &impl)
+    yield
+  ensure
+    object.singleton_class.send(:define_method, name, &original)
+  end
+
+  def manifest_entry(path)
+    JSON.parse(File.read(File.join(@paths.runtime_root, "installation.json")))["entries"].find { |e| e["path"] == File.realpath(File.dirname(path)) + "/" + File.basename(path) }
+  end
+
+  def point_links_at_old_checkout(pi_target, oc_target)
+    [ [ @paths.pi_extension_link, pi_target ], [ @paths.opencode_plugin_link, oc_target ] ].each do |link, target|
+      FileUtils.rm_f(link)
+      File.symlink(target, link)
+    end
+    path = File.join(@paths.runtime_root, "installation.json")
+    data = JSON.parse(File.read(path))
+    data["entries"].each do |entry|
+      entry["link"] = pi_target if entry["path"].end_with?("/extensions/cf-hooks")
+      entry["link"] = oc_target if entry["path"].end_with?("/plugins/cf-hooks.ts")
+    end
+    File.write(path, JSON.generate(data))
+  end
+
+  def test_old_recorded_links_are_replaced_by_runtime_copies
+    install
+    point_links_at_old_checkout("/old/Cellar/change-fabric/0.1.0/extensions/pi-cf-hooks",
+                                "/old/Cellar/change-fabric/0.1.0/extensions/opencode-cf-hooks/index.ts")
+    install
+    assert_equal @paths.pi_extension_copy, File.readlink(@paths.pi_extension_link)
+    assert_equal @paths.opencode_plugin_target, File.readlink(@paths.opencode_plugin_link)
+    entry = manifest_entry(@paths.pi_extension_link)
+    assert_equal @paths.pi_extension_copy, entry["link"]
+  end
+
+  def test_user_edited_link_is_kept_with_a_warning
+    install
+    mine = File.join(@home, "my-pi-extension")
+    FileUtils.mkdir_p(mine)
+    FileUtils.rm_f(@paths.pi_extension_link)
+    File.symlink(mine, @paths.pi_extension_link)
+    _out, err = install
+    assert_equal mine, File.readlink(@paths.pi_extension_link)
+    assert_includes err, @paths.pi_extension_link
+    assert_nil manifest_entry(@paths.pi_extension_link)
+    assert_equal @paths.opencode_plugin_target, File.readlink(@paths.opencode_plugin_link)
+  end
+
+  def backups
+    Dir.glob(File.join(@paths.runtime_root, "backups", "extensions-*"))
+  end
+
+  def test_edited_and_added_extension_files_are_backed_up_not_deleted
+    install
+    edited = File.join(@paths.pi_extension_copy, "index.ts")
+    added = File.join(@paths.opencode_plugin_copy, "mine.ts")
+    File.write(edited, "// my edit\n")
+    File.write(added, "// my addition\n")
+    _out, err = install
+    assert_equal 1, backups.size
+    assert_equal "// my edit\n", File.read(File.join(backups.first, "pi-cf-hooks", "index.ts"))
+    assert_equal "// my addition\n", File.read(File.join(backups.first, "opencode-cf-hooks", "mine.ts"))
+    assert_includes err, edited
+    assert_includes err, added
+    assert_includes err, backups.first
+    assert_equal 2, Dir.glob(File.join(backups.first, "**", "*")).count { |f| File.file?(f) }
+    assert_equal File.binread(File.join(@paths.pi_extension_source, "index.ts")), File.binread(edited)
+    refute File.exist?(added)
+    assert Dir.glob("#{@paths.extensions_copy_root}/*.new-*").empty?
+  end
+
+  def test_unedited_rerun_creates_no_backup_and_prints_no_warning
+    install
+    _out, err = install
+    assert_empty backups
+    refute_includes err, "backed up"
+  end
+
+  def test_existing_directory_without_a_manifest_is_backed_up_whole
+    FileUtils.mkdir_p(@paths.pi_extension_copy)
+    File.write(File.join(@paths.pi_extension_copy, "index.ts"), "// pre-existing\n")
+    install
+    assert_equal "// pre-existing\n", File.read(File.join(backups.first, "pi-cf-hooks", "index.ts"))
+  end
+
+  def test_failed_staging_leaves_the_old_copy_and_links_untouched
+    install
+    before = Dir.glob(File.join(@paths.extensions_copy_root, "**", "*")).select { |f| File.file?(f) }.to_h { |f| [ f, File.binread(f) ] }
+    links = [ File.readlink(@paths.pi_extension_link), File.readlink(@paths.opencode_plugin_link) ]
+    real = FileUtils.method(:cp_r)
+    boom = lambda do |src, dest, **opts|
+      raise Errno::ENOSPC, "staging" if dest.to_s.include?(".new-")
+
+      real.call(src, dest, **opts)
+    end
+    error = nil
+    with_singleton(FileUtils, :cp_r, boom) { error = assert_raises(RuntimeError) { install } }
+    assert_includes error.message, "could not stage"
+    after = Dir.glob(File.join(@paths.extensions_copy_root, "**", "*")).select { |f| File.file?(f) }.to_h { |f| [ f, File.binread(f) ] }
+    assert_equal before, after
+    assert_equal links, [ File.readlink(@paths.pi_extension_link), File.readlink(@paths.opencode_plugin_link) ]
+    assert Dir.glob("#{@paths.extensions_copy_root}/*.new-*").empty?
+    assert_empty backups
+  end
 end

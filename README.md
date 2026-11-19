@@ -94,8 +94,10 @@ Claude mode state is read as a compatibility fallback. Other CF subsystem
 stores remain in their existing locations.
 
 **Re-run `ruby install.rb` after each clone update**, or
-`change-fabric-install` after a Homebrew upgrade. Generated skills refresh;
-source-linked host extensions still need the checkout to remain available.
+`change-fabric-install` after a Homebrew upgrade. Generated skills and the Pi and
+OpenCode host extensions refresh; the extensions are copied under
+`~/.local/share/change-fabric/extensions`, and any file you edited there moves to
+`~/.local/share/change-fabric/backups/` instead of being overwritten.
 User-owned skill collisions survive. Codex may need a new session to refresh
 discovery and hook trust review after changed hook definitions.
 
