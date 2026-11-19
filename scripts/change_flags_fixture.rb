@@ -28,21 +28,32 @@ class ChangeFlagsFixture
     key = "#{request['flag']}@#{request['env']}"
     return unknown(request) if @known && !@known.include?(request['flag'])
 
-    store = load_store
-    reply, store[key] = ChangeFlagsProtocol.apply(store[key] || ChangeFlagsProtocol.initial_state, request)
-    save_store(store)
-    reply
+    transaction do |store|
+      reply, store[key] = ChangeFlagsProtocol.apply(store[key] || ChangeFlagsProtocol.initial_state, request)
+      reply
+    end
   end
 
   # Test hook: simulate an adapter outage for one flag and env.
   def set_outage(flag, env, down)
     key = "#{flag}@#{env}"
-    store = load_store
-    store[key] = (store[key] || ChangeFlagsProtocol.initial_state).merge('outage' => down)
-    save_store(store)
+    transaction { |store| store[key] = (store[key] || ChangeFlagsProtocol.initial_state).merge('outage' => down) }
   end
 
   private
+
+  # Serializes the whole load, apply, save cycle across processes sharing the
+  # state file, so two writers can never both act on the same revision.
+  def transaction
+    FileUtils.mkdir_p(File.dirname(@path))
+    File.open("#{@path}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+      lock.flock(File::LOCK_EX)
+      store = load_store
+      result = yield(store)
+      save_store(store)
+      result
+    end
+  end
 
   def unknown(request)
     reply = ChangeFlagsProtocol.reply_for(ChangeFlagsProtocol.initial_state, request,

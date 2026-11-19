@@ -142,4 +142,15 @@ class ChangeDeliveryTest < Minitest::Test
     trace["steps"][1]["new_5xx"] = 1
     assert_equal "breach", reference_run(trace)[1]["verdict"]
   end
+
+  def test_a_grandchild_holding_stdout_cannot_outlive_the_timeout
+    Dir.mktmpdir do |dir|
+      config = write_change(dir, "{ kind: command, argv: [sh, -c, 'sleep 30 & exit 0'], timeout_s: 1 }")
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      code, out, = cli("flags", "new-checkout", "get", "--config", config)
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 10
+      assert_equal 1, code
+      assert_equal "unavailable", JSON.parse(out).dig("error", "code")
+    end
+  end
 end

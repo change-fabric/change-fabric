@@ -134,11 +134,16 @@ module ChangeDelivery
     Open3.popen2(*argv, **options) do |stdin, stdout, wait|
       writer = Thread.new { write_all(stdin, stdin_data) }
       reader = Thread.new { stdout.read }
-      return [ reader.value, wait.value ] if wait.join(timeout_s)
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout_s
+      # The deadline covers the exit and the stdout drain: a grandchild that
+      # inherits stdout can hold the pipe open after the adapter exits.
+      if wait.join(timeout_s) && reader.join([ deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0.1 ].max)
+        return [ reader.value, wait.value ]
+      end
 
       kill_group(wait.pid)
       wait.join
-      raise Timeout::Error, "no exit within #{timeout_s}s"
+      raise Timeout::Error, "no exit and complete output within #{timeout_s}s"
     ensure
       writer&.kill
       reader&.kill

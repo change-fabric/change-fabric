@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "json"
+require "open3"
 require "tmpdir"
 require_relative "../scripts/change_flags_protocol"
 require_relative "../scripts/change_flags_fixture"
@@ -229,5 +231,21 @@ class ChangeFlagsProtocolTest < Minitest::Test
     end
     result = P.disable_confirmed(laggy, flag: "f", env: "staging", incident_key: "i5", clock: -> { now }, pause: ->(s) { now += s })
     assert_equal :confirmed, result[:status]
+  end
+
+  def test_concurrent_fixture_writers_cannot_share_a_revision
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "state.json")
+      script = File.expand_path("../scripts/change_flags_fixture.rb", __dir__)
+      replies = Array.new(6) do |i|
+        Thread.new do
+          req = request("set_cohort", cohort: "c#{i}", key: "k#{i}")
+          out, = Open3.capture2({ "CF_FLAGS_FIXTURE_PATH" => path }, "ruby", script, stdin_data: JSON.generate(req))
+          JSON.parse(out)
+        end
+      end.map(&:value)
+      assert_equal 1, replies.count { |r| r["ok"] }, "exactly one writer wins revision 0"
+      assert_equal 1, ChangeFlagsFixture.new(path).call(request("get"))["flag_state_version"]
+    end
   end
 end
