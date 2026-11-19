@@ -162,6 +162,52 @@ class ChangeProdGateTest < Minitest::Test
     assert_refused verify, /no approval ref/
   end
 
+  def config_with_runner(runner)
+    cfg = YAML.safe_load_file(FIXTURE)
+    other = { "kind" => "github_actions", "workflow" => ".github/workflows/other.yml",
+              "environments" => { "staging" => "staging" }, "oidc_roles" => { "staging" => "arn:aws:iam::333333333333:role/other" } }
+    cfg["change_config"]["runners"]["other"] = other
+    op = cfg["change_config"]["operations"]["rotate_tenant_key"]
+    runner.nil? ? op.delete("runner") : op["runner"] = runner
+    cfg
+  end
+
+  def ready_with(config)
+    envelope = ChangeProdEnvelope.build(config: config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                                        profile: "staging", version: @sha, requested_by: "agent:s1", request_id: @id)
+    request(envelope)
+    approve(passkey_proof(body_for(envelope)), envelope: envelope)
+  end
+
+  def test_refuses_an_op_bound_to_a_second_runner_that_also_maps_staging
+    config = config_with_runner("other")
+    ChangeProdEnvelope.build(config: config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                             profile: "staging", version: @sha, requested_by: "agent:s1")
+    ready_with(config)
+    assert_refused verify(config: config), /bound to runner "other", not prod/
+  end
+
+  def test_refuses_an_op_with_no_runner_and_one_with_an_undeclared_runner
+    [ nil, "ghost" ].each do |runner|
+      @store = ChangeProdStore.new(@dir)
+      config = config_with_runner(runner)
+      envelope = ChangeProdEnvelope.build(config: YAML.safe_load_file(FIXTURE), op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                                          profile: "staging", version: @sha, requested_by: "agent:s1", request_id: @id)
+      request(envelope)
+      approve(passkey_proof(body_for(envelope)), envelope: envelope)
+      result = verify(config: config)
+      refute_predicate result, :ok?
+      assert_match(/runner|config_digest/, result.reason)
+      GitFixture.git(@dir, "update-ref", "-d", @store.ref("requests", @id))
+      GitFixture.git(@dir, "update-ref", "-d", @store.ref("approvals", @id))
+    end
+  end
+
+  def test_refuses_when_the_approved_runner_differs_from_the_current_config
+    ready
+    assert_refused verify(config: config_with_runner("other")), /config_digest does not match/
+  end
+
   def test_refuses_a_request_that_does_not_match_its_ref_or_digest
     other = ChangeProdEnvelope.build(config: @config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
                                      profile: "staging", version: @sha, requested_by: "agent:s1")
@@ -387,6 +433,30 @@ class ChangeProdGateTest < Minitest::Test
     assert_equal 0, cli("claim").first
     assert_equal 1, cli("recheck", run: "", attempt: "").first
     assert_equal 1, cli("claim", run: "", attempt: "").first
+  ensure
+    FileUtils.remove_entry(@origin) if @origin
+  end
+
+  def test_claim_and_recheck_refuse_a_second_runner_too
+    remote_runner
+    config = config_with_runner("other")
+    path = File.join(@clone, "other.yml")
+    File.write(path, YAML.dump(config))
+    envelope = ChangeProdEnvelope.build(config: config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                                        profile: "staging", version: @sha, requested_by: "agent:s1")
+    id = envelope["request_id"]
+    @store.create("requests", id, envelope)
+    @store.create("approvals", id, { "protocol" => "cf.prod.approval/2", "request_id" => id, "digest" => envelope["digest"],
+                                     "proof" => passkey_proof(body_for(envelope)) })
+    base = @base.each_slice(2).map { |flag, value| [ flag, flag == "--request-id" ? id : flag == "--config" ? path : value ] }.flatten
+    env = { "GITHUB_REF" => "refs/heads/main", "GITHUB_RUN_ID" => "5", "GITHUB_RUN_ATTEMPT" => "1" }
+    %w[verify claim recheck].each do |verb|
+      err = StringIO.new
+      assert_equal 1, Gate.run([ verb ] + base, env: env, stdout: StringIO.new, stderr: err, now: NOW), verb
+      assert_match(/bound to runner "other", not prod/, err.string, verb)
+    end
+    ChangeProdStore.new(@clone).fetch
+    refute ChangeProdStore.new(@clone).exists?("claims", id)
   ensure
     FileUtils.remove_entry(@origin) if @origin
   end

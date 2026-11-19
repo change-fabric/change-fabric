@@ -24,6 +24,8 @@ require_relative 'change_prod_store'
 # receipt. Staging waits for the console receipt phase.
 module ChangeProdGate
   APPROVAL_PROTOCOL = 'cf.prod.approval/2'
+  # The only runner the generated workflow serves (change_config.runners.prod).
+  RUNNER = 'prod'
   LOCAL_REFUSAL = 'a proof with no passkey assertion or console receipt is never accepted; ' \
                   'staging waits for the console receipt phase'
   DEFAULT_TTL_MINUTES = 30
@@ -64,6 +66,8 @@ module ChangeProdGate
     envelope = store.read('requests', request_id)
     ChangeProdEnvelope.validate(envelope, config: config)
     refuse('request_id does not match its ref') unless envelope['request_id'] == request_id
+    runner = config.dig('change_config', 'operations', envelope['op'], 'runner')
+    refuse("op #{envelope['op']} is bound to runner #{runner.inspect}, not #{RUNNER}") unless runner == RUNNER
     envelope
   rescue ChangeProdStore::Missing
     refuse('no request ref')
