@@ -309,6 +309,18 @@ class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
     end
   end
 
+  # Convention: focus is the point the camera looks at, so a larger focus y
+  # starts the crop lower in the zoomed frame (the view moves down the page).
+  def test_a_larger_focus_moves_the_view_toward_that_edge
+    offsets = [ 0.25, 0.5, 0.75 ].map do |fy|
+      WalkthroughFfmpeg.camera_filter(plan, { "zoom" => 2, "focus" => { "x" => 0.5, "y" => fy } })[/crop=\d+:\d+:(\d+):(\d+)/, 2].to_i
+    end
+    assert_equal offsets.sort, offsets
+    assert_equal 3, offsets.uniq.size
+    assert_equal 0, WalkthroughFfmpeg.camera_offset(0, 2160, 1080)
+    assert_equal 540, WalkthroughFfmpeg.camera_offset(0.5, 2160, 1080)
+  end
+
   # Every zoom in the storyboard's range, with and without focus, at every
   # focus extreme, yields a crop or pad that fits its input and the canvas.
   def test_camera_filter_fits_every_zoom_and_focus

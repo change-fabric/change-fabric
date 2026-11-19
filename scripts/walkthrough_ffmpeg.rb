@@ -311,7 +311,9 @@ module WalkthroughFfmpeg
 
   def timebase(plan) = "settb=1/#{plan[:fps]}"
 
-  # A camera framing: the frame scales by `zoom` around `focus`. Zooming in
+  # A camera framing: the frame scales by `zoom` around `focus`, the point of
+  # the frame the camera looks at (it lands at the canvas centre when the clamp
+  # allows), so a larger focus y moves the view down the page. Zooming in
   # crops back to the canvas, clamped so the crop never leaves the frame;
   # zooming out pads back to the canvas, clamped so the frame stays whole.
   # Cursor and taps are already drawn in, so they stay aligned. A frame
