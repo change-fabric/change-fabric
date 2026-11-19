@@ -2,13 +2,15 @@
 
 require "minitest/autorun"
 require "json"
+require "tmpdir"
+require "fileutils"
 require "stringio"
 require_relative "../scripts/prod_approval_guard"
 
 class ProdApprovalGuardTest < Minitest::Test
-  def decide(command, tool: "Bash")
+  def decide(command, tool: "Bash", cwd: Dir.pwd)
     io = StringIO.new
-    ProdApprovalGuard.new({ "tool_name" => tool, "tool_input" => { "command" => command } }).emit(io)
+    ProdApprovalGuard.new({ "tool_name" => tool, "cwd" => cwd, "tool_input" => { "command" => command } }).emit(io)
     io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecision")
   end
 
@@ -44,14 +46,49 @@ class ProdApprovalGuardTest < Minitest::Test
   def test_denies_writes_to_guarded_state_refs
     assert_denied "git push origin refs/cf-prod/approvals/1234:refs/cf-prod/approvals/1234"
     assert_denied "git push origin :refs/cf-prod/claims/1234"
+    assert_denied "git push origin refs/cf-prod/requests/1234:refs/cf-prod/requests/1234"
     assert_denied "git update-ref refs/cf-prod/lock/production abc"
     assert_denied "gh api -X POST repos/o/r/git/refs -f ref=refs/cf-prod/journal/1 -f sha=abc"
     assert_denied "gh api -X DELETE repos/o/r/git/refs/cf-prod/claims/1234"
     assert_denied "gh api repos/o/r/git/refs -f ref=refs/cf-prod/approvals/1 -f sha=abc"
   end
 
-  def test_allows_the_request_ref_and_the_agent_tools
-    assert_allowed "git push origin refs/cf-prod/requests/1234:refs/cf-prod/requests/1234"
+  def test_denies_git_global_options_variables_and_streams_that_hide_the_ref
+    assert_denied "git -C . push origin x:refs/cf-prod/approvals/abc"
+    assert_denied "git -c k=v push origin x:refs/cf-prod/approvals/abc"
+    assert_denied "git --git-dir .git push origin x:refs/cf-prod/claims/abc"
+    assert_denied "git --git-dir=.git -C . -c a=b push origin x:refs/cf-prod/lock/abc"
+    assert_denied "git --no-pager update-ref refs/cf-prod/journal/abc HEAD"
+    assert_denied "echo 'update refs/cf-prod/claims/abc HEAD' | git update-ref --stdin"
+    assert_denied "R=approvals; git push origin x:refs/cf-prod/$R/abc"
+    assert_denied "git -c alias.p=push p origin x:refs/cf-prod/approvals/abc"
+    assert_denied "git fast-import < cf-prod.stream"
+    assert_denied "git replace abc def # cf-prod"
+    assert_denied "git-receive-pack cf-prod.git"
+    assert_denied "git send-pack origin refs/cf-prod/claims/abc"
+    assert_denied "bash -c 'git -C . push origin x:refs/cf-prod/approvals/abc'"
+    assert_denied "R=approvals; gh api -X POST repos/o/r/git/refs -f ref=refs/cf-prod/$R/x -f sha=abc"
+    assert_denied "gh api repos/o/r/git/refs -f ref=refs/cf-prod/requests/x -f sha=abc"
+  end
+
+  def test_stream_writes_are_denied_in_a_repo_with_cf_prod_configured_only
+    Dir.mktmpdir do |dir|
+      assert_allowed "git update-ref --stdin < cmds", cwd: dir
+      assert_allowed "git fast-import < x", cwd: dir
+      FileUtils.mkdir_p(File.join(dir, ".github/workflows"))
+      File.write(File.join(dir, ".github/workflows/cf-prod.yml"), "name: cf-prod\n")
+      sub = File.join(dir, "deep", "er")
+      FileUtils.mkdir_p(sub)
+      assert_equal "deny", decide("git update-ref --stdin < cmds", cwd: dir)
+      assert_equal "deny", decide("git -C . fast-import < x", cwd: sub)
+      assert_nil decide("git update-ref refs/heads/x HEAD", cwd: dir)
+      assert_nil decide("git status", cwd: dir)
+    end
+  end
+
+  def test_allows_the_agent_tools_and_reads
+    assert_allowed "git log refs/cf-prod/requests/1234"
+    assert_allowed "git -C . fetch origin refs/cf-prod/requests/1234"
     assert_allowed "ruby ~/.claude/cf/bin/change_prod_request.rb create --op rotate_tenant_key --profile staging --config CHANGE.md"
     assert_allowed "gh api repos/o/r/git/refs/cf-prod/approvals/1234"
     assert_allowed "git fetch origin 'refs/cf-prod/*:refs/cf-prod/*'"

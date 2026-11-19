@@ -75,17 +75,31 @@ class ChangeProdGateTest < Minitest::Test
     assert_equal "staging", result.envelope["environment"]
   end
 
-  def test_accepts_a_local_terminal_proof_for_staging_only
-    ready(proof: local_proof(body_for(@envelope)))
-    assert_equal :local, verify.level
+  def test_never_accepts_a_proof_with_no_passkey_or_receipt_for_any_profile
+    %w[staging production].each do |profile|
+      @store = ChangeProdStore.new(@dir)
+      envelope = ChangeProdEnvelope.build(config: @config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
+                                          profile: profile, version: @sha, requested_by: "agent:s1", request_id: @id)
+      request(envelope)
+      approve(local_proof(body_for(envelope)), envelope: envelope)
+      assert_refused verify(allowed: [ profile ]), /never accepted; staging waits for the console receipt phase/
+      GitFixture.git(@dir, "update-ref", "-d", @store.ref("requests", @id))
+      GitFixture.git(@dir, "update-ref", "-d", @store.ref("approvals", @id))
+    end
   end
 
-  def test_refuses_a_local_proof_for_a_non_staging_profile
-    production = ChangeProdEnvelope.build(config: @config, op: "rotate_tenant_key", params: { "tenant_id" => "t_101" },
-                                          profile: "production", version: @sha, requested_by: "agent:s1", request_id: @id)
-    request(production)
-    approve(local_proof(body_for(production)), envelope: production)
-    assert_refused verify(allowed: %w[production]), /proof level local is not accepted for profile production/
+  def test_refuses_a_forged_terminal_proof_even_with_a_public_machine_id
+    # No TOTP secret and no signature: only the (public) machine id and digest.
+    forged = { "kind" => "totp-terminal", "body" => body_for(@envelope), "totp_step" => 1 }
+    ready(proof: forged)
+    assert_refused verify, /never accepted/
+  end
+
+  def test_a_terminal_proof_with_a_receipt_from_an_unpinned_key_is_refused
+    body = body_for(@envelope)
+    proof = local_proof(body).merge("receipt" => @signer.receipt({ "v" => 1 }, key: OpenSSL::PKey::EC.generate("prime256v1")))
+    ready(proof: proof)
+    assert_refused verify, /receipt/
   end
 
   def test_accepts_a_passkey_proof_and_a_receipted_terminal_proof_for_production

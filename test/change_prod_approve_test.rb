@@ -56,30 +56,15 @@ class ChangeProdApproveTest < Minitest::Test
     [ code, out.string, err.string ]
   end
 
-  def test_records_a_totp_terminal_proof_bound_to_the_digest
-    envelope = request
-    code, out, = approve(envelope)
-    assert_equal 0, code
-    assert_includes out, "staging only"
-    record = @store.read("approvals", envelope["request_id"])
-    assert_equal "cf.prod.approval/2", record["protocol"]
-    assert_equal envelope["digest"], record["digest"]
-    assert_equal "totp-terminal", record.dig("proof", "kind")
-    body = ApprovalConsole::Canonical.parse(record.dig("proof", "body"))
-    assert_equal ChangeProdEnvelope.approval_context(envelope, repo: body["repo"], machine_id: body["machine_id"]).values_at("summary", "argv", "sha", "profile"),
-                 body.values_at("summary", "argv", "sha", "profile")
-  end
-
-  def test_the_recorded_proof_verifies_at_the_runner_for_staging
-    envelope = request
-    approve(envelope)
-    record = @store.read("approvals", envelope["request_id"])
-    body = ApprovalConsole::Canonical.parse(record.dig("proof", "body"))
-    credentials = { "rp_id" => "x.example", "repo" => body["repo"], "machine_ids" => [ body["machine_id"] ], "credentials" => {} }
-    result = ChangeProdGate.verify(store: @store, request_id: envelope["request_id"], config: YAML.safe_load_file(FIXTURE),
-                                   credentials: credentials, allowed: %w[staging])
-    assert_predicate result, :ok?, result.reason
-    assert_equal :local, result.level
+  def test_records_nothing_and_says_why_for_every_profile
+    %w[staging production].each do |profile|
+      envelope = request(profile: profile)
+      code, out, err = approve(envelope)
+      assert_equal 1, code
+      assert_match(/never accepted; staging waits for the console receipt phase/, err)
+      refute_match(/approved/, out)
+      refute @store.exists?("approvals", envelope["request_id"])
+    end
   end
 
   def test_refuses_without_a_tty_in_an_agent_harness_and_for_remote
@@ -99,43 +84,12 @@ class ChangeProdApproveTest < Minitest::Test
     refute @store.exists?("approvals", envelope["request_id"])
   end
 
-  def test_refuses_a_production_request_with_a_terminal_only_proof
-    envelope = request(profile: "production")
-    code, _, err = approve(envelope)
-    assert_equal 1, code
-    assert_match(/staging only; production needs the remote console/, err)
-    refute @store.exists?("approvals", envelope["request_id"])
-  end
-
-  def test_refuses_a_wrong_digest_prefix_and_a_bad_code
+  def test_refuses_a_missing_request_and_bad_usage
     envelope = request
-    code, _, err = approve(envelope, typed: "deadbeef0000")
-    assert_equal 1, code
-    assert_match(/did not match/, err)
-    code, _, err = approve(envelope, code: "000000")
-    assert_equal 1, code
-    assert_match(/nothing recorded/, err)
-    refute @store.exists?("approvals", envelope["request_id"])
-  end
-
-  def test_refuses_an_unenrolled_machine_and_a_missing_or_tampered_request
-    envelope = request
-    FileUtils.rm_rf(@totp.dir)
-    code, _, err = approve(envelope, code: "123456")
-    assert_equal 1, code
-    assert_match(/no TOTP seed/, err)
     missing = StringIO.new
     code = Approve.run([ SecureRandom.uuid, "--repo", @dir, "--no-push" ], stdin: Stdin.new(true, []), stdout: StringIO.new, stderr: missing, env: {}, parents: -> { [] })
     assert_equal 1, code
     assert_match(/does not exist/, missing.string)
     assert_equal 2, Approve.run([], stdin: Stdin.new(true, []), stdout: StringIO.new, stderr: StringIO.new, env: {}, parents: -> { [] })
-  end
-
-  def test_an_approval_is_created_once
-    envelope = request
-    assert_equal 0, approve(envelope).first
-    code, _, err = approve(envelope, code: totp_now(@totp, offset: 1))
-    assert_equal 1, code
-    assert_match(/already exists/, err)
   end
 end

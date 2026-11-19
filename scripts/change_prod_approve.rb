@@ -1,11 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'json'
 require 'optparse'
 require_relative 'approval_console'
-require_relative 'approval_console/terminal_prompt'
-require_relative 'cf_project_identity'
 require_relative 'change_prod_envelope'
 require_relative 'change_prod_gate'
 require_relative 'change_prod_store'
@@ -14,15 +11,12 @@ require_relative 'change_prod_store'
 #
 #   change_prod_approve.rb REQUEST_ID [--repo PATH] [--no-push]
 #
-# Terminal path (this release): shows the whole envelope, asks for the digest
-# prefix typed back, then requires a TOTP code from this machine's enrolled
-# seed. The proof is `totp-terminal` with no console receipt, which the runner
-# accepts for the staging profile only. A production request is refused here
-# rather than approved into a proof the runner would refuse.
-# `--remote` (passkey plus TOTP through the console) needs console phases 5 and
-# 6 and is refused until they land.
+# Terminal path: the runner never accepts a terminal-only proof (no passkey, no
+# console receipt), so this release records nothing and says why. Approval
+# works once the console issues receipts (console phases 5 and 6); staging
+# waits for the same phase. `--remote` is refused until then.
 #
-# Refuses without a real TTY, inside an agent harness, and on a degraded host.
+# Refuses without a real TTY and inside an agent harness.
 # Like the other guards this is friction, not a sandbox.
 module ChangeProdApprove
   module_function
@@ -36,10 +30,8 @@ module ChangeProdApprove
     return usage(stderr) unless opts[:request_id]
 
     store = store_factory.call(opts)
-    envelope = load(store, opts)
-    return refuse(stderr, "a terminal-only proof is accepted for staging only; #{envelope['profile']} needs the remote console") unless ChangeProdGate::LOCAL_PROFILES.include?(envelope['profile'])
-
-    approve(envelope, store, opts, stdin, stdout, stderr)
+    ChangeProdEnvelope.validate(load(store, opts))
+    refuse(stderr, ChangeProdGate::LOCAL_REFUSAL)
   rescue OptionParser::ParseError, ChangeProdEnvelope::Invalid, ChangeProdStore::Error => e
     refuse(stderr, e.message)
   end
@@ -57,37 +49,7 @@ module ChangeProdApprove
 
   def load(store, opts)
     store.fetch if opts[:push]
-    ChangeProdEnvelope.validate(store.read('requests', opts[:request_id]))
-  end
-
-  def approve(envelope, store, opts, stdin, stdout, stderr)
-    preflight = ApprovalConsole::TerminalPrompt.preflight('prod-op')
-    return refuse(stderr, preflight) if preflight
-
-    show(envelope, stdout)
-    stdout.print "Type the first 12 characters of the digest (#{ChangeProdEnvelope.prefix(envelope)}) to continue: "
-    return refuse(stderr, 'the typed digest prefix did not match') unless stdin.gets.to_s.strip == ChangeProdEnvelope.prefix(envelope)
-
-    result = ApprovalConsole::TerminalPrompt.approve(attrs(envelope, opts[:repo]), stdin: stdin, stdout: stdout)
-    return refuse(stderr, "#{result.error}; nothing recorded") unless result.ok?
-
-    record = { 'protocol' => ChangeProdGate::APPROVAL_PROTOCOL, 'request_id' => envelope['request_id'],
-               'digest' => envelope['digest'], 'proof' => result.proof }
-    store.create('approvals', envelope['request_id'], record, push: opts[:push])
-    stdout.puts "[cf-prod] approved #{envelope['request_id']} (staging only; expires in 15 minutes)."
-    0
-  rescue ApprovalConsole::Canonical::Invalid => e
-    refuse(stderr, "cannot bind the approval: #{e.message}")
-  end
-
-  def attrs(envelope, repo)
-    ChangeProdEnvelope.approval_context(envelope, repo: CfProjectIdentity.for(repo).id, machine_id: nil)
-                      .reject { |key, _| key == 'machine_id' }
-  end
-
-  def show(envelope, stdout)
-    stdout.puts "Bounded prod op request #{envelope['request_id']}"
-    stdout.puts JSON.pretty_generate(envelope)
+    store.read('requests', opts[:request_id])
   end
 
   def refuse(stderr, reason)

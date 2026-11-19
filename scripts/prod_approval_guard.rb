@@ -22,10 +22,12 @@ require_relative 'hook_event'
 class ProdApprovalGuard
   EVENT = 'PreToolUse'
   APPROVE_CLI = 'change_prod_approve.rb'
-  MARKERS = [ APPROVE_CLI, 'pending_deployments', '/environments', 'refs/cf-prod/' ].freeze
+  MARKERS = [ APPROVE_CLI, 'pending_deployments', '/environments', 'cf-prod' ].freeze
   PENDING = %r{repos/[^/\s]+/[^/\s]+/actions/runs/[^/\s]+/pending_deployments}
   ENVIRONMENTS = %r{repos/[^/\s]+/[^/\s]+/environments(?:/|\z|\?)}
-  GUARDED_REFS = %r{refs/cf-prod/(?:approvals|claims|lock|journal)\b}
+  GIT_WRITE_VERBS = %w[push update-ref fast-import replace receive-pack send-pack].freeze
+  GIT_ARG_OPTIONS = %w[-C -c --git-dir --work-tree --namespace --super-prefix --config-env --exec-path].freeze
+  WORKFLOW = '.github/workflows/cf-prod.yml'
   WRITE_METHODS = %w[PUT POST PATCH DELETE].freeze
   FIELD_FLAGS = %w[-f -F --field --raw-field --input].freeze
 
@@ -43,9 +45,12 @@ class ProdApprovalGuard
 
     input = @event['tool_input']
     command = input.is_a?(Hash) ? input['command'].to_s : ''
+    list = words(command)
+    stream = stream_denial(list)
+    return stream if stream
     return unless MARKERS.any? { |marker| command.include?(marker) }
 
-    inspect_words(words(command))
+    inspect_words(list, command)
   rescue ArgumentError
     'an unparseable shell command naming a prod approval path'
   end
@@ -61,16 +66,16 @@ class ProdApprovalGuard
     end
   end
 
-  def inspect_words(list)
+  def inspect_words(list, command)
     return "a shell command running #{APPROVE_CLI}" if list.any? { |word| File.basename(word) == APPROVE_CLI }
 
     api = api_calls(list)
     api.each do |args|
       return 'a gh api call to pending_deployments' if args.any? { |arg| arg.match?(PENDING) }
       return 'a gh api write to a repository environment' if env_write?(args)
-      return 'a gh api write to a guarded refs/cf-prod ref' if guarded_ref?(args) && write?(args)
     end
-    return 'a git write to a guarded refs/cf-prod ref' if git_write?(list)
+    return 'a gh api write in a command naming cf-prod' if command.include?('cf-prod') && api.any? { |args| write?(args) }
+    return 'a git write in a command naming cf-prod' if command.include?('cf-prod') && git_verbs(list).intersect?(GIT_WRITE_VERBS)
 
     nil
   end
@@ -81,8 +86,6 @@ class ProdApprovalGuard
   end
 
   def env_write?(args) = args.any? { |arg| arg.match?(ENVIRONMENTS) } && write?(args)
-
-  def guarded_ref?(args) = args.any? { |arg| arg.match?(GUARDED_REFS) }
 
   # An explicit non-GET method, or any field flag (gh defaults those to POST).
   def write?(args)
@@ -104,14 +107,50 @@ class ProdApprovalGuard
     nil
   end
 
-  # git push or update-ref naming a guarded ref, or a mirror/all push that
-  # would carry one.
-  def git_write?(list)
-    list.each_index.any? do |i|
-      next false unless list[i] == 'git'
+  # The verb of every `git` invocation, skipping git's global options (and
+  # their arguments), so `git -C . push` and `git -c k=v push` read as push.
+  # A bare `git-receive-pack` style plumbing name counts as its own verb. An
+  # alias defined on the command line (`-c alias.x=push`) makes every verb
+  # suspect, reported as a write.
+  def git_verbs(list)
+    list.each_index.flat_map do |i|
+      name = File.basename(list[i])
+      next [ name.delete_prefix('git-') ] if name.start_with?('git-') && GIT_WRITE_VERBS.include?(name.delete_prefix('git-'))
+      next [] unless name == 'git'
 
-      verb = list[(i + 1)..].find { |word| !word.start_with?('-') }
-      %w[push update-ref].include?(verb) && list[(i + 1)..].any? { |word| word.match?(GUARDED_REFS) }
+      git_verb_after(list, i + 1)
+    end
+  end
+
+  def git_verb_after(list, index)
+    while index < list.size
+      word = list[index]
+      return [ 'push' ] if word == '-c' && list[index + 1].to_s.start_with?('alias.')
+      return [ word ] unless word.start_with?('-')
+
+      index += GIT_ARG_OPTIONS.include?(word) ? 2 : 1
+    end
+    []
+  end
+
+  # `git update-ref --stdin` and `git fast-import` take their ref names from a
+  # stream the command text does not show, so in a repo with the cf-prod
+  # workflow they are denied outright.
+  def stream_denial(list)
+    verbs = git_verbs(list)
+    stream = verbs.include?('fast-import') || (verbs.include?('update-ref') && list.include?('--stdin'))
+    return unless stream && cf_prod_repo?
+
+    'a git stream write (update-ref --stdin or fast-import) in a repo with cf-prod configured'
+  end
+
+  def cf_prod_repo?
+    dir = File.expand_path(@event['cwd'].to_s.empty? ? Dir.pwd : @event['cwd'])
+    loop do
+      return true if File.exist?(File.join(dir, WORKFLOW))
+      return false if dir == File.dirname(dir)
+
+      dir = File.dirname(dir)
     end
   end
 

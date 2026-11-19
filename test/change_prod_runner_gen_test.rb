@@ -61,6 +61,24 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert_equal "arn:aws:iam::222222222222:role/cf-prod", production["steps"].find { |s| s["with"]&.key?("role-to-assume") }["with"]["role-to-assume"]
   end
 
+  def test_only_the_staging_allowlist_is_emitted_while_blocked_whatever_production_is_called
+    %w[prod live prd production-eu release].each do |name|
+      cfg = config
+      runner(cfg)["environments"][name] = "production"
+      runner(cfg)["oidc_roles"][name] = "arn:aws:iam::222222222222:role/cf-prod"
+      text = generate(cfg)
+      assert_equal %w[claim run-staging validate], YAML.safe_load(text)["jobs"].keys.sort, name
+      refute_includes text, "role/cf-prod", name
+      refute_includes text, "environment: production", name
+    end
+  end
+
+  def test_a_staging_key_mapped_to_a_production_environment_is_not_emitted
+    cfg = config
+    runner(cfg)["environments"]["staging"] = "production"
+    assert_refused(/no environment can be emitted/) { generate(cfg) }
+  end
+
   def test_each_job_has_a_literal_environment_and_role_and_least_privilege
     jobs = YAML.safe_load(generate(blockers: []))["jobs"]
     staging = jobs["run-staging"]

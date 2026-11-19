@@ -17,12 +17,15 @@ require_relative 'change_prod_store'
 # key, machine ids, repo) committed on base, and the approved body must be bound
 # to the recomputed request digest. Any failure is a refusal with one reason.
 #
-# A proof the console never countersigned (`totp-terminal`, level :local) proves
-# only that a human-run CLI wrote it, so it is accepted for the staging profile
-# alone. Production needs a passkey assertion or a console receipt.
+# A proof with neither a passkey assertion nor a console receipt (`totp-terminal`,
+# level :local) carries nothing cryptographic, and the machine ids are public,
+# so anyone able to write refs/cf-prod/approvals could forge one. The runner
+# never accepts it, for any profile: it needs a passkey assertion or a console
+# receipt. Staging waits for the console receipt phase.
 module ChangeProdGate
   APPROVAL_PROTOCOL = 'cf.prod.approval/2'
-  LOCAL_PROFILES = %w[staging].freeze
+  LOCAL_REFUSAL = 'a proof with no passkey assertion or console receipt is never accepted; ' \
+                  'staging waits for the console receipt phase'
   DEFAULT_TTL_MINUTES = 30
   MAX_TTL_MINUTES = 60
   CLOCK_SKEW = 300
@@ -47,7 +50,7 @@ module ChangeProdGate
     body = parse_body(proof)
     refuse('approver machine is not pinned') unless pinned[:machine_ids].include?(body['machine_id'])
     result = check_proof(proof, envelope, body, pinned)
-    refuse("proof level #{result.level} is not accepted for profile #{envelope['profile']}") if result.level == :local && !LOCAL_PROFILES.include?(envelope['profile'])
+    refuse(LOCAL_REFUSAL) unless %i[passkey receipt].include?(result.level)
     check_lifetime(body, config, now)
     Result.new(ok: true, envelope: envelope, level: result.level)
   rescue Refuse, ChangeProdEnvelope::Invalid, ChangeProdStore::Error => e

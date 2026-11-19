@@ -33,7 +33,10 @@ module ChangeProdRunnerGen
   # Flipped by the PR that lands the op executor, backups and maintenance
   # windows (plan phases 3 and 4).
   EXECUTOR_LANDED = false
-  PRODUCTION_PROFILE = 'production'
+  # While anything blocks production, only these profiles, mapped to the
+  # same-named environment, are emitted. An allowlist, not a deny of one name:
+  # `prod`, `live` or a staging key mapped to production never gets a job.
+  SAFE_PROFILES = %w[staging].freeze
 
   module_function
 
@@ -88,11 +91,10 @@ module ChangeProdRunnerGen
     roles = runner['oidc_roles']
     raise Refused, 'runner needs environments and oidc_roles' unless mapping.is_a?(Hash) && roles.is_a?(Hash)
 
-    mapping.keys.sort.filter_map do |profile|
-      next if profile == PRODUCTION_PROFILE && !blockers.empty?
+    triples = mapping.keys.sort.map { |profile| [ profile, checked_environment(profile, mapping[profile]), checked_role(profile, roles[profile]) ] }
+    return triples if blockers.empty?
 
-      [ profile, checked_environment(profile, mapping[profile]), checked_role(profile, roles[profile]) ]
-    end
+    triples.select { |profile, environment, _| SAFE_PROFILES.include?(profile) && environment == profile }
   end
 
   def checked_environment(profile, name)
