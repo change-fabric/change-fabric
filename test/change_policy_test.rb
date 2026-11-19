@@ -348,7 +348,7 @@ class ChangePolicyTest < Minitest::Test
     end
   end
 
-  def test_fetch_base_reads_a_branch_a_single_branch_clone_does_not_track
+  def test_source_fetch_reads_a_branch_a_single_branch_clone_does_not_track
     ref_repo do |upstream|
       commit_change_md(upstream, "change_policy: {}\n")
       git(upstream, "branch", "-M", "main")
@@ -359,9 +359,9 @@ class ChangePolicyTest < Minitest::Test
         clone = File.join(dir, "clone")
         git(dir, "clone", "-q", "--single-branch", "--branch", "main", upstream, clone)
 
-        ref = ChangePolicy.fetch_base(clone, "origin", "staging")
-        refute_nil ref
-        assert ChangePolicy.for_ref(clone, ref).require_change_pass?("staging")
+        source = ChangePolicy::Source.for_destination(clone, "origin")
+        refute_nil source.fetch("staging")
+        assert source.policy("staging").require_change_pass?("staging")
       end
     end
   end

@@ -327,21 +327,17 @@ class ChangeMergeGuardTest < Minitest::Test
   end
   # --- owning repo of the PR, not origin (fork checkouts) ---------------------
 
-  def test_repo_slug_reads_owner_and_name_from_the_pr_url
-    assert_equal "up/proj", ChangeMergeGuard.repo_slug("https://github.com/up/proj/pull/12")
-    assert_nil ChangeMergeGuard.repo_slug(nil)
-  end
-
   def test_base_policy_reads_the_owning_repo_not_a_fork_origin
     Dir.mktmpdir do |dir|
       upstream = make_policy_repo(File.join(dir, "up", "proj"), "staging: { require_change_pass: true }")
       fork = make_policy_repo(File.join(dir, "fork", "proj"), "staging: { require_change_pass: false }")
       clone = File.join(dir, "clone")
       git_ok(dir, "clone", "-q", fork, clone)
-      git_ok(clone, "remote", "add", "upstream", upstream)
+      git_ok(clone, "remote", "add", "upstream", "git@github.com:up/proj.git")
+      git_ok(clone, "config", "url.#{upstream}.insteadOf", "git@github.com:up/proj.git")
 
       guard = ChangeMergeGuard.new({})
-      policy = guard.send(:base_policy, clone, "staging", "up/proj")
+      policy = guard.send(:base_policy, clone, "staging", "https://github.com/up/proj/pull/1")
       assert policy.require_change_pass?("staging")
       refute guard.send(:base_policy, clone, "staging", nil).require_change_pass?("staging")
     end

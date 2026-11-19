@@ -26,11 +26,11 @@ class StubTagGuard < ChangeTagGuard
 
   def repo_root = @root
 
-  def default_branch(_root)
+  def default_branch(_source)
     "main"
   end
 
-  def base_policy(root, trunk)
+  def base_policy(source, trunk)
     return super if @stub_base_policy == :same_as_root
 
     @stub_base_policy
@@ -307,11 +307,9 @@ class ChangeTagGuardTest < Minitest::Test
     assert_equal "deny", stubbed_decision("git push origin production/v2.0.0", base_policy: :same_as_root)
   end
 
-  def test_default_branch_is_resolved_from_origin_head
-    git("fetch", "-q", "origin")
-    git("remote", "set-head", "origin", "main")
+  def test_default_branch_is_asked_of_the_destination_repository
     guard = ChangeTagGuard.new({})
-    assert_equal "main", guard.send(:default_branch, @repo)
+    assert_equal "main", guard.send(:default_branch, ChangePolicy::Source.for_destination(@repo, "origin"))
   end
 
   def test_unreadable_trunk_policy_still_allows_a_push_that_publishes_no_tag
@@ -324,6 +322,7 @@ class ChangeTagGuardTest < Minitest::Test
     git("fetch", "-q", "origin")
     git("remote", "set-url", "origin", File.join(@repo, "no-such-remote"))
     guard = ChangeTagGuard.new({})
-    assert_equal :unreadable, guard.send(:base_policy, @repo, "main")
+    source = ChangePolicy::Source.for_destination(@repo, "origin")
+    assert_equal :unreadable, guard.send(:base_policy, source, "main")
   end
 end

@@ -55,40 +55,58 @@ class ChangeTagGuard
   # check.
   def violation
     root = repo_root or return nil
-    trunk = default_branch(root)
     refs = ChangeTagRefs.for_command(command, root)
     return nil if refs.empty?
 
-    policy = trunk ? base_policy(root, trunk) : :unreadable
+    source = policy_source(root)
+    trunk = source && default_branch(source)
+    policy = trunk ? base_policy(source, trunk) : :unreadable
     return unreadable_violation(root, trunk) if policy == :unreadable
     return nil if policy.nil?
     return nil if policy.protected_tag_patterns.empty?
 
+    @source = source
     reasons = refs.flat_map { |tag, sha| tag_violations(policy, tag, sha, root) }
     reasons.empty? ? nil : reasons.join(' ')
   end
 
-  # The gating policy as CHANGE.md stands on the repo's default branch,
-  # never the working tree (#553). The trunk name comes from origin itself,
-  # not from CHANGE.md, so a PR cannot redirect the guard by editing its own
-  # copy; every tag-rule field (require_trunk_ancestor included) is then read
-  # from that branch's published CHANGE.md only.
-  def default_branch(root)
-    out, status = Open3.capture2e('git', '-C', root, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD')
-    return out.strip.delete_prefix('origin/') if status.success? && !out.strip.empty?
+  # The repository this command publishes the tag to, resolved by
+  # ChangePolicy::Source alone (#553): the `git push <repository>` argument
+  # (a remote name or URL; the branch's push remote, else origin, when
+  # absent), or `gh release create`'s --repo/-R (else the default push
+  # remote). nil when the destination names no remote or URL, so a governed
+  # repo fails closed on it.
+  def policy_source(root)
+    return release_source(root) if GuardedCommand.release_create?(command)
 
-    out, status = Open3.capture2e('gh', 'repo', 'view', '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name',
-                                  chdir: root)
-    name = out.strip
-    status.success? && !name.empty? ? name : nil
-  rescue StandardError
-    nil
+    ChangePolicy::Source.for_destination(root, push_destination)
   end
 
-  def base_policy(root, trunk)
-    ref = ChangePolicy.fetch_base(root, 'origin', trunk) or return :unreadable
+  def push_destination
+    toks = GuardedCommand.tokens(command)
+    rest = toks[(toks.index('push') + 1)..] || []
+    rest.find { |token| !token.start_with?('-') }
+  end
 
-    ChangePolicy.for_ref(root, ref)
+  def release_source(root)
+    toks = GuardedCommand.tokens(command)
+    idx = toks.index { |t| %w[-R --repo].include?(t) }
+    value = idx ? toks[idx + 1] : toks.find { |t| t.start_with?('--repo=') }&.delete_prefix('--repo=')
+    return ChangePolicy::Source.for_destination(root, nil) unless value
+
+    parts = value.sub(%r{\Ahttps?://}, '').split('/')
+    parts.unshift('github.com') if parts.size == 2
+    parts.size == 3 ? ChangePolicy::Source.for_identity(root, parts.map(&:downcase)) : nil
+  end
+
+  # The gating policy as CHANGE.md stands on the destination repository's
+  # default branch, never the working tree (#553). The branch name is asked
+  # of that repository itself, not of origin or CHANGE.md, so neither a fork
+  # origin nor a PR's own copy can redirect the guard.
+  def default_branch(source) = source.default_branch
+
+  def base_policy(source, trunk)
+    source.policy(trunk)
   rescue ChangePolicy::Unreadable
     :unreadable
   end
@@ -146,8 +164,8 @@ class ChangeTagGuard
 
   # `require_trunk_ancestor: main` (0.9.0): the tagged commit must be
   # an ancestor of (or equal to) the named branch, checked against the
-  # remote-tracking ref when one exists (a fresher signal than a possibly
-  # stale local branch). Fails open (nil) whenever the branch cannot be
+  # destination repository's copy when it can be fetched (a fresher signal
+  # than a possibly stale local branch). Fails open (nil) whenever the branch cannot be
   # resolved at all, rather than deny on a fact the guard could not establish.
   def ancestor_violation(policy, tag, rule, sha, root)
     branch = policy.require_trunk_ancestor_for_rule(rule)
@@ -172,9 +190,11 @@ class ChangeTagGuard
     nil
   end
 
+  # The branch as the destination repository has it (fetched through the
+  # same ChangePolicy::Source as the policy), else the local branch.
   def resolve_branch_ref(branch, root)
-    remote_ref = "origin/#{branch}"
-    return remote_ref if ref_exists?(remote_ref, root)
+    fetched = @source&.fetch(branch)
+    return fetched if fetched
     return branch if ref_exists?(branch, root)
 
     nil
