@@ -57,4 +57,19 @@ class ChangeApprovalStoreTest < Minitest::Test
     File.write(File.join(@dir, "abc.json"), "{nope")
     assert_empty store("abc").approvals
   end
+
+  def test_proof_rides_on_added_entries_only_and_reads_do_not_change
+    proof = { "kind" => "totp-terminal", "body" => "{}", "totp_step" => 1, "receipt" => nil }
+    store("abc").record(steps: [ [ "boot.up", "d1" ] ], by: "a")
+    store("abc").record(steps: [ [ "boot.up", "d1" ], [ "boot.down", "d2" ] ], by: "b", proof: proof)
+    entries = JSON.parse(File.read(File.join(@dir, "abc.json")))["approved"]
+    refute entries[0].key?("proof")
+    assert_equal proof, entries[1]["proof"]
+    assert_equal [ [ "boot.up", "d1" ], [ "boot.down", "d2" ] ], store("abc").approvals
+  end
+
+  def test_no_proof_key_without_a_proof
+    store("abc").record(steps: [ [ "boot.up", "d1" ] ], by: "a")
+    refute JSON.parse(File.read(File.join(@dir, "abc.json")))["approved"][0].key?("proof")
+  end
 end

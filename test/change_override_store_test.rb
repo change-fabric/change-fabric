@@ -36,6 +36,14 @@ class ChangeOverrideStoreTest < Minitest::Test
     assert record["recorded_at"]
   end
 
+  def test_proof_is_stored_when_given_and_absent_otherwise
+    proof = { "kind" => "totp-terminal", "body" => "{}", "totp_step" => 1, "receipt" => nil }
+    ChangeOverrideStore.new("abc123").record(reason: "x", recorded_by: "cf", proof: proof)
+    assert_equal proof, ChangeOverrideStore.new("abc123").read["proof"]
+    ChangeOverrideStore.new("def456").record(reason: "x", recorded_by: "cf")
+    refute ChangeOverrideStore.new("def456").read.key?("proof")
+  end
+
   def test_blank_sha_is_not_recordable
     store = ChangeOverrideStore.new("")
     store.record(reason: "x", recorded_by: "cf")

@@ -16,14 +16,18 @@ require_relative 'change_sha_record'
 # class's plain sha[/__profile] path) keeps a recorded override from ever
 # colliding with a gate-store record for the same key.
 class ChangeOverrideStore < ChangeShaRecord
-  def record(reason:, recorded_by:)
-    write(
+  # An optional `proof` (see scripts/approval_console) is stored beside the
+  # reason; nothing reads or enforces it yet.
+  def record(reason:, recorded_by:, proof: nil)
+    payload = {
       'sha' => @sha,
       'profile' => @profile,
       'reason' => reason.to_s,
       'recorded_by' => recorded_by.to_s,
       'recorded_at' => Time.now.utc.iso8601
-    )
+    }
+    payload['proof'] = proof if proof
+    write(payload)
   end
 
   def authorized? = !read.nil?
