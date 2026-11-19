@@ -281,7 +281,9 @@ class ApprovalConsoleApp
     rows = @store.query('CRED')
     require_existing_credential!(req, rows, data, token) unless rows.empty?
     challenge = b64u(SecureRandom.random_bytes(32))
-    @store.transact([ { op: :put, item: boot.merge('challenge' => challenge), exists: true } ])
+    # assertion_ok records that an existing passkey authorized this token, which
+    # verify re-checks against the credential set at commit time.
+    @store.transact([ { op: :put, item: boot.merge('challenge' => challenge, 'assertion_ok' => !rows.empty?), exists: true } ])
     json(200, publicKey: creation_options(req, boot, challenge, rows))
   end
 
@@ -348,13 +350,22 @@ class ApprovalConsoleApp
     [ cred_id, cose.is_a?(Hash) ? auth.byteslice(55 + length, used) : raise(Verifier::Reject, 'public key is not a map') ]
   end
 
+  # The credential set is serialized by a version row: two tokens that were
+  # issued while it was empty cannot both commit as first credentials. A token
+  # that commits into a non-empty set must carry an existing-passkey assertion.
   def store_credential(boot, data, cred_id, cose)
-    item = { 'pk' => 'CRED', 'sk' => cred_id, 'cose' => b64u(cose), 'sign_count' => 0, 'created_at' => stamp(now),
-             'label' => data['label'].to_s[0, 64], 'machine_id' => boot['machine_id'] }
-    ok = @store.transact([ { op: :delete, key: { 'pk' => boot['pk'], 'sk' => 'BOOT' }, exists: true }, { op: :put, item: item, absent: true } ])
-    raise HttpError.new(409, 'already_registered') unless ok
+    RETRIES.times do
+      registry = @store.get('CREDREG', 'REG')
+      rows = @store.query('CRED')
+      raise HttpError.new(401, 'assertion_required') unless rows.empty? || boot['assertion_ok']
 
-    json(200, credential_id: cred_id)
+      item = { 'pk' => 'CRED', 'sk' => cred_id, 'cose' => b64u(cose), 'sign_count' => 0, 'created_at' => stamp(now),
+               'label' => data['label'].to_s[0, 64], 'machine_id' => boot['machine_id'] }
+      ops = [ { op: :delete, key: { 'pk' => boot['pk'], 'sk' => 'BOOT' }, exists: true }, { op: :put, item: item, absent: true },
+              { op: :put, item: { 'pk' => 'CREDREG', 'sk' => 'REG', 'version' => registry ? registry['version'].to_i + 1 : 1 }, expect: { 'version' => registry && registry['version'] } } ]
+      return json(200, credential_id: cred_id) if @store.transact(ops)
+    end
+    raise HttpError.new(409, 'already_registered')
   end
 
   # ----- requests --------------------------------------------------------
@@ -529,6 +540,7 @@ class ApprovalConsoleApp
     check_lock!(meta)
     RETRIES.times do
       meta = meta_for(mid)
+      check_lock!(meta)
       outcome = terminal_once(mid, meta, data, parsed, sync)
       return outcome unless outcome == :conflict
     end

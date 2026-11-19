@@ -439,6 +439,20 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_equal "replay", signed("POST", path, { "body" => request_body, "code" => totp })[1]["error"]
   end
 
+  def test_terminal_approve_rechecks_the_lock_on_freshly_read_metadata
+    count = 0
+    original = @store.method(:get)
+    locked = ->(store) { store.seed(meta.merge("locked_until" => "2026-11-19T12:30:00Z", "version" => 5)) }
+    @store.define_singleton_method(:get) do |pk, sk|
+      row = original.call(pk, sk)
+      locked.call(self) if sk == "META" && (count += 1) == 1
+      row
+    end
+    status, data = signed("POST", "/m/#{MID}/terminal-approve", { "body" => request_body, "code" => totp })
+    assert_equal [ 423, "locked" ], [ status, data["error"] ]
+    assert_equal "2026-11-19T12:30:00Z", meta["locked_until"], "the concurrent lockout is not cleared"
+  end
+
   def test_terminal_failures_lock_the_machine_for_both_channels
     path = "/m/#{MID}/terminal-approve"
     5.times { signed("POST", path, { "body" => request_body, "code" => "000000" }) }
@@ -525,6 +539,29 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     row = @store.get("CRED", fresh.credential_id)
     assert_equal SoftAuthenticator.b64(fresh.cose_public_key), row["cose"]
     assert_equal 401, options_for(token)[0], "the token is single use"
+  end
+
+  def test_two_tokens_issued_while_empty_cannot_both_register_a_first_credential
+    @store.items.delete([ "CRED", @passkey.credential_id ])
+    first = boot("a" * 32)
+    second = boot("b" * 32)
+    challenge_a = options_for(first)[1]["publicKey"]["challenge"]
+    challenge_b = options_for(second)[1]["publicKey"]["challenge"]
+    winner = SoftAuthenticator.new
+    assert_equal 200, call("POST", "/register/verify", { "token" => first }.merge(attestation(winner, challenge_a)))[0]
+    late = call("POST", "/register/verify", { "token" => second }.merge(attestation(SoftAuthenticator.new, challenge_b)))
+    assert_equal [ 401, "assertion_required" ], [ late[0], late[1]["error"] ]
+    assert_equal [ winner.credential_id ], @store.query("CRED").map { |row| row["sk"] }
+    assert @store.get("BOOT##{Digest::SHA256.hexdigest('b' * 32)}", "BOOT"), "the refused token is not consumed"
+  end
+
+  def test_a_token_that_was_authorized_by_an_assertion_may_add_a_credential
+    token = boot
+    source = "cf-add-credential:#{options_for(token)[1]['token_hash']}"
+    options = options_for(token, "assertion" => @passkey.assert(source, rp_id: HOST, counter: 1))[1]
+    extra = SoftAuthenticator.new
+    assert_equal 200, call("POST", "/register/verify", { "token" => token }.merge(attestation(extra, options["publicKey"]["challenge"])))[0]
+    assert_equal 2, @store.query("CRED").size
   end
 
   def test_registration_rejects_unknown_or_expired_tokens
