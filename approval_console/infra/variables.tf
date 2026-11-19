@@ -47,23 +47,17 @@ variable "dm_recipient_param" {
 }
 
 variable "claim_repos" {
-  description = "Consumer repos (OWNER/REPO) whose cf-prod workflow on the default branch may assume the cf-prod-claim role. No default: the role trusts exactly these."
+  description = "Consumer repos whose cf-claim environment jobs may assume the cf-prod-claim role, each as OWNER@OWNER_ID/REPO@REPO_ID (the sub_claim_prefix from gh api repos/OWNER/REPO/actions/oidc/customization/sub, without repo:). No default: the role trusts exactly these."
   type        = list(string)
 
   validation {
-    condition     = length(var.claim_repos) > 0 && alltrue([for r in var.claim_repos : can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", r))])
-    error_message = "claim_repos must be a non-empty list of OWNER/REPO names."
+    condition     = length(var.claim_repos) > 0 && alltrue([for r in var.claim_repos : can(regex("^[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+$", r))])
+    error_message = "claim_repos must be a non-empty list of OWNER@OWNER_ID/REPO@REPO_ID immutable subject prefixes."
   }
 }
 
-variable "claim_default_branch" {
-  description = "The default branch the cf-prod.yml job_workflow_ref must be on."
-  type        = string
-  default     = "main"
-}
-
 variable "claim_environment" {
-  description = "The dedicated GitHub Environment the claim job runs in (no required reviewers, deployment branch = default only); pinned into the exact OIDC subject. Must match the environment the generated cf-prod.yml claim job names."
+  description = "The dedicated GitHub Environment the claim job runs in (no required reviewers, deployment branch = default only); pinned into the exact OIDC subject and the branch pin. Must match the environment the generated cf-prod.yml claim job names."
   type        = string
   default     = "cf-claim"
 
