@@ -12,6 +12,7 @@ require 'uri'
 require_relative 'design_config'
 require_relative 'roast_kind'
 require_relative 'roast_image_fit'
+require_relative 'roast_codex'
 require_relative 'roast_lens'
 require_relative 'sensitive_terms'
 require_relative 'walkthrough_cache'
@@ -60,7 +61,7 @@ module Roast
   RETRY_OUTPUT_TOKENS = 16_000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
-          '[--max-usd N] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
+          '[--max-usd N] [--backend api|codex] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
           '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
@@ -255,13 +256,28 @@ module Roast
 
   # `transcript` is optional narration and caption text the critic reads next to
   # the frames; it joins the key only when present, so frame-only keys are stable.
-  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL, effort: DEFAULT_EFFORT)
+  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL, effort: DEFAULT_EFFORT, backend: 'api')
     WalkthroughCache.key({ model: model, brief: brief, round: round, history: history,
                            shots: shots.map { |s| Digest::SHA256.file(s).hexdigest } }
                            .merge(texts.empty? ? {} : { texts: texts.map { |t| Digest::SHA256.file(t).hexdigest } })
                            .merge(transcript ? { transcript: transcript } : {}).merge(review ? { review: review } : {})
                            .merge(lenses.empty? ? {} : { lenses: lenses.map { |l| [ l.name, Digest::SHA256.hexdigest(l.body) ] } })
-                           .merge(effort_key(effort)))
+                           .merge(effort_key(effort)).merge(backend_key(backend)))
+  end
+
+  # Only a non-API backend joins the key, so cached API answers keep their key
+  # and a subscription answer is never served as an API one.
+  def backend_key(backend) = backend.to_s == 'api' ? {} : { backend: backend.to_s }
+
+  BACKENDS = %w[api codex].freeze
+
+  # Flag beats CF_ROAST_BACKEND; unset means the API.
+  def backend_for(flag: nil, env: ENV)
+    pick = [ flag, env['CF_ROAST_BACKEND'] ].find { |v| !v.to_s.strip.empty? }.to_s.strip
+    return 'api' if pick.empty?
+    raise UsageError, "unknown backend #{pick.inspect}; use one of #{BACKENDS.join(', ')}" unless BACKENDS.include?(pick)
+
+    pick
   end
 
   # The effort field a cache key carries: none at medium (Decision: keys cached
@@ -488,12 +504,20 @@ module Roast
   # Oversized shots are fitted into a temp copy just for the request; the key
   # hashes the originals, so a fit never changes what is cached.
   def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, lenses: [], http: nil, model: MODEL, effort: DEFAULT_EFFORT,
-               allow_sensitive: false, raw_dir: nil, out: $stdout, docker: RoastImageFit::DEFAULT_DOCKER, max_usd: nil)
+               allow_sensitive: false, raw_dir: nil, out: $stdout, docker: RoastImageFit::DEFAULT_DOCKER, max_usd: nil,
+               backend: 'api', codex_runner: nil, env: ENV)
     check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, lenses: lenses, history: history, allow: allow_sensitive)
-    key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort)
+    key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort, backend: backend)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
       Dir.mktmpdir('roast-fit') do |fit_dir|
         sent = RoastImageFit.fit_all(shots, tmp_dir: fit_dir, out: out, docker: docker)
+        if backend == 'codex'
+          user = user_text(brief, history, round, shots, texts: texts, transcript: transcript, review: review, lenses: lenses)
+          answer = codex_critic(user: user, images: sent, model: model, effort: effort, runner: codex_runner, env: env)
+          out.puts("roast: codex answered#{answer.subscription_tokens ? ", #{answer.subscription_tokens} subscription tokens" : ''}")
+          File.write(tmp, JSON.generate(answer.critic))
+          next
+        end
         request = build_request(brief: brief, shots: sent, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort)
         retry_usd = -> { estimate(brief: brief, shots: shots, history: history, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, max_output: RETRY_OUTPUT_TOKENS)[:usd] }
         critic = call_critic(request, http, raw: raw_path(raw_dir, round), out: out, retry_usd: retry_usd, max_usd: max_usd)
@@ -501,6 +525,16 @@ module Roast
       end
     end
     JSON.parse(File.read(path))
+  end
+
+  # One call through the Codex CLI under the user's subscription. Raises the
+  # RoastCodex errors; no fallback happens here.
+  def codex_critic(user:, images:, model:, effort:, runner: nil, env: ENV)
+    opts = { env: env }
+    opts[:runner] = runner if runner
+    RoastCodex.ensure_available!(**opts)
+    RoastCodex.call(system: SYSTEM_PROMPT, user: user, images: images, model: model, effort: effort,
+                    schema: SCHEMA, validate: method(:validate_critic!), **opts)
   end
 
   # Refuses before any paid call when the brief, text inputs, transcript, or the
@@ -618,8 +652,7 @@ module Roast
     def run(argv, out: $stdout, http: nil, docker: RoastImageFit::DEFAULT_DOCKER)
       args = argv.dup
       if args.include?('--video')
-        require_relative 'roast_video'
-        return RoastVideo::Cli.run(args, out: out, http: http)
+        return video(args, out, http)
       end
       if args.first == 'decide'
         args.shift
@@ -647,9 +680,33 @@ module Roast
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
       WalkthroughEnv.key_error(e, out: out)
+    rescue RoastCodex::Error => e
+      out.puts(e.message)
+      1
     rescue CeilingError, SensitiveError, RequestError, RoastImageFit::FitError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
       out.puts("error: #{e.message}")
       1
+    end
+
+    # Film is API-only: a forced codex backend refuses by name. The flag is
+    # consumed here because the video CLI does not know it.
+    def video(args, out, http)
+      flag = take_option(args, '--backend')
+      if Roast.backend_for(flag: flag) == 'codex'
+        out.puts('roast: --video is API-only; --backend codex cannot film')
+        return 1
+      end
+      require_relative 'roast_video'
+      RoastVideo::Cli.run(args, out: out, http: http)
+    end
+
+    # Removes `--name VALUE` or `--name=VALUE` from args and returns the value.
+    def take_option(args, name)
+      i = args.index { |a| a == name || a.start_with?("#{name}=") }
+      return nil unless i
+
+      arg = args.delete_at(i)
+      arg.include?('=') ? arg.split('=', 2).last : args.delete_at(i)
     end
 
     # The change_config.design.roast keys a repo's CHANGE.md sets explicitly,
@@ -683,6 +740,7 @@ module Roast
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
         o.on('--effort LEVEL') { |v| opts[:effort] = v }
+        o.on('--backend NAME') { |v| opts[:backend_flag] = v }
         o.on('--brief FILE') { |v| opts[:brief_file] = v }
         o.on('--shot IMG') { |v| opts[:shots] << v }
         o.on('--text FILE') { |v| opts[:texts] << v }
@@ -702,6 +760,7 @@ module Roast
         o.on('--pair PROTO=REF') { |v| (opts[:pairs] ||= []) << Roast.parse_pair(v) }
       end.parse!(args)
       opts[:shots] += args
+      opts[:backend] = Roast.backend_for(flag: opts[:backend_flag])
       apply_pairs!(opts)
       raise UsageError, '--brief is required' unless opts[:brief_file]
       raise UsageError, 'give at least one --shot or --text' if opts[:shots].empty? && opts[:texts].empty?
@@ -806,7 +865,7 @@ module Roast
       return if opts[:estimate_only]
 
       critic = Roast.critique(**inputs, cache_root: opts[:cache], http: http, allow_sensitive: opts[:allow_sensitive], raw_dir: opts[:out_dir], out: out,
-                                        docker: docker, max_usd: opts[:max_usd])
+                                        docker: docker, max_usd: opts[:max_usd], backend: inputs[:backend])
       Roast.write_round(opts[:out_dir], inputs[:round], critic)
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{inputs[:round]}.json")} score #{critic['score']}/10")
     end
@@ -820,7 +879,8 @@ module Roast
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
         round: opts[:round] || Roast.next_round(opts[:out_dir]),
         transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, review: review,
-        lenses: opts[:lenses] || [], model: model, effort: Roast.check_effort!(opts[:effort] || DEFAULT_EFFORT, model) }
+        lenses: opts[:lenses] || [], model: model, effort: Roast.check_effort!(opts[:effort] || DEFAULT_EFFORT, model),
+        backend: opts[:backend] || 'api' }
     end
 
     # The review contract; when no source names a kind, infers one from the
@@ -845,6 +905,8 @@ module Roast
 
     # Prints the estimate before any paid call and returns the USD it will cost.
     def announce(inputs, opts, out)
+      return announce_codex(inputs, opts, out) if inputs[:backend] == 'codex'
+
       usd = Roast.round_usd(opts[:cache], **inputs)
       est = Roast.estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses, :model))
       warning = Roast.price_warning(est)
@@ -852,6 +914,13 @@ module Roast
       call = usd.zero? ? '1 call (cached)' : estimate_line(inputs, est)
       out.puts("roast estimate: #{call}, $#{format('%.2f', usd)} to spend")
       usd
+    end
+
+    # A subscription round spends no USD, so the ceiling never binds.
+    def announce_codex(inputs, opts, out)
+      call = Roast.cached?(opts[:cache], **inputs) ? '1 call (cached)' : "1 call, #{inputs[:shots].size} image(s), #{inputs[:texts].size} text(s)#{lens_count(inputs)}"
+      out.puts("roast estimate: #{call}, subscription (codex, #{inputs[:model]}), no USD")
+      0.0
     end
 
     def lens_count(inputs)

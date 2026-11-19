@@ -1,0 +1,10 @@
+#!/bin/sh
+# Test double for codex: ignores its input, spawns a child that outlives it,
+# records both pids beside the -o path, and sleeps past any short timeout.
+while [ $# -gt 0 ]; do
+  [ "$1" = "-o" ] && out="$2"
+  shift
+done
+sleep 60 &
+echo "$$ $!" > "$out.pids"
+sleep 60

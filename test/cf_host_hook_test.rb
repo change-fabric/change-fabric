@@ -143,6 +143,16 @@ class CfHostHookTest < Minitest::Test
     Open3.capture3(env, RbConfig.ruby, script, "claude", "PreToolUse", stdin_data: JSON.generate(payload), chdir: @home)
   end
 
+  def test_roast_critic_sentinel_short_circuits
+    script = File.expand_path("../scripts/cf_host_hook.rb", __dir__)
+    env = { "HOME" => @home, "CF_STATE_HOME" => File.join(@home, "state"), "CF_ROAST_CRITIC" => "1" }
+    payload = { "session_id" => "one", "cwd" => @home, "prompt" => "$cf-local-only work" }
+    out, _err, status = Open3.capture3(env, RbConfig.ruby, script, "codex", "UserPromptSubmit", stdin_data: JSON.generate(payload), chdir: @home)
+    assert status.success?
+    assert_equal({}, JSON.parse(out))
+    refute Dir.exist?(File.join(@home, "state", "sessions"))
+  end
+
   def test_deleted_cwd_allows_silently
     gone = File.join(@home, "removed-worktree")
     out, err, status = run_script("session_id" => "one", "cwd" => gone, "tool_name" => "Bash", "tool_input" => { "command" => "cd /" })
