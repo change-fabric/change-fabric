@@ -175,8 +175,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
       out = StringIO.new
       assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out)
       assert_includes out.string, "repos/acme/app/actions/oidc/customization/sub -F use_default=false"
-      assert_includes out.string, "include_claim_keys[]=workflow_ref"
-      refute_includes out.string, "job_workflow_ref"
+      assert_includes out.string, "include_claim_keys[]=job_workflow_ref"
       assert_equal 0, Gen.run([ "--check", "--root", root ], stdout: StringIO.new)
       path = File.join(root, Gen::WORKFLOW)
       File.write(path, File.read(path).sub("ubuntu-24.04", "ubuntu-latest"))
@@ -272,9 +271,9 @@ class ChangeProdRunnerGenTest < Minitest::Test
     lines = out.string.lines.grep(/trust condition/)
     assert_equal 2, lines.size
     claim = lines.find { |line| line.include?("cf-prod-claim") }
-    assert_includes claim, "repo:acme/app:ref:refs/heads/trunk:workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
+    assert_includes claim, "repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
     staging = lines.find { |line| line.include?("cf-staging") }
-    assert_includes staging, "repo:acme/app:environment:staging:workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
+    assert_includes staging, "repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
     assert_includes staging, '"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"'
     assert_includes staging, "StringEquals"
     refute_includes out.string, "role/cf-prod\""

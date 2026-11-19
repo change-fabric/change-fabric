@@ -348,7 +348,10 @@ class ChangeProdGateTest < Minitest::Test
     assert_equal [ @envelope["digest"], "7", "1" ], item.values_at("digest", "run_id", "run_attempt").map { |value| value["S"] }
     assert_equal "2026-11-18T12:10:00Z", item["claimed_at"]["S"]
     assert_equal (NOW.to_i + 30 * 24 * 3600).to_s, item["expires_at"]["N"]
-    assert_equal %w[PK claimed_at digest expires_at run_attempt run_id], item.keys.sort
+    assert_equal %w[claimed_at digest expires_at pk run_attempt run_id sk], item.keys.sort
+    # The console table contract (#575): lowercase pk and sk, sk is the constant CLAIM.
+    assert_equal({ "S" => "CLAIM##{@id}" }, item["pk"])
+    assert_equal({ "S" => "CLAIM" }, item["sk"])
     again = Gate.claim(claim_store: claims, envelope: @envelope, run_id: 8, attempt: 1, now: NOW)
     assert_refused again, /already consumed/
     assert_equal "7", claims.items.fetch("CLAIM##{@id}")["run_id"]["S"]
@@ -391,14 +394,14 @@ class ChangeProdGateTest < Minitest::Test
     store.put(ChangeProdClaim.item(request_id: @id, digest: "d", run_id: 1, attempt: 1, now: NOW))
     argv = calls.first
     assert_equal %w[aws dynamodb put-item], argv.first(3)
-    assert_equal "attribute_not_exists(PK)", argv[argv.index("--condition-expression") + 1]
+    assert_equal "attribute_not_exists(pk)", argv[argv.index("--condition-expression") + 1]
     assert_equal "t-1", argv[argv.index("--table-name") + 1]
     taken = ChangeProdClaim::DynamoStore.new(table: "t-1", region: "us-east-1", runner: ->(_) { [ "An error occurred (ConditionalCheckFailedException)", false ] })
-    assert_raises(ChangeProdClaim::Exists) { taken.put({ "PK" => { "S" => "CLAIM#x" } }) }
+    assert_raises(ChangeProdClaim::Exists) { taken.put({ "pk" => { "S" => "CLAIM#x" } }) }
     denied = ChangeProdClaim::DynamoStore.new(table: "t-1", region: "us-east-1", runner: ->(_) { [ "AccessDeniedException", false ] })
-    assert_raises(ChangeProdClaim::Unavailable) { denied.put({ "PK" => { "S" => "CLAIM#x" } }) }
+    assert_raises(ChangeProdClaim::Unavailable) { denied.put({ "pk" => { "S" => "CLAIM#x" } }) }
     missing = ChangeProdClaim::DynamoStore.new(table: "t-1", region: "us-east-1", runner: ->(_) { [ "aws: not found", false ] })
-    assert_raises(ChangeProdClaim::Unavailable) { missing.put({ "PK" => { "S" => "CLAIM#x" } }) }
+    assert_raises(ChangeProdClaim::Unavailable) { missing.put({ "pk" => { "S" => "CLAIM#x" } }) }
   end
 
   def test_issue_binds_credentials_to_the_claimed_attempt_and_digest

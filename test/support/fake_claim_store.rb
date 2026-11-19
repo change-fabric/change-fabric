@@ -18,7 +18,7 @@ class FakeClaimStore
     @puts += 1
     raise ChangeProdClaim::Unavailable, "the claim table could not be written: AccessDenied" if @down
 
-    key = item.fetch("PK").fetch("S")
+    key = item.fetch("pk").fetch("S")
     raise ChangeProdClaim::Exists, "#{key} is already claimed" if @items.key?(key)
 
     @items[key] = item

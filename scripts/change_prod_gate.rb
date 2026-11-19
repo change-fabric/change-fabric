@@ -177,7 +177,7 @@ module ChangeProdGate
   # Gate to the credential step, read-only. The claim job exports the identity
   # it claimed with; only that run attempt, for that digest, may proceed. A
   # rerun of any job carries a higher attempt, so it needs a fresh approval.
-  # (If the console exposes a read path for claims, check it here as well.)
+  # This does not re-read the table: the claim stops honest replays only.
   def issue(envelope:, run_id:, attempt:, claimed:)
     same = [ run_id, attempt ].none? { |value| value.to_s.empty? } &&
            claimed.values_at(:run_id, :attempt, :digest).none? { |value| value.to_s.empty? } &&

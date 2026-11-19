@@ -191,14 +191,17 @@ module ChangeProdRunnerGen
   end
 
   # The claim job assumes the claim role (conditional PutItem on the console's
-  # table, nothing else) and exports the identity it claimed with. It has no
-  # repo write: single use no longer lives in git.
+  # table, nothing else) and exports the identity it claimed with. It runs in
+  # the request's GitHub Environment so its OIDC subject carries the
+  # environment the claim role's trust policy pins. It has no repo write:
+  # single use no longer lives in git.
   def claim_job(allowed, claim)
     <<~YAML.gsub(/^(?=.)/, '  ')
       claim:
         needs: validate
         if: needs.validate.outputs.environment != ''
         runs-on: ubuntu-24.04
+        environment: ${{ needs.validate.outputs.environment }}
         permissions:
           id-token: write
           contents: read
@@ -279,7 +282,7 @@ module ChangeProdRunnerGen
 
   def oidc_command(repo)
     "gh api -X PUT repos/#{repo || '<o>/<r>'}/actions/oidc/customization/sub -F use_default=false " \
-      "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=workflow_ref'"
+      "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
   end
 
   # True when regenerating from `config` would not reproduce `text`. Whether
@@ -290,19 +293,23 @@ module ChangeProdRunnerGen
     generate(config, blockers: blockers) != text
   end
 
-  # The AWS trust conditions the roles need. The sub pins the repo, the GitHub
-  # Environment (or the default branch for the claim job, which has none) and
-  # the workflow file at the default branch; aud must be sts.amazonaws.com.
-  # They follow the one-time OIDC customization (repo, context, workflow_ref).
+  # The AWS trust conditions the roles need. The sub is matched exactly, so it
+  # pins the repo, the GitHub Environment, the workflow file and the default
+  # branch; aud must be sts.amazonaws.com. They follow the one-time OIDC
+  # customization (repo, context, job_workflow_ref). The claim job runs in the
+  # request's Environment, so the claim role trusts one subject per allowed
+  # Environment; the approval console's `claim_environment` pins one of them.
   def trust_policy(config, repo: nil, default_branch: 'main', blockers: production_blockers)
     slug = repo || '<o>/<r>'
-    workflow_ref = "#{slug}/#{WORKFLOW}@refs/heads/#{default_branch}"
+    job_workflow_ref = "#{slug}/#{WORKFLOW}@refs/heads/#{default_branch}"
     claim = ChangeProdClaim.settings(config)
     jobs = environments(runner_config(config), blockers)
-    entries = [ [ claim[:role], "repo:#{slug}:ref:refs/heads/#{default_branch}:workflow_ref:#{workflow_ref}" ] ] +
-              jobs.map { |_, environment, role| [ role, "repo:#{slug}:environment:#{environment}:workflow_ref:#{workflow_ref}" ] }
-    entries.map do |role, sub|
-      condition = { 'StringEquals' => { 'token.actions.githubusercontent.com:aud' => 'sts.amazonaws.com', 'token.actions.githubusercontent.com:sub' => sub } }
+    subject = ->(environment) { "repo:#{slug}:environment:#{environment}:job_workflow_ref:#{job_workflow_ref}" }
+    entries = [ [ claim[:role], jobs.map { |_, environment, _| subject.call(environment) } ] ] +
+              jobs.map { |_, environment, role| [ role, [ subject.call(environment) ] ] }
+    entries.map do |role, subs|
+      condition = { 'StringEquals' => { 'token.actions.githubusercontent.com:aud' => 'sts.amazonaws.com',
+                                        'token.actions.githubusercontent.com:sub' => subs.one? ? subs.first : subs } }
       "trust condition for #{role}: #{JSON.generate('Condition' => condition)}"
     end
   rescue ChangeProdClaim::Unavailable => e
