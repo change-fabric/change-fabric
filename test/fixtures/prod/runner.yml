@@ -1,0 +1,22 @@
+change_config:
+  runners:
+    prod:
+      kind: github_actions
+      workflow: .github/workflows/cf-prod.yml
+      region: us-east-1
+      environments: { staging: staging, production: production }
+      oidc_roles:
+        staging: arn:aws:iam::111111111111:role/cf-staging
+        production: arn:aws:iam::222222222222:role/cf-prod
+  operations:
+    rotate_tenant_key:
+      class: contracts_and_auth
+      runner: prod
+      argv: [pnpm, app, ops, rotate-key, "{tenant_id}"]
+      params:
+        tenant_id: { type: string, pattern: "^t_[0-9]+$" }
+      verify: { argv: [pnpm, app, ops, verify-key, "{tenant_id}"], timeout_s: 120 }
+      timeout_s: 900
+change_policy:
+  prod_guard:
+    approval: { via: approval_console, factors: [passkey_uv, totp], proof: remote, ttl_minutes: 30 }

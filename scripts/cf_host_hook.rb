@@ -16,6 +16,7 @@ require_relative 'merge_mode_answer'
 require_relative 'away_answer'
 require_relative 'slop_remind'
 require_relative 'key_paste_guard'
+require_relative 'prod_approval_guard'
 require_relative 'secrets_read_guard'
 
 # Native wire-format adapter. No host-specific mode policy belongs here.
@@ -97,7 +98,9 @@ class CfHostHook
       input = input.merge('command' => input['command'] || input['patch']) if tool['name'] == 'apply_patch'
       name = GUARD_TOOLS.fetch(tool['name'], tool['name'])
       event = @payload.merge('tool_name' => name, 'tool_input' => input)
-      reason = capture(SecretsReadGuard.new(event, home: @home)).dig('hookSpecificOutput', 'permissionDecisionReason')
+      reason = [ SecretsReadGuard.new(event, home: @home), ProdApprovalGuard.new(event) ].filter_map do |guard|
+        capture(guard).dig('hookSpecificOutput', 'permissionDecisionReason')
+      end.first
       return unless reason
 
       @rubrics = []

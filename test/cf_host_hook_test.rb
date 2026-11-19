@@ -29,6 +29,12 @@ class CfHostHookTest < Minitest::Test
     assert_includes hook("codex", "SessionStart").dig("hookSpecificOutput", "additionalContext"), "local-only"
   end
 
+  def test_non_claude_hosts_deny_the_prod_approval_paths
+    denied = hook("codex", "PreToolUse", "tool_name" => "exec_command", "tool_input" => { "cmd" => "ruby change_prod_approve.rb abc" })
+    assert_includes denied.to_s, "human-only"
+    assert_includes denied.to_s, "change_prod_approve.rb"
+  end
+
   def test_copilot_camel_case_payload_and_flat_deny
     hook("copilot", "userPromptSubmitted", "sessionId" => "two", "prompt" => "$cf-local-only")
     result = hook("copilot", "preToolUse", "sessionId" => "two", "toolName" => "bash", "toolArgs" => '{"command":"git push"}')
