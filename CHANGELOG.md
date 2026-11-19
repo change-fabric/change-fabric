@@ -18,15 +18,6 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
-## [Unreleased]
-
-### Changed
-
-- Toolkit only, no schema change: `cf:roast` now critiques through the Codex
-  CLI under a ChatGPT subscription by default (`--backend auto|codex|api`,
-  `CF_ROAST_BACKEND`), falling back to the paid OpenAI API when codex is
-  missing, logged out, out of usage, or lists no usable vision model.
-
 ## [0.24.0] - 2026-11-18
 
 Progressive delivery: a flagged feature walks named cohorts under absolute
