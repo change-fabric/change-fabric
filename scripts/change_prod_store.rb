@@ -15,11 +15,7 @@ class ChangeProdStore
   class Exists < Error; end
   class Missing < Error; end
 
-  KINDS = %w[requests approvals claims issued].freeze
-  # `issued` holds one marker per environment: refs/cf-prod/issued/<id>/<env>.
-  # It is not nested under claims/<id> because git cannot hold a ref and a
-  # directory of refs at the same path.
-  ENV_NAME = /\A[a-z][a-z0-9_-]{0,62}\z/
+  KINDS = %w[requests approvals claims].freeze
   PAYLOAD = 'payload.json'
   ZERO = '0' * 40
 
@@ -28,19 +24,17 @@ class ChangeProdStore
     @remote = remote
   end
 
-  def ref(kind, request_id, env: nil)
+  def ref(kind, request_id)
     raise Error, "unknown ref kind #{kind.inspect}" unless KINDS.include?(kind)
     raise Error, 'request_id is not a uuid' unless request_id.to_s.match?(ChangeProdEnvelope::UUID)
-    raise Error, 'an issued marker needs an environment, and only it takes one' unless (kind == 'issued') == !env.nil?
-    raise Error, 'environment is malformed' if env && !env.to_s.match?(ENV_NAME)
 
-    [ "refs/cf-prod/#{kind}/#{request_id}", env ].compact.join('/')
+    "refs/cf-prod/#{kind}/#{request_id}"
   end
 
   # Creates the ref or raises Exists. With `push`, the ref must also be created
   # on the remote; a failed push removes the local ref again.
-  def create(kind, request_id, payload, push: true, env: nil)
-    name = ref(kind, request_id, env: env)
+  def create(kind, request_id, payload, push: true)
+    name = ref(kind, request_id)
     commit = write_commit(JSON.generate(payload))
     _out, err, status = git('update-ref', name, commit, ZERO)
     raise Exists, "#{name} already exists: #{err.strip}" unless status.success?
@@ -62,13 +56,13 @@ class ChangeProdStore
     raise Error, "fetching refs/cf-prod failed: #{err.strip}" unless status.success?
   end
 
-  def exists?(kind, request_id, env: nil)
-    _out, _err, status = git('rev-parse', '--verify', '--quiet', ref(kind, request_id, env: env))
+  def exists?(kind, request_id)
+    _out, _err, status = git('rev-parse', '--verify', '--quiet', ref(kind, request_id))
     status.success?
   end
 
-  def read(kind, request_id, env: nil)
-    name = ref(kind, request_id, env: env)
+  def read(kind, request_id)
+    name = ref(kind, request_id)
     out, _err, status = git('show', "#{name}:#{PAYLOAD}")
     raise Missing, "#{name} does not exist" unless status.success?
 

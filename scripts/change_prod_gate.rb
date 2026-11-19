@@ -169,20 +169,16 @@ module ChangeProdGate
     Result.new(ok: false, reason: e.message)
   end
 
-  # Gate to the credential step. Only the run attempt that made the claim may
-  # proceed (a rerun, even of one job, carries a higher attempt and needs a new
-  # approval), and only once per environment: the issued marker is a create-only
-  # ref, so a second recheck, even in the same attempt, fails.
-  def issue(store:, envelope:, run_id:, attempt:, now: Time.now, push: true)
+  # Gate to the credential step. Read-only: only the run attempt that made the
+  # claim may proceed. A rerun of any job carries a higher attempt, and a job
+  # runs once per attempt, so a rerun needs a fresh approval.
+  def issue(store:, envelope:, run_id:, attempt:)
     claimed = store.read('claims', envelope['request_id'])
-    refuse('this run did not claim the approval') unless claimed['run_id'] == run_id.to_s && claimed['run_attempt'] == attempt.to_s && !run_id.to_s.empty?
-    store.create('issued', envelope['request_id'], { 'run_id' => run_id.to_s, 'run_attempt' => attempt.to_s, 'issued_at' => now.utc.iso8601 },
-                 push: push, env: envelope['environment'])
+    same = !run_id.to_s.empty? && !attempt.to_s.empty? && claimed['run_id'] == run_id.to_s && claimed['run_attempt'] == attempt.to_s
+    refuse('this run attempt did not claim the approval; a rerun needs a fresh approval') unless same
     Result.new(ok: true, envelope: envelope)
   rescue ChangeProdStore::Missing
     Result.new(ok: false, reason: 'no claim exists for this approval')
-  rescue ChangeProdStore::Exists => e
-    Result.new(ok: false, reason: "credentials were already issued for this approval: #{e.message}")
   rescue ChangeProdStore::Error, Refuse => e
     Result.new(ok: false, reason: e.message)
   end
@@ -256,16 +252,15 @@ module ChangeProdGate
 
   # Run in the credential job, just before it assumes a role: the approval may
   # have expired while the job waited, and a job rerun must not reuse the claim.
-  # Verifies again, checks this is the claiming attempt, and spends the one-time
-  # issued marker for the environment.
+  # Verifies again and checks this is the claiming attempt.
   def cli_recheck(opts, env, stdout, stderr, now)
     store, result = verified(opts, env, now)
     return fail_with(stderr, result) unless result.ok?
 
-    issued = issue(store: store, envelope: result.envelope, run_id: env['GITHUB_RUN_ID'], attempt: env['GITHUB_RUN_ATTEMPT'], now: now)
+    issued = issue(store: store, envelope: result.envelope, run_id: env['GITHUB_RUN_ID'], attempt: env['GITHUB_RUN_ATTEMPT'])
     return fail_with(stderr, issued) unless issued.ok?
 
-    stdout.puts '[cf-prod] approval still valid; credentials issued once for this attempt'
+    stdout.puts '[cf-prod] approval still valid for this attempt'
     0
   end
 

@@ -351,20 +351,10 @@ class ChangeProdGateTest < Minitest::Test
     remote_runner
     assert_equal 0, cli("claim").first
     assert_equal 0, cli("recheck").first
+    assert_equal 0, cli("recheck").first, "recheck is read-only, so the same attempt may repeat it"
     code, err = cli("recheck", now: Time.utc(2026, 11, 18, 12, 31, 0))
     assert_equal 1, code
     assert_match(/approval has expired/, err)
-  ensure
-    FileUtils.remove_entry(@origin) if @origin
-  end
-
-  def test_recheck_issues_credentials_once_per_attempt
-    remote_runner
-    assert_equal 0, cli("claim").first
-    assert_equal 0, cli("recheck").first
-    code, err = cli("recheck")
-    assert_equal 1, code
-    assert_match(/credentials were already issued/, err)
   ensure
     FileUtils.remove_entry(@origin) if @origin
   end
@@ -374,9 +364,7 @@ class ChangeProdGateTest < Minitest::Test
     assert_equal 0, cli("claim").first
     code, err = cli("recheck", attempt: "2")
     assert_equal 1, code
-    assert_match(/this run did not claim the approval/, err)
-    ChangeProdStore.new(@clone).fetch
-    refute ChangeProdStore.new(@clone).exists?("issued", @id, env: "staging")
+    assert_match(/did not claim the approval; a rerun needs a fresh approval/, err)
   ensure
     FileUtils.remove_entry(@origin) if @origin
   end
@@ -401,19 +389,6 @@ class ChangeProdGateTest < Minitest::Test
     assert_equal 1, cli("claim", run: "", attempt: "").first
   ensure
     FileUtils.remove_entry(@origin) if @origin
-  end
-
-  def test_issued_markers_are_per_environment_and_create_only
-    name = @store.ref("issued", @id, env: "staging")
-    assert_equal "refs/cf-prod/issued/#{@id}/staging", name
-    assert_raises(ChangeProdStore::Error) { @store.ref("issued", @id) }
-    assert_raises(ChangeProdStore::Error) { @store.ref("claims", @id, env: "staging") }
-    assert_raises(ChangeProdStore::Error) { @store.ref("issued", @id, env: "../x") }
-    # a claim and an issued marker coexist: they are not nested at one path
-    @store.create("claims", @id, { "a" => 1 }, push: false)
-    @store.create("issued", @id, { "a" => 1 }, push: false, env: "staging")
-    @store.create("issued", @id, { "a" => 1 }, push: false, env: "production")
-    assert_raises(ChangeProdStore::Exists) { @store.create("issued", @id, { "a" => 2 }, push: false, env: "staging") }
   end
 
   def test_cli_refuses_when_the_remote_cannot_be_fetched
