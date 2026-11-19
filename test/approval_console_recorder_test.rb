@@ -39,7 +39,8 @@ class ApprovalConsoleRecorderTest < Minitest::Test
   def override_attrs(reason: REASON) = { "type" => "override", "repo" => REPO, "sha" => SHA, "profile" => "prod", "reason" => reason }
 
   def carve_out_attrs(pr_url: PR_URL, repo: REPO)
-    { "type" => "carve-out", "repo" => repo, "sha" => SHA, "profile" => nil, "summary" => "merge #612", "pr_url" => pr_url }
+    { "type" => "carve-out", "repo" => repo, "sha" => SHA, "profile" => nil, "summary" => "merge #612", "pr_url" => pr_url,
+      "pr_title" => "Add a thing", "base" => "main", "files" => [ "scripts/a.rb" ] }
   end
 
   def expected(attrs) = ApprovalConsole::Remote.expected(attrs, mid)
@@ -72,27 +73,42 @@ class ApprovalConsoleRecorderTest < Minitest::Test
     assert_nil ChangeCarveOutStore.new.lookup(repo: REPO, pr: "612", sha: "d" * 40), "a new head needs a new approval"
   end
 
-  # The console cannot sign a release body until the P3 redeploy, so the
-  # receipt check is stubbed here to prove only the routing and its claims.
-  class TrustingRecorder < ApprovalConsole::Recorder
-    private
-
-    def receipt_problem(_proof, _expected) = nil
-    def stale(_proof) = nil
-  end
+  def release_attrs(tag: "skills/v1.2.3", sha: SHA) = { "type" => "release", "repo" => REPO, "sha" => sha, "profile" => nil, "tag" => tag, "commit" => sha }
 
   def test_a_release_routes_to_the_release_store_by_repo_tag_and_sha
-    trusting = TrustingRecorder.new(authority: authority, store: @store, recorded_by: "t")
-    result = trusting.record({ "kind" => "webauthn+totp" }, expected: { "type" => "release", "repo" => REPO, "sha" => SHA, "tag" => "skills/v1.2.3" })
+    result = record(release_attrs)
     assert_predicate result, :ok?, result.error
+    assert_match(/release skills\/v1.2.3/, result.summary)
     assert_equal POLICY_SHA, ChangeReleaseStore.new.lookup(repo: REPO, tag: "skills/v1.2.3", sha: SHA)["policy_sha"]
-    refute_predicate trusting.record({}, expected: { "type" => "release", "repo" => REPO, "sha" => SHA }), :ok?
+    assert_nil ChangeReleaseStore.new.lookup(repo: REPO, tag: "skills/v1.2.4", sha: SHA)
   end
 
-  def test_a_real_release_receipt_is_refused_until_the_console_signs_the_type
-    result = recorder.record({ "kind" => "webauthn+totp", "body" => "{}" }, expected: { "type" => "release", "repo" => REPO, "sha" => SHA, "tag" => "v1" })
-    refute_predicate result, :ok?
-    assert_nil ChangeReleaseStore.new.lookup(repo: REPO, tag: "v1", sha: SHA)
+  def test_a_release_receipt_for_another_tag_or_commit_is_refused
+    proof = phone_proof(release_attrs)
+    assert_match(/tag does not match/, recorder.record(proof, expected: expected(release_attrs(tag: "skills/v9"))).error)
+    assert_match(/does not match/, recorder.record(proof, expected: expected(release_attrs(sha: "d" * 40))).error)
+    assert_nil ChangeReleaseStore.new.lookup(repo: REPO, tag: "skills/v9", sha: SHA)
+  end
+
+  def test_a_scoped_override_is_stored_under_its_scope_only
+    attrs = override_attrs.merge("scope" => "merge")
+    result = record(attrs)
+    assert_predicate result, :ok?, result.error
+    assert_match(/scope: merge/, result.summary)
+    assert ChangeOverrideStore.new(SHA, profile: "prod", scope: "merge").authorized?
+    refute ChangeOverrideStore.new(SHA, profile: "prod", scope: "tag").authorized?
+    refute ChangeOverrideStore.new(SHA, profile: "prod").authorized?
+  end
+
+  def test_an_unscoped_receipt_cannot_be_recorded_as_a_scoped_override
+    proof = phone_proof(override_attrs)
+    assert_match(/scope does not match/, recorder.record(proof, expected: expected(override_attrs.merge("scope" => "tag"))).error)
+  end
+
+  def test_a_receipt_for_another_profile_is_refused
+    proof = phone_proof(override_attrs)
+    assert_match(/profile does not match/, recorder.record(proof, expected: expected(override_attrs.merge("profile" => "staging"))).error)
+    assert_nil ChangeOverrideStore.new(SHA, profile: "staging").read
   end
 
   # Records what was flushed before the first poll, as a pipe reader sees it.

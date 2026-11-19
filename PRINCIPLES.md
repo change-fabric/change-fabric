@@ -97,6 +97,15 @@ agent's host. `ApprovalConsole::Recorder` alone writes the four stores.
 
 Enforcer: scripts/approval_console/proof_check.rb, scripts/approval_console/recorder.rb, scripts/secrets_read_guard.rb
 
+## The phone shows only signed fields
+
+Every field on the approval page is part of the body the passkey signs. The
+GitHub links, file list, base, tag and commit come from signed fields and a
+constant host, never from agent text. A `carve-out` request takes its sha from
+the PR head and its files from GitHub, failing closed on 3000 or more files.
+
+Enforcer: approval_console/infra/lambda/pages.rb, test/approval_console_lambda_test.rb
+
 ## Approval policy comes from the base or default branch
 
 Pins, proof level and carve-out paths come from the fetched base or default

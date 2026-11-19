@@ -15,7 +15,17 @@ require_relative 'change_sha_record'
 # override is simply gone. A distinct file extension (not just the shared base
 # class's plain sha[/__profile] path) keeps a recorded override from ever
 # colliding with a gate-store record for the same key.
+#
+# A phone override may carry a `scope` (`merge` or `tag`, ApprovalConsole::
+# Canonical::SCOPES): it is stored under its own key and `authorized?` is true
+# only for the store opened with that same scope, so a merge override never
+# unlocks a tag. No scope keeps the old meaning: it unlocks both guards.
 class ChangeOverrideStore < ChangeShaRecord
+  def initialize(sha, profile: nil, scope: nil)
+    super(sha, profile: profile)
+    @scope = scope.to_s.empty? ? nil : scope.to_s
+  end
+
   # An optional `proof` (see scripts/approval_console) is stored beside the
   # reason; ChangeGateCheck verifies it. `policy_sha` is the authoritative
   # policy commit the Recorder checked the proof against.
@@ -27,12 +37,18 @@ class ChangeOverrideStore < ChangeShaRecord
       'recorded_by' => recorded_by.to_s,
       'recorded_at' => Time.now.utc.iso8601
     }
+    payload['scope'] = @scope if @scope
     payload['proof'] = proof if proof
     payload['policy_sha'] = policy_sha if policy_sha
     write(payload)
   end
 
-  def authorized? = !read.nil?
+  # The record is honored only when its own scope is the one this store was
+  # opened with, so a copied or renamed file cannot widen its scope.
+  def authorized?
+    record = read
+    record.is_a?(Hash) ? record['scope'].to_s == @scope.to_s : !record.nil?
+  end
 
   # Rewrites the stored proof when its body is `body` (a sync attaching a
   # console receipt, or marking a conflict).
@@ -45,6 +61,8 @@ class ChangeOverrideStore < ChangeShaRecord
   end
 
   private
+
+  def suffix = @scope ? "@#{@scope}" : ''
 
   def extension = '.override'
 end

@@ -406,6 +406,41 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     assert_match(/rpId pin/, wrong.trust_clause)
   end
 
+  def scoped_gate(scope, profile: nil)
+    ChangeGateCheck.new(sha: SHA, profile: profile, root: @repo, proof_level: "passkey", proof_store: @store,
+                        proof_pins: authoritative_pins, scope: scope)
+  end
+
+  def test_a_merge_scoped_phone_override_unlocks_the_merge_gate_only
+    result, = remote_approve(override_attrs(reason: LONG_REASON).merge("scope" => "merge"))
+    ChangeOverrideStore.new(SHA, scope: "merge").record(reason: LONG_REASON, recorded_by: "t", proof: result.proof)
+    assert scoped_gate("merge").overridden?
+    refute scoped_gate("tag").overridden?
+    refute scoped_gate(nil).overridden?
+  end
+
+  def test_an_unscoped_phone_override_unlocks_both_gates
+    result, = remote_approve(override_attrs(reason: LONG_REASON))
+    ChangeOverrideStore.new(SHA).record(reason: LONG_REASON, recorded_by: "t", proof: result.proof)
+    assert scoped_gate("merge").overridden?
+    assert scoped_gate("tag").overridden?
+  end
+
+  def test_a_scope_in_the_record_that_the_receipt_does_not_sign_is_refused
+    result, = remote_approve(override_attrs(reason: LONG_REASON))
+    ChangeOverrideStore.new(SHA, scope: "tag").record(reason: LONG_REASON, recorded_by: "t", proof: result.proof)
+    refute scoped_gate("tag").overridden?
+    assert_match(/scope does not match/, scoped_gate("tag").trust_clause)
+  end
+
+  def test_a_receipt_signed_for_another_profile_does_not_unlock_the_profile_gate
+    result, = remote_approve(override_attrs(reason: LONG_REASON))
+    ChangeOverrideStore.new(SHA, profile: "prod").record(reason: LONG_REASON, recorded_by: "t", proof: result.proof)
+    gate = scoped_gate(nil, profile: "prod")
+    refute gate.overridden?
+    assert_match(/profile does not match/, gate.trust_clause)
+  end
+
   FakeStdin = Struct.new(:tty?)
 
   # ----- CLI verbs -------------------------------------------------------
@@ -419,17 +454,85 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     [ status, out.string, err.string ]
   end
 
-  def test_request_for_a_carve_out_waits_and_prints_the_verified_proof
-    sleeper = lambda do |_s|
+  PR = "https://github.com/a/b/pull/1"
+
+  # A stand-in for `gh`: pr view, the changed_files count, and the file pages.
+  def fake_gh(head: SHA, files: [ { "filename" => "scripts/z.rb" }, { "filename" => "a.md" } ], changed: nil)
+    lambda do |*args|
+      if args.first(2) == %w[pr view] then JSON.generate("headRefOid" => head, "baseRefName" => "main", "title" => "Add a thing")
+      elsif args.include?("--jq") then "#{changed || files.size}\n"
+      else JSON.generate([ files ])
+      end
+    end
+  end
+
+  def approving_sleeper(seen = [])
+    lambda do |_s|
       body = pending_request_body
+      seen << body
       phone_approve(body)
       @now += 3
     end
-    status, out, err = cli(%W[request --type carve-out --summary merge --pr-url https://github.com/a/b/pull/1 --sha #{SHA} --repo #{@repo}],
-                           io: { sleeper: sleeper })
+  end
+
+  def test_request_for_a_carve_out_waits_and_prints_the_verified_proof
+    seen = []
+    status, out, err = cli(%W[request --type carve-out --summary merge --pr-url #{PR} --sha #{SHA} --repo #{@repo}],
+                           io: { sleeper: approving_sleeper(seen), gh: fake_gh })
     assert_equal 0, status, err
     assert_equal "webauthn+totp", JSON.parse(out)["kind"]
     assert_match(/approve on your phone/, err)
+    body = Canonical.parse(seen.first)
+    assert_equal "repo:github.com/a/b", body["repo"], "the repo comes from the PR URL, not the local origin"
+    assert_equal SHA, body["sha"]
+    assert_equal "main", body["base"]
+    assert_equal "Add a thing", body["pr_title"]
+    assert_equal [ "a.md", "scripts/z.rb" ], body["files"]
+  end
+
+  def test_request_for_a_carve_out_binds_the_pr_head_and_refuses_another_sha
+    other = "c" * 40
+    status, _, err = cli(%W[request --type carve-out --summary merge --pr-url #{PR} --sha #{other} --repo #{@repo}], io: { gh: fake_gh })
+    assert_equal 2, status
+    assert_match(/not the PR head #{SHA}/, err)
+    seen = []
+    status, = cli(%W[request --type carve-out --summary merge --pr-url #{PR} --repo #{@repo}], io: { sleeper: approving_sleeper(seen), gh: fake_gh(head: other) })
+    assert_equal 0, status
+    assert_equal other, Canonical.parse(seen.first)["sha"], "no --sha: the PR head, never the working tree HEAD"
+  end
+
+  def test_request_for_a_carve_out_fails_closed_when_the_pr_facts_are_unreadable
+    big = Array.new(3) { |i| { "filename" => "f#{i}" } }
+    [ fake_gh(files: big, changed: 3000), fake_gh(files: big, changed: 5), ->(*) { raise ChangePrFacts::Unreadable, "gh down" } ].each do |gh|
+      status, _, err = cli(%W[request --type carve-out --summary merge --pr-url #{PR} --repo #{@repo}], io: { gh: gh })
+      assert_equal 2, status
+      assert_match(/refusing request/, err)
+    end
+  end
+
+  def test_request_for_a_release_signs_the_tag_and_the_commit
+    seen = []
+    status, _, err = cli(%W[request --type release --tag skills/v9.9.9 --sha #{SHA} --repo #{@repo}], io: { sleeper: approving_sleeper(seen) })
+    assert_equal 0, status, err
+    body = Canonical.parse(seen.first)
+    assert_equal [ "release", "skills/v9.9.9", SHA, SHA ], body.values_at("type", "tag", "commit", "sha")
+    status, _, err = cli(%W[request --type release --sha #{SHA} --repo #{@repo}])
+    assert_equal 2, status
+    assert_match(/needs --tag/, err)
+  end
+
+  def test_request_for_an_override_signs_the_reason_and_scope
+    reason = "the CI runner is down and the fix is reviewed"
+    seen = []
+    status, _, err = cli(%W[request --type override --reason #{reason} --scope tag --sha #{SHA} --repo #{@repo}], io: { sleeper: approving_sleeper(seen) })
+    assert_equal 0, status, err
+    body = Canonical.parse(seen.first)
+    assert_equal [ "override", reason, "tag" ], body.values_at("type", "reason", "scope")
+    status, _, err = cli(%W[request --type override --reason short --sha #{SHA} --repo #{@repo}])
+    assert_equal 2, status
+    assert_match(/at least 20 characters/, err)
+    status, = cli(%W[request --type override --reason #{reason} --scope deploy --sha #{SHA} --repo #{@repo}])
+    assert_equal 1, status, "an unknown scope is a usage error"
   end
 
   def test_request_needs_the_command_for_prod_op_and_a_console

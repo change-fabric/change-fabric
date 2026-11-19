@@ -38,8 +38,11 @@ class ChangeShaRecord
   end
 
   def path
-    File.join(Dir.home, '.claude', 'cf', 'change', "#{@profile ? "#{@sha}__#{@profile}" : @sha}#{extension}")
+    File.join(Dir.home, '.claude', 'cf', 'change', "#{@profile ? "#{@sha}__#{@profile}" : @sha}#{suffix}#{extension}")
   end
+
+  # Subclasses override to narrow the key further (ChangeOverrideStore scope).
+  def suffix = ''
 
   # Subclasses override when more than one kind of record can exist for the
   # same (sha, profile) and must not collide on the same path.

@@ -41,9 +41,10 @@ module ChangeOverride
   module_function
 
   def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, console: :default, authority: :default, io: {})
-    sha, reason, profile, remote = parse_args(argv, stderr)
+    sha, reason, profile, remote, scope = parse_args(argv, stderr)
     return 1 unless sha
     return 1 unless remote ? long_reason?(reason, stderr) : real_terminal?(stdin, stderr)
+    return 1 if scope && !remote && !scoped_remote_only(stderr)
 
     sha = full_sha(sha)
     unless sha
@@ -54,7 +55,8 @@ module ChangeOverride
 
     client = remote && console_client(console, stdin, stderr)
     return 1 if remote && !client && !stdin.tty?
-    return override_remote(attrs(sha, reason, profile), client, authority, stdout: stdout, stderr: stderr, **io) if client
+    return 1 if scope && !client && !scoped_remote_only(stderr)
+    return override_remote(attrs(sha, reason, profile, scope), client, authority, stdout: stdout, stderr: stderr, **io) if client
     return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
     proof = prove(sha, reason, profile, stdin: stdin, stdout: stdout, stderr: stderr)
@@ -99,8 +101,15 @@ module ChangeOverride
     false
   end
 
-  def attrs(sha, reason, profile)
-    { 'type' => 'override', 'repo' => CfProjectIdentity.for(Dir.pwd).id, 'sha' => sha, 'profile' => profile, 'reason' => reason }
+  def attrs(sha, reason, profile, scope = nil)
+    base = { 'type' => 'override', 'repo' => CfProjectIdentity.for(Dir.pwd).id, 'sha' => sha, 'profile' => profile, 'reason' => reason }
+    scope ? base.merge('scope' => scope) : base
+  end
+
+  # A scope is part of the signed phone body; the terminal path signs none.
+  def scoped_remote_only(stderr)
+    stderr.puts '[change] refusing: --scope needs --remote (only a phone approval carries a scope).'
+    false
   end
 
   # The console client, or nil: a real terminal falls back to the TOTP path,
@@ -172,18 +181,20 @@ module ChangeOverride
     reason = nil
     profile = nil
     remote = false
+    scope = nil
     OptionParser.new do |o|
       o.on('--remote') { remote = true }
+      o.on('--scope SCOPE', ApprovalConsole::Canonical::SCOPES) { |value| scope = value }
       o.on('--reason REASON') { |value| reason = value }
       o.on('--profile NAME') { |value| profile = value }
     end.parse!(args)
     sha = args.first
 
     if sha.to_s.empty? || reason.to_s.empty?
-      stderr.puts 'usage: change_override.rb <sha> --reason "<why>" [--profile NAME] [--remote]'
-      return [ nil, nil, nil, false ]
+      stderr.puts 'usage: change_override.rb <sha> --reason "<why>" [--profile NAME] [--remote [--scope merge|tag]]'
+      return [ nil, nil, nil, false, nil ]
     end
-    [ sha, reason, profile, remote ]
+    [ sha, reason, profile, remote, scope ]
   end
 end
 

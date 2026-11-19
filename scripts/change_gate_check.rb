@@ -23,8 +23,9 @@ class ChangeGateCheck
   # `proof_level` is change_policy.require_approval_proof: 'local', 'remote',
   # or nil for the compatibility window (a missing proof only warns). An
   # invalid proof is refused at every level.
-  def initialize(sha:, profile:, apps: nil, root: nil, proof_level: nil, proof_store: nil, proof_pins: nil)
+  def initialize(sha:, profile:, apps: nil, root: nil, proof_level: nil, proof_store: nil, proof_pins: nil, scope: nil)
     @sha = sha
+    @scope = scope
     @profile = profile
     @apps = apps
     @root = root
@@ -65,9 +66,9 @@ class ChangeGateCheck
   def override_problem
     return @override_problem if defined?(@override_problem)
 
-    record = ChangeOverrideStore.new(@sha, profile: @profile).read
+    record = override_store.read
     @override_problem = if record.nil? then nil
-    elsif record.is_a?(Hash) then proof_check.override_problem(record, repo: repo_id, sha: @sha, profile: @profile)
+    elsif record.is_a?(Hash) then proof_check.override_problem(record, repo: repo_id, sha: @sha, profile: @profile, scope: record['scope'])
     else 'override record is malformed'
     end
   end
@@ -93,7 +94,16 @@ class ChangeGateCheck
   def overridden?
     return @overridden if defined?(@overridden)
 
-    @overridden = ChangeOverrideStore.new(@sha, profile: @profile).authorized? && override_problem.nil?
+    @overridden = override_store.authorized? && override_problem.nil?
+  end
+
+  # The override record this gate's consumer may honor: one scoped to its own
+  # guard (`merge` or `tag`) when it has one, else the unscoped record.
+  def override_store
+    @override_store ||= begin
+      scoped = ChangeOverrideStore.new(@sha, profile: @profile, scope: @scope) if @scope
+      scoped&.authorized? ? scoped : ChangeOverrideStore.new(@sha, profile: @profile)
+    end
   end
 
   # The app set this check is scoped to, or nil in single-app mode.

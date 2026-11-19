@@ -17,13 +17,14 @@ require_relative 'approval_console/totp'
 require_relative 'change_approval_store'
 require_relative 'change_override_store'
 require_relative 'change_policy'
+require_relative 'change_pr_facts'
 require_relative 'cf_project_identity'
 
 # The approval console CLI.
 #
 #   totp-enroll  generate this machine's seed and show it once on /dev/tty
 #   enroll       register this machine with a deployed console and pin it
-#   request      ask the console for a prod-op, carve-out or money approval
+#   request      ask the console for a prod-op, carve-out, money, release or override approval
 #   wait         resume waiting on a request made with --no-wait
 #   record       wait for a request this machine made, then record its receipt
 #   sync         upload offline terminal approvals for console receipts
@@ -72,12 +73,14 @@ module ApprovalConsoleCli
 
   def usage(stderr)
     stderr.puts 'usage: approval_console.rb totp-enroll | enroll --url URL --profile NAME | ' \
-                'request --type prod-op|carve-out|money --summary TEXT [--pr-url URL] [--no-wait] [-- argv...] | ' \
+                'request --type prod-op|carve-out|money|release|override [--summary TEXT] [--pr-url URL] [--tag TAG] ' \
+                '[--reason TEXT] [--scope merge|tag] [--profile NAME] [--sha SHA] [--no-wait] [-- argv...] | ' \
                 'wait <request_id> | record <request_id> [--repo PATH] | sync | verify <sha> [--repo PATH] [--profile NAME] | status | unlock'
     1
   end
 
-  REQUEST_TYPES = %w[prod-op carve-out money].freeze
+  REQUEST_TYPES = %w[prod-op carve-out money release override].freeze
+  SUMMARY_TYPES = %w[prod-op carve-out money].freeze
 
   # Asks the console to approve one high-risk action, bound to this repo, its
   # HEAD and the exact argv or PR URL. Prints the verified proof as one line of
@@ -87,7 +90,7 @@ module ApprovalConsoleCli
     refusal = request_refusal(opts, ctx)
     return refuse(ctx.stderr, 'request', refusal) if refusal
 
-    attrs = request_attrs(opts)
+    attrs = request_attrs(opts, ctx.io[:gh])
     client = ctx.client
     body, url = ApprovalConsole::Remote.submit(attrs, store: ctx.store, client: client, now: ctx.clock.call, ttl: opts[:ttl])
     ctx.stderr.puts "[approval_console] approve on your phone: #{url}"
@@ -97,9 +100,12 @@ module ApprovalConsoleCli
     end
     finish(ApprovalConsole::Remote.wait(body, expected: ApprovalConsole::Remote.expected(attrs, ctx.store.machine_id),
                                               store: ctx.store, client: client, sleeper: ctx.sleeper, clock: ctx.clock), ctx)
-  rescue ApprovalConsole::Client::Unreachable, ApprovalConsole::Client::Refused, ApprovalConsole::Canonical::Invalid => e
+  rescue ApprovalConsole::Client::Unreachable, ApprovalConsole::Client::Refused, ApprovalConsole::Canonical::Invalid,
+         ChangePrFacts::Unreadable, RequestRefused => e
     refuse(ctx.stderr, 'request', e.message)
   end
+
+  RequestRefused = Class.new(StandardError)
 
   def parse_request(args, stderr)
     opts = { ttl: ApprovalConsole::Remote::LIFETIME, argv: [] }
@@ -110,11 +116,15 @@ module ApprovalConsoleCli
       o.on('--summary TEXT') { |value| opts[:summary] = value }
       o.on('--pr-url URL') { |value| opts[:pr_url] = value }
       o.on('--sha SHA') { |value| opts[:sha] = value }
+      o.on('--tag TAG') { |value| opts[:tag] = value }
+      o.on('--reason TEXT') { |value| opts[:reason] = value }
+      o.on('--scope SCOPE', ApprovalConsole::Canonical::SCOPES) { |value| opts[:scope] = value }
+      o.on('--profile NAME') { |value| opts[:profile] = value }
       o.on('--repo PATH') { |value| opts[:repo] = value }
       o.on('--ttl SECONDS', Integer) { |value| opts[:ttl] = value.clamp(60, ApprovalConsole::Canonical::MAX_LIFETIME) }
       o.on('--no-wait') { opts[:no_wait] = true }
     end.parse!(split ? args[0...split] : args.dup)
-    return opts if REQUEST_TYPES.include?(opts[:type]) && !opts[:summary].to_s.strip.empty?
+    return opts if REQUEST_TYPES.include?(opts[:type]) && (!SUMMARY_TYPES.include?(opts[:type]) || !opts[:summary].to_s.strip.empty?)
 
     usage(stderr)
     nil
@@ -129,18 +139,43 @@ module ApprovalConsoleCli
 
     health = ApprovalConsole::HostHealth.refusal(opts[:type], ApprovalConsole::HostHealth.check(store: ctx.store))
     return health if health
-    return 'carve-out needs --pr-url' if opts[:type] == 'carve-out' && opts[:pr_url].to_s.empty?
-    return "#{opts[:type]} needs the command after --" if opts[:type] != 'carve-out' && opts[:argv].empty?
-
-    nil
+    typed_refusal(opts)
   end
 
-  def request_attrs(opts)
+  def typed_refusal(opts)
+    case opts[:type]
+    when 'carve-out' then 'carve-out needs --pr-url' if opts[:pr_url].to_s.empty?
+    when 'release' then 'release needs --tag' if opts[:tag].to_s.strip.empty?
+    when 'override'
+      min = ApprovalConsole::Recorder::MIN_REASON
+      "override needs a --reason of at least #{min} characters" if opts[:reason].to_s.strip.length < min
+    else "#{opts[:type]} needs the command after --" if opts[:argv].empty?
+    end
+  end
+
+  def request_attrs(opts, gh = nil)
     root = File.expand_path(opts[:repo] || Dir.pwd)
-    sha = opts[:sha] || git_head(root)
-    attrs = { 'type' => opts[:type], 'repo' => CfProjectIdentity.for(root).id, 'sha' => sha, 'profile' => nil,
-              'summary' => opts[:summary] }
-    opts[:type] == 'carve-out' ? attrs.merge('pr_url' => opts[:pr_url]) : attrs.merge('argv' => opts[:argv])
+    return carve_out_attrs(opts, gh || ChangePrFacts.method(:gh)) if opts[:type] == 'carve-out'
+
+    attrs = { 'type' => opts[:type], 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root),
+              'profile' => opts[:profile] }
+    case opts[:type]
+    when 'release' then attrs.merge('tag' => opts[:tag], 'commit' => attrs['sha'])
+    when 'override' then attrs.merge({ 'reason' => opts[:reason] }, opts[:scope] ? { 'scope' => opts[:scope] } : {})
+    else attrs.merge('summary' => opts[:summary], 'argv' => opts[:argv])
+    end
+  end
+
+  # The sha is the PR's head as GitHub reports it, never the working tree's
+  # HEAD; a --sha that differs is refused. The repo comes from the PR URL, and
+  # the changed files and base are signed so the phone shows what GitHub has.
+  def carve_out_attrs(opts, gh)
+    head = ChangePrFacts.head(opts[:pr_url], runner: gh)
+    raise RequestRefused, "--sha #{opts[:sha]} is not the PR head #{head[:sha]}" if opts[:sha] && opts[:sha] != head[:sha]
+
+    { 'type' => 'carve-out', 'repo' => ChangePrFacts.repo_id(opts[:pr_url]), 'sha' => head[:sha], 'profile' => opts[:profile],
+      'summary' => opts[:summary], 'pr_url' => opts[:pr_url], 'pr_title' => head[:title], 'base' => head[:base],
+      'files' => ChangePrFacts.files(opts[:pr_url], runner: gh) }
   end
 
   def git_head(root)
@@ -311,7 +346,7 @@ module ApprovalConsoleCli
     stdout.puts "console: #{info[:console_configured] ? store.base_url : 'not configured (terminal only)'}"
     stdout.puts "pending sync: #{info[:pending]}"
     stdout.puts "conflicts: #{info[:conflicts]}" if info[:conflicts].positive?
-    stdout.puts "host: #{report.degraded? ? "degraded (#{report.reasons.join('; ')}); prod-op, carve-out and money are refused" : 'ok'}"
+    stdout.puts "host: #{report.degraded? ? "degraded (#{report.reasons.join('; ')}); prod-op, carve-out, money, release and override are refused" : 'ok'}"
     0
   end
 

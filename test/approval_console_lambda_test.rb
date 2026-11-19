@@ -70,8 +70,9 @@ class ApprovalConsoleLambdaTest < Minitest::Test
   end
 
   def request_body(rid: SecureRandom.uuid, mid: MID, type: "carve-out", summary: "merge PR 9", created: "2026-11-19T11:55:00Z", expires: "2026-11-19T12:10:00Z")
-    Canonical.build(type: type, machine_id: mid, repo: "github.com/acme/app", sha: SHA, profile: nil, request_id: rid,
-                    created_at: created, expires_at: expires, summary: summary, pr_url: "https://github.com/acme/app/pull/9")
+    Canonical.build(type: type, machine_id: mid, repo: "repo:github.com/acme/app", sha: SHA, profile: nil, request_id: rid,
+                    created_at: created, expires_at: expires, summary: summary, pr_url: "https://github.com/acme/app/pull/9",
+                    pr_title: "Add a thing", base: "main", files: [ "scripts/a.rb", "scripts/b.rb" ])
   end
 
   def create_request(body = request_body)
@@ -103,7 +104,8 @@ class ApprovalConsoleLambdaTest < Minitest::Test
 
   def expected_for(body)
     parsed = Canonical.parse(body)
-    { type: parsed["type"], machine_id: MID, repo: parsed["repo"], sha: SHA, profile: nil, summary: parsed["summary"], pr_url: parsed["pr_url"] }
+    { type: parsed["type"], machine_id: MID, repo: parsed["repo"], sha: SHA, profile: nil, summary: parsed["summary"], pr_url: parsed["pr_url"],
+      pr_title: parsed["pr_title"], base: parsed["base"], files: parsed["files"] }
   end
 
   # ----- requests --------------------------------------------------------
@@ -186,7 +188,8 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_includes html, "&lt;script&gt;alert(1)&lt;/script&gt; &amp; more"
     refute_includes html, "<script>alert(1)"
     refute_match(/<script[^>]*\ssrc=/i, html, "no external or same-origin script files")
-    refute_match(%r{(?:src|href)="https?://}i, html)
+    refute_match(%r{src="https?://}i, html)
+    assert(html.scan(/href="([^"]*)"/).flatten.all? { |url| url.start_with?("https://github.com/acme/app/") }, "links only point at the signed repo")
     tags = html.scan(/<(?:script|style)\b[^>]*>/)
     refute_empty tags
     assert(tags.all? { |tag| tag.include?(%(nonce="#{nonce}")) }, "every script and style carries the response nonce")
@@ -202,6 +205,53 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     _, html, = call("GET", "/m/#{MID}/r/#{rid}")
     assert_includes html, "This request is expired."
     refute_includes html, 'id="go"'
+  end
+
+  # ----- the phone page shows only signed fields --------------------------
+
+  def page_html(body)
+    _, rid = [ body, Canonical.parse(body)["request_id"] ]
+    create_request(body)
+    _, _, response = call("GET", "/m/#{MID}/r/#{rid}")
+    response[:body]
+  end
+
+  def test_the_page_lists_the_signed_files_base_and_title_with_links_from_signed_fields
+    html = page_html(request_body)
+    assert_includes html, "<li><code>scripts/a.rb</code></li>"
+    assert_includes html, "<li><code>scripts/b.rb</code></li>"
+    assert_includes html, "<dd>main</dd>"
+    assert_includes html, "<dd>Add a thing</dd>"
+    assert_includes html, 'href="https://github.com/acme/app/commit/' + SHA + '"'
+    assert_includes html, 'href="https://github.com/acme/app/pull/9"'
+  end
+
+  def test_a_release_page_links_the_tag_and_the_commit
+    body = Canonical.build(type: "release", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil,
+                           request_id: SecureRandom.uuid, created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z",
+                           tag: "skills/v1.2.3 beta", commit: SHA)
+    html = page_html(body)
+    assert_includes html, 'href="https://github.com/acme/app/releases/tag/skills%2Fv1.2.3%20beta"'
+    assert_includes html, 'href="https://github.com/acme/app/commit/' + SHA + '"'
+  end
+
+  def test_no_link_is_built_from_a_pr_url_for_another_repo_or_host_or_a_non_github_repo
+    ConsolePages.links("repo" => "repo:github.com/acme/app", "sha" => SHA, "pr_url" => "https://github.com/evil/app/pull/9").tap do |links|
+      refute(links.any? { |_, url| url.include?("evil") })
+      assert_equal [ "Commit on GitHub" ], links.map(&:first)
+    end
+    assert_empty ConsolePages.links("repo" => "repo:gitlab.com/acme/app", "sha" => SHA)
+    assert_empty ConsolePages.links("repo" => "repo:github.com/acme/app/../x", "sha" => SHA)
+    assert_empty ConsolePages.links("repo" => "not a repo", "sha" => SHA)
+    refute(ConsolePages.links("repo" => "repo:github.com/a/b", "sha" => "zz").any? { |label, _| label == "Commit on GitHub" })
+  end
+
+  def test_agent_text_never_reaches_a_link_or_the_markup_unescaped
+    body = request_body(summary: '<a href="https://evil.example">click</a>')
+    html = page_html(body)
+    refute_includes html, 'href="https://evil.example"'
+    assert_includes html, "&lt;a href=&quot;https://evil.example&quot;&gt;"
+    assert_equal 2, html.scan('rel="noopener noreferrer"').size
   end
 
   # ----- approve ---------------------------------------------------------

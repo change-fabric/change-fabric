@@ -61,7 +61,7 @@ class ChangeMergeGuard
     # An override counts only when its proof stands (ChangeGateCheck#overridden?).
     return nil if ChangeGateCheck.new(sha: sha, profile: policy.profile_for(base), root: root,
                                       proof_level: policy.require_approval_proof,
-                                      proof_pins: policy.approval_pins).overridden?
+                                      proof_pins: policy.approval_pins, scope: 'merge').overridden?
 
     admin?(command) ? admin_violation(policy, base, sha) : normal_violation(policy, base, sha)
   end
@@ -130,7 +130,7 @@ class ChangeMergeGuard
     profile = policy.profile_for(base)
     apps = ChangeGateCheck.required_apps(repo_root, policy.apps_for(base))
     check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: repo_root, proof_level: policy.require_approval_proof,
-                                      proof_pins: policy.approval_pins)
+                                      proof_pins: policy.approval_pins, scope: 'merge')
     return check.overridden? ? nil : testcases_violation(base, sha, policy, check, kind: kind) if check.satisfied?
 
     conditions = policy.admin_bypass_conditions
