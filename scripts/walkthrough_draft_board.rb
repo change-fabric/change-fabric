@@ -21,7 +21,7 @@ require_relative 'walkthrough_storyboard'
 module WalkthroughDraftBoard
   # Keys a placeholder keeps from its scene; the rest describe the picture
   # that cannot be filmed yet.
-  PLACEHOLDER_KEEP = %w[id order title narration narration_start timing hypotheses requirements assumptions pending].freeze
+  PLACEHOLDER_KEEP = %w[id order title narration narration_start timing hypotheses requirements assumptions pending footage pair].freeze
   # Words per second for the planned length of a line with no measured_ms.
   WORDS_PER_SECOND = 2.5
 

@@ -1424,6 +1424,17 @@ end
     assert_equal "screens/detail.html", saved["scenes"][1].dig("screen", "html")
   end
 
+  # The placeholder card keeps footage and pair, so the story preflight still
+  # finds the UI before/after pair when one of its scenes is not filmed yet.
+  def test_pending_scene_in_a_ui_before_after_pair_still_renders_a_partial_cut
+    b = board
+    b["story"]["highlights"] = { "ui_before_after" => true }
+    b["scenes"][0].merge!("footage" => "before", "pair" => "p")
+    b["scenes"][1].merge!("footage" => "after", "pair" => "p", "pending" => { "reason" => "waiting on PR 12" })
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    assert_equal "partial", run_render[:deliverable][:entry]["kind"]
+  end
+
   def test_final_refuses_while_a_placeholder_remains
     pending_board
     err = assert_raises(WalkthroughStoryboard::ValidationError) { run_render(final: true) }
