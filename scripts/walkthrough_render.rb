@@ -1151,8 +1151,9 @@ module WalkthroughRender
 
       estimate
       sharpness!
-      return nil if estimate_only
+      return story_warnings_only if estimate_only
 
+      WalkthroughStory.preflight!(@board)
       refuse_placeholders! if @final
       refuse_unroasted! if @final
       spend_gate!
@@ -1342,6 +1343,12 @@ module WalkthroughRender
       scenes.select { |s| targeted?(s) && image_requests(s).any? { |r| !image_cached?(r) } }.map { |s| s['id'] }
     end
 
+    # An estimate-only run buys nothing, so a missing story only warns.
+    def story_warnings_only
+      WalkthroughStory.warnings(@board).each { |e| say("warning: story: #{e}") }
+      nil
+    end
+
     # The silent cut's own flow: free steps only (no narration, images,
     # paid b-roll, music, roast, or lint gate; an uncached b-roll clip takes
     # its free fallback), and nothing written back to the
@@ -1350,6 +1357,7 @@ module WalkthroughRender
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughCache.ensure_gitignore(@root)
       fetch_fonts!
+      WalkthroughStory.preflight!(@board)
       generate_broll
       capture_frames
       keys = WalkthroughStoryboard.recompute_keys(@board, @root)
@@ -1458,6 +1466,8 @@ if __FILE__ == $PROGRAM_NAME
          WalkthroughLoudness::LoudnessError, WalkthroughHousekeeping::NoSpaceError,
          WalkthroughRender::SpendCeilingError => e
     abort("refused: #{e.message}")
+  rescue WalkthroughStory::MissingStoryError => e
+    exit(WalkthroughStory.report(e))
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)
   rescue CfProviderError::Failure => e

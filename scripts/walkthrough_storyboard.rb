@@ -14,6 +14,7 @@ require_relative 'walkthrough_environment'
 require_relative 'walkthrough_transition'
 require_relative 'walkthrough_live'
 require_relative 'walkthrough_look'
+require_relative 'walkthrough_story'
 require_relative 'walkthrough_words'
 
 # storyboard.json (schema_version 1) is the source of truth for a
@@ -154,7 +155,7 @@ module WalkthroughStoryboard
 
   # Advisory findings that never fail validation. Roast refuses to run without a
   # review audience and purpose, so their absence is worth saying early.
-  def warnings(board) = review_warnings(board) + soft_zoom_warnings(board) + density_warnings(board) + element_warnings(board) + hook_warnings(board) +
+  def warnings(board) = review_warnings(board) + story_warnings(board) + soft_zoom_warnings(board) + density_warnings(board) + element_warnings(board) + hook_warnings(board) +
                         close_warnings(board)
 
   # A beat whose entrance had to be clamped still lands on its frame.
@@ -192,6 +193,10 @@ module WalkthroughStoryboard
 
     [ "scene #{last['id']}: the final narration ends #{tail} ms before the film does; leave at least #{CLOSE_TAIL_MS} ms (raise timing.pad_ms)" ]
   end
+
+  # A missing or broken story block warns here; render refuses it before the
+  # first paid call (WalkthroughStory.preflight!).
+  def story_warnings(board) = WalkthroughStory.warnings(board).map { |e| "story: #{e}" }
 
   def review_warnings(board)
     return [ 'review is absent: roast refuses to run without an audience and a purpose (add a review object with kind, audience, purpose)' ] unless board.key?('review')

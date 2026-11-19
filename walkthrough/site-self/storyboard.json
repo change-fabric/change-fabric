@@ -142,6 +142,47 @@
       "That this clip itself is made by the walkthrough skill, diagram scene included"
     ]
   },
+  "story": {
+    "hero": "an engineer whose agents write code faster than they can review it",
+    "guide": "change fabric",
+    "perspective": "second",
+    "audience": "Engineers deciding from the docs site whether to adopt the toolkit",
+    "before": {
+      "state": "agent-written changes land faster than anyone can review them",
+      "scenes": [
+        "cold-open"
+      ]
+    },
+    "turn": {
+      "moment": "one CHANGE.md per repo says what to test and what is protected",
+      "scenes": [
+        "change-md"
+      ]
+    },
+    "after": {
+      "outcomes": [
+        "every change is checked by the enabled lanes and the gate records the result for the head commit before a merge or release tag"
+      ],
+      "scenes": [
+        "lanes",
+        "findings",
+        "gate"
+      ]
+    },
+    "beats": [],
+    "length_s": 45,
+    "highlights": {
+      "ui_before_after": false,
+      "scope": "built_only",
+      "secondary_artifacts": [],
+      "requests": []
+    },
+    "assumptions": [
+      "/story/hero",
+      "/story/perspective",
+      "/story/length_s"
+    ]
+  },
   "scenes": [
     {
       "id": "logo-open",

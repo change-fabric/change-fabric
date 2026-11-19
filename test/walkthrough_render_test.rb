@@ -48,6 +48,10 @@ class WalkthroughRenderTest < Minitest::Test
   def board
     { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
       "review" => { "kind" => "explainer", "audience" => "Engineers", "purpose" => [ "State what the demo shows" ] },
+      "story" => { "hero" => "an engineer", "audience" => "Engineers",
+                   "before" => { "state" => "slow", "scenes" => [ "list" ] },
+                   "turn" => { "moment" => "opens the detail", "scenes" => [ "detail" ] },
+                   "after" => { "outcomes" => [ "sees the hero" ], "scenes" => [ "hero" ] } },
       "viewport" => { "w" => 640, "h" => 360, "dpr" => 1 },
       "voice" => { "voice_id" => "v1", "model" => "eleven_multilingual_v2", "output_format" => "mp3_44100_128" },
       "music" => { "model" => "music_v1", "prompt" => "calm", "gain_db" => -18 },
@@ -1418,6 +1422,17 @@ end
     saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))
     assert_equal({ "reason" => "waiting on PR 12" }, saved["scenes"][1]["pending"], "the authored scene is written back, not its card")
     assert_equal "screens/detail.html", saved["scenes"][1].dig("screen", "html")
+  end
+
+  # The placeholder card keeps footage and pair, so the story preflight still
+  # finds the UI before/after pair when one of its scenes is not filmed yet.
+  def test_pending_scene_in_a_ui_before_after_pair_still_renders_a_partial_cut
+    b = board
+    b["story"]["highlights"] = { "ui_before_after" => true }
+    b["scenes"][0].merge!("footage" => "before", "pair" => "p")
+    b["scenes"][1].merge!("footage" => "after", "pair" => "p", "pending" => { "reason" => "waiting on PR 12" })
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    assert_equal "partial", run_render[:deliverable][:entry]["kind"]
   end
 
   def test_final_refuses_while_a_placeholder_remains

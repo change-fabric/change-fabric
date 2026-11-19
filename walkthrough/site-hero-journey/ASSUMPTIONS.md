@@ -20,6 +20,12 @@ None recorded.
 
 None recorded.
 
+## Story
+
+- /story/hero: drafted, not confirmed by the user: a newcomer to engineering who already asks an agent to write code
+- /story/perspective: drafted, not confirmed by the user: second
+- /story/length_s: drafted, not confirmed by the user: 60
+
 ## Generated footage
 
 None.

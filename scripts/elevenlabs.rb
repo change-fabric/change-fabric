@@ -8,6 +8,7 @@ require 'uri'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_captions'
 require_relative 'walkthrough_env'
+require_relative 'walkthrough_story'
 require_relative 'walkthrough_storyboard'
 
 # ElevenLabs REST client for narration and music (cf:narrate, cf:music, and
@@ -254,6 +255,8 @@ module ElevenLabs
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
       WalkthroughEnv.key_error(e, out: out)
+    rescue WalkthroughStory::MissingStoryError => e
+      WalkthroughStory.report(e, out: out)
     rescue UsageError, Error, OptionParser::ParseError, WalkthroughEnv::MissingKeyError => e
       out.puts("error: #{e.message}")
       1
@@ -285,11 +288,17 @@ module ElevenLabs
       out.puts(ElevenLabs.format_estimate(ElevenLabs.estimate(chars: pending, music_ms: 0, model: model)))
       return if opts[:estimate_only]
 
+      story_preflight!(opts)
       items.each do |item|
         res = ElevenLabs.tts(**item.except(:label), cache_root: opts[:cache], transport: transport, sleeper: sleeper)
         out.puts("scene #{item[:label]}:") if item[:label]
         out.puts("audio: #{res[:audio]}", "alignment: #{res[:alignment]}", "srt: #{write_srt(res, opts[:cache])}")
       end
+    end
+
+    # Only a storyboard is a walkthrough; text, file, prompt and plan inputs skip it.
+    def story_preflight!(opts)
+      WalkthroughStory.preflight!(JSON.parse(File.read(opts[:storyboard]))) if opts[:storyboard]
     end
 
     def music(opts, out, transport, sleeper)
@@ -300,6 +309,7 @@ module ElevenLabs
       out.puts(ElevenLabs.format_estimate(ElevenLabs.estimate(chars: 0, music_ms: pending_ms, model: spec[:model])))
       return if opts[:estimate_only]
 
+      story_preflight!(opts)
       res = ElevenLabs.music(**spec, cache_root: opts[:cache], transport: transport, sleeper: sleeper)
       out.puts("music: #{res[:path]}")
     end

@@ -47,7 +47,7 @@ class WalkthroughLiveTest < Minitest::Test
   end
 
   def board(scenes = nil)
-    { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
+    b = { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
       "viewport" => { "w" => 640, "h" => 360, "dpr" => 1 },
       "voice" => { "voice_id" => "v1", "model" => "eleven_multilingual_v2", "output_format" => "mp3_44100_128" },
       "music" => nil,
@@ -66,6 +66,16 @@ class WalkthroughLiveTest < Minitest::Test
         live("admin", 5, "persona" => "admin"),
         live("landing", 6, "persona" => nil)
       ] }
+    b.merge("story" => story_for(b["scenes"]))
+  end
+
+  # The first scene is the before, the second the turn, the rest the after.
+  def story_for(scenes)
+    ids = scenes.map { |sc| sc["id"] }
+    { "hero" => "a member", "audience" => "members",
+      "before" => { "state" => "signed out", "scenes" => ids.first(1) },
+      "turn" => { "moment" => "signs in", "scenes" => ids[1, 1] },
+      "after" => { "outcomes" => [ "sees the app" ], "scenes" => ids.drop(2) } }
   end
 
   def errors_for(b) = WalkthroughStoryboard.validate(b)
