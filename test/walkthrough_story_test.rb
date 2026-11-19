@@ -210,6 +210,15 @@ class WalkthroughStoryTest < Minitest::Test
     refute_includes out["assumptions"], "/story/before/state", "the user's own value is not an assumption"
   end
 
+  def test_seed_carries_a_parent_pointer_narrowed_to_the_copied_child
+    src = story_only.merge("assumptions" => [ "/story/before" ])
+    dest = { "story" => { "before" => { "scenes" => [ "a" ] }, "hero" => "mine" } }
+    out = S.seed(src, dest)["story"]
+    assert_equal [ "/story/before/state" ], out["assumptions"]
+    dest = { "story" => { "before" => { "state" => "mine" } } }
+    assert_nil S.seed(src, dest)["story"]["assumptions"], "nothing under the parent was copied"
+  end
+
   def test_seed_does_not_mutate_inputs_or_seed_scenes
     src = story_only.merge("before" => { "state" => "x", "scenes" => [ "a" ] })
     dest = { "story" => {} }

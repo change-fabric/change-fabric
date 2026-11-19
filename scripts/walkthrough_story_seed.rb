@@ -19,10 +19,23 @@ module WalkthroughStory
 
       copied = []
       fill(board['story'], source.except('assumptions'), '/story', copied)
-      pointers = Array(source['assumptions']).select { |p| copied.any? { |c| p == c || p.start_with?("#{c}/") } }
+      pointers = carried_pointers(Array(source['assumptions']), copied)
       merged = (Array(board['story']['assumptions']) + pointers).uniq
       board['story']['assumptions'] = merged unless merged.empty?
       board
+    end
+
+    # A source pointer is carried for the part of it that was copied: itself
+    # when it is a copied field or inside one, and the copied child when it
+    # names a parent object only partly copied (the user's own values stay unmarked).
+    def carried_pointers(pointers, copied)
+      pointers.flat_map do |p|
+        copied.filter_map do |c|
+          if p == c || p.start_with?("#{c}/") then p
+          elsif c.start_with?("#{p}/") then c
+          end
+        end
+      end.uniq
     end
 
     def fill(dest, source, path, copied)
