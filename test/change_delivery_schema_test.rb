@@ -93,6 +93,20 @@ class ChangeDeliverySchemaTest < Minitest::Test
     end
   end
 
+  def test_malformed_pacing_is_reported_not_raised
+    [ [], "auto", 1, true, [ { "money_affecting" => true } ] ].each do |bad|
+      doc = load("valid.yml")
+      doc["change_policy"]["delivery"]["rollouts"]["new-checkout"]["pacing"] = bad
+      assert(errors_for(doc).any? { |message| message.include?("new-checkout.pacing must be a mapping") }, bad.inspect)
+    end
+    Dir.mktmpdir do |root|
+      FileUtils.mkdir_p(File.join(root, "delivery"))
+      body = File.read(File.join(FIXTURES, "delivery/new-checkout.yml")).sub(/^pacing:.*?(?=^\S|\z)/m, "pacing: []\n")
+      File.write(File.join(root, "delivery/new-checkout.yml"), body)
+      assert(errors_for(load("valid_sourced.yml"), root: root).any? { |message| message.include?("pacing must be a mapping") })
+    end
+  end
+
   def test_money_affecting_defaults_to_manual_advance
     doc = load("valid.yml")
     doc["change_policy"]["delivery"]["rollouts"]["new-checkout"]["pacing"] = { "money_affecting" => true }

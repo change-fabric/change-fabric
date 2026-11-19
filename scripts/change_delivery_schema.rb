@@ -91,7 +91,9 @@ module ChangeDeliverySchema
     def revision = config['revision'].nil? ? 1 : config['revision']
     def stages = Array(config['stages'])
     def source = config['source']
-    def pacing = config['pacing'].is_a?(Hash) ? config['pacing'] : (policy['pacing'] || {})
+    # A pacing block of the wrong shape reads as empty: check_pacing reports
+    # it, and the cross-block floors must not crash on it.
+    def pacing = [ config['pacing'], policy['pacing'] ].find { |block| block.is_a?(Hash) } || {}
     def money_affecting? = pacing['money_affecting'] == true
     def advance = pacing['advance'] || 'manual'
 
