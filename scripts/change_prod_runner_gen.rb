@@ -285,7 +285,16 @@ module ChangeProdRunnerGen
 
   def oidc_command(repo)
     "gh api -X PUT repos/#{repo || '<o>/<r>'}/actions/oidc/customization/sub -F use_default=false " \
+      "-F use_immutable_subject=true " \
       "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
+  end
+
+  # The repo segment of an immutable subject: OWNER@OWNER_ID/REPO@REPO_ID, the
+  # sub_claim_prefix GitHub reports without `repo:`. Ids come from --repo-ids.
+  def subject_repo(slug, repo_ids)
+    owner, name = slug.split('/', 2)
+    owner_id, repo_id = (repo_ids || '<owner_id>/<repo_id>').split('/', 2)
+    "#{owner}@#{owner_id}/#{name}@#{repo_id}"
   end
 
   # True when regenerating from `config` would not reproduce `text`. Whether
@@ -297,16 +306,19 @@ module ChangeProdRunnerGen
   end
 
   # The AWS trust conditions the roles need. The sub is matched exactly, so it
-  # pins the repo, the GitHub Environment, the workflow file and the default
-  # branch; aud must be sts.amazonaws.com. They follow the one-time OIDC
-  # customization (repo, context, job_workflow_ref). The claim role trusts the
-  # one `cf-claim` subject; each credential role trusts its own Environment.
-  def trust_policy(config, repo: nil, default_branch: 'main', blockers: production_blockers)
+  # pins the repo (by owner and repo id), the GitHub Environment, the workflow
+  # file and the default branch; aud must be sts.amazonaws.com. They follow the
+  # one-time OIDC customization (immutable subject; repo, context,
+  # job_workflow_ref): ids appear in the repo segment only, job_workflow_ref
+  # stays name based. The claim role trusts the one `cf-claim` subject; each
+  # credential role trusts its own Environment.
+  def trust_policy(config, repo: nil, repo_ids: nil, default_branch: 'main', blockers: production_blockers)
     slug = repo || '<o>/<r>'
+    prefix = subject_repo(slug, repo_ids)
     job_workflow_ref = "#{slug}/#{WORKFLOW}@refs/heads/#{default_branch}"
     claim = ChangeProdClaim.settings(config)
     jobs = environments(runner_config(config), blockers)
-    subject = ->(environment) { "repo:#{slug}:environment:#{environment}:job_workflow_ref:#{job_workflow_ref}" }
+    subject = ->(environment) { "repo:#{prefix}:environment:#{environment}:job_workflow_ref:#{job_workflow_ref}" }
     entries = [ [ claim[:role], subject.call(CLAIM_ENVIRONMENT) ] ] +
               jobs.map { |_, environment, role| [ role, subject.call(environment) ] }
     entries.map do |role, sub|
@@ -324,6 +336,7 @@ module ChangeProdRunnerGen
       o.on('--config PATH') { |v| opts[:config] = v }
       o.on('--root PATH') { |v| opts[:root] = v }
       o.on('--repo OWNER/NAME') { |v| opts[:repo] = v }
+      o.on('--repo-ids OWNER_ID/REPO_ID', %r{\A\d+/\d+\z}) { |v| opts[:repo_ids] = v }
       o.on('--default-branch NAME') { |v| opts[:default_branch] = v }
       o.on('--check') { opts[:check] = true }
     end.parse!(argv)
@@ -338,7 +351,10 @@ module ChangeProdRunnerGen
     vendor(opts[:root]).each { |file| stdout.puts "wrote #{file}" }
     stdout.puts "one-time repo setting (human, once): #{oidc_command(opts[:repo])}"
     stdout.puts "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment with deployment branch = default only, no reviewers"
-    trust_policy(config, repo: opts[:repo], default_branch: opts[:default_branch] || 'main').each { |line| stdout.puts line }
+    unless opts[:repo_ids]
+      stdout.puts "repo ids for the trust subject: gh api repos/#{opts[:repo] || '<o>/<r>'} --jq '\"\\(.owner.id)/\\(.id)\"'"
+    end
+    trust_policy(config, repo: opts[:repo], repo_ids: opts[:repo_ids], default_branch: opts[:default_branch] || 'main').each { |line| stdout.puts line }
     0
   rescue Refused, ChangeProdEnvelope::Invalid, OptionParser::ParseError, KeyError => e
     stderr.puts "[cf-prod] refused: #{e.message}"

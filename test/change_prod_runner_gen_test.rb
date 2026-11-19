@@ -176,6 +176,8 @@ class ChangeProdRunnerGenTest < Minitest::Test
       assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out)
       assert_includes out.string, "repos/acme/app/actions/oidc/customization/sub -F use_default=false"
       assert_includes out.string, "include_claim_keys[]=job_workflow_ref"
+      assert_includes out.string, "-F use_immutable_subject=true"
+      assert_includes out.string, "gh api repos/acme/app --jq"
       assert_equal 0, Gen.run([ "--check", "--root", root ], stdout: StringIO.new)
       path = File.join(root, Gen::WORKFLOW)
       File.write(path, File.read(path).sub("ubuntu-24.04", "ubuntu-latest"))
@@ -266,17 +268,37 @@ class ChangeProdRunnerGenTest < Minitest::Test
   def test_prints_the_aws_trust_conditions_next_to_the_oidc_command
     out = StringIO.new
     Dir.mktmpdir do |root|
-      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app", "--default-branch", "trunk" ], stdout: out)
+      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app", "--repo-ids", "11/22", "--default-branch", "trunk" ], stdout: out)
     end
     lines = out.string.lines.grep(/trust condition/)
     assert_equal 2, lines.size
     claim = lines.find { |line| line.include?("cf-prod-claim") }
-    assert_includes claim, "repo:acme/app:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
+    assert_includes claim, "repo:acme@11/app@22:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
     staging = lines.find { |line| line.include?("cf-staging") }
-    assert_includes staging, "repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
+    assert_includes staging, "repo:acme@11/app@22:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
     assert_includes staging, '"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"'
     assert_includes staging, "StringEquals"
     refute_includes out.string, "role/cf-prod\""
+    refute_includes out.string, "repo ids for the trust subject"
+  end
+
+  def test_change_fabric_claim_subject_matches_its_immutable_sub
+    out = StringIO.new
+    Dir.mktmpdir do |root|
+      args = [ "--config", FIXTURE, "--root", root, "--repo", "change-fabric/change-fabric", "--repo-ids", "311455213/1180238677" ]
+      assert_equal 0, Gen.run(args, stdout: out)
+    end
+    sub = "repo:change-fabric@311455213/change-fabric@1180238677:environment:cf-claim:" \
+          "job_workflow_ref:change-fabric/change-fabric/.github/workflows/cf-prod.yml@refs/heads/main"
+    assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, "\"#{sub}\""
+  end
+
+  def test_repo_ids_must_be_numeric
+    err = StringIO.new
+    Dir.mktmpdir do |root|
+      assert_equal 1, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app", "--repo-ids", "x/*" ], stdout: StringIO.new, stderr: err)
+    end
+    assert_match(/refused/, err.string)
   end
 
   def test_claim_job_runs_in_the_dedicated_cf_claim_environment
@@ -284,7 +306,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert_equal "cf-claim", claim["environment"]
     out = StringIO.new
     Dir.mktmpdir { |root| Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out) }
-    sub = "repo:acme/app:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/main"
+    sub = "repo:acme@<owner_id>/app@<repo_id>:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/main"
     assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, sub
     assert_match(/create a cf-claim environment with deployment branch = default only, no reviewers/, out.string)
     reserved = config
