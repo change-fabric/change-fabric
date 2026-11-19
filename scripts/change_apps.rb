@@ -235,7 +235,7 @@ class ChangeAppRegistry
   def self.delivery_rollout_line(rollout)
     stages = rollout.stages.map { |stage| stage.is_a?(Hash) ? stage['cohort'] : '?' }.join(' > ')
     "delivery: rollout #{rollout.name} flag=#{rollout.flag} owner=#{rollout.owner || '(none)'} " \
-      "revision=#{rollout.revision || 1} advance=#{rollout.advance}#{' money_affecting' if rollout.money_affecting?} " \
+      "revision=#{rollout.revision} advance=#{rollout.advance}#{' money_affecting' if rollout.money_affecting?} " \
       "stages=#{stages}#{" source=#{rollout.source}" if rollout.source}"
   end
   private_class_method :delivery_rollout_line

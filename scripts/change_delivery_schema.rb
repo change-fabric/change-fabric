@@ -87,7 +87,8 @@ module ChangeDeliverySchema
   Rollout = Struct.new(:name, :config, :policy, keyword_init: true) do
     def owner = config['owner']
     def flag = config['flag']
-    def revision = config['revision']
+    # An omitted inline revision is the documented default, 1.
+    def revision = config['revision'].nil? ? 1 : config['revision']
     def stages = Array(config['stages'])
     def source = config['source']
     def pacing = config['pacing'].is_a?(Hash) ? config['pacing'] : (policy['pacing'] || {})
@@ -98,7 +99,8 @@ module ChangeDeliverySchema
     def stage_advances = stages.map { |stage| (stage.is_a?(Hash) && stage['advance']) || advance }
 
     # sha256 of the merged rollout: what the controller stamps on a verdict.
-    def digest = ChangeDeliverySchema.digest(config.except('pacing').merge('pacing' => pacing), policy.except('pacing'))
+    def digest = ChangeDeliverySchema.digest(config.except('pacing').merge('pacing' => pacing, 'revision' => revision),
+                                            policy.except('pacing'))
   end
 
   # Every problem with change_config.delivery and change_policy.delivery

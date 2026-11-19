@@ -119,6 +119,30 @@ class ChangeDeliverySchemaTest < Minitest::Test
     assert_empty ChangeDeliverySchema.revision_errors(rollouts.(base), rollouts.(base))
   end
 
+  def test_omitted_inline_revision_counts_as_one
+    rollouts = ->(doc) { ChangeDeliverySchema.rollouts(doc["change_config"], doc["change_policy"], root: FIXTURES) }
+    omitted = load("valid.yml")
+    omitted["change_config"]["delivery"]["rollouts"]["new-checkout"].delete("revision")
+    explicit = load("valid.yml")
+    explicit["change_config"]["delivery"]["rollouts"]["new-checkout"]["revision"] = 1
+    assert_equal 1, rollouts.(omitted).first.revision
+    assert_equal rollouts.(explicit).first.digest, rollouts.(omitted).first.digest
+
+    # [base revision, head revision, content changed, expected error count]
+    [ [ nil, 2, true, 0 ], [ nil, 1, true, 1 ], [ nil, nil, true, 1 ], [ 1, nil, true, 1 ],
+      [ nil, 1, false, 0 ], [ 1, nil, false, 0 ] ].each do |base_rev, head_rev, changed, expected|
+      base = load("valid.yml")
+      head = load("valid.yml")
+      [ [ base, base_rev ], [ head, head_rev ] ].each do |doc, rev|
+        rollout = doc["change_config"]["delivery"]["rollouts"]["new-checkout"]
+        rev.nil? ? rollout.delete("revision") : rollout["revision"] = rev
+      end
+      head["change_config"]["delivery"]["rollouts"]["new-checkout"]["stages"][0]["dwell_minutes"] = 30 if changed
+      got = ChangeDeliverySchema.revision_errors(rollouts.(base), rollouts.(head)).size
+      assert_equal expected, got, "base #{base_rev.inspect} head #{head_rev.inspect} changed #{changed}"
+    end
+  end
+
   def test_digest_is_stable_and_order_independent
     doc = load("valid.yml")
     a = ChangeDeliverySchema.rollouts(doc["change_config"], doc["change_policy"]).first.digest
