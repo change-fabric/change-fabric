@@ -207,3 +207,76 @@ class ChangeApproveTest < Minitest::Test
     assert_nil @store.status[:last_step]
   end
 end
+
+require_relative "support/phone_console"
+
+# `--remote` without a TTY: the agent starts the approval and posts the link;
+# only the phone approves, and ApprovalConsole::Recorder writes the record.
+class ChangeApproveRemoteTest < Minitest::Test
+  include PhoneConsole
+
+  NoTty = Struct.new(:tty?)
+
+  def setup
+    @home = File.realpath(Dir.mktmpdir)
+    @prev_home = ENV["HOME"]
+    ENV["HOME"] = @home
+    @repo = Dir.mktmpdir
+    GitFixture.git_init(@repo, "-b", "main")
+    GitFixture.git(@repo, "update-ref", "refs/remotes/origin/main", commit("echo base"))
+    @sha = commit("echo head")
+    start_phone_console
+  end
+
+  def teardown
+    ENV["HOME"] = @prev_home
+    FileUtils.remove_entry(@home)
+    FileUtils.remove_entry(@repo)
+  end
+
+  def commit(up)
+    File.write(File.join(@repo, "CHANGE.md"), "---\nchange_config:\n  project: demo\n  boot:\n    up: \"#{up}\"\n  lanes:\n    k6:\n      enabled: true\n---\n")
+    GitFixture.git(@repo, "add", "CHANGE.md")
+    GitFixture.git(@repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "c")
+    GitFixture.git(@repo, "rev-parse", "HEAD").strip
+  end
+
+  def approve(argv, console: client, auth: authority)
+    out = StringIO.new
+    err = StringIO.new
+    status = ChangeApprove.run(argv, stdin: NoTty.new(false), stdout: out, stderr: err, fetch: false, console: console,
+                                     authority: auth, io: remote_io)
+    [ status, out.string, err.string ]
+  end
+
+  def test_remote_without_a_tty_records_the_phone_approved_steps
+    status, out, err = approve([ @sha, "--repo", @repo, "--remote" ])
+    assert_equal 0, status, err
+    assert_match(/echo head/, out)
+    defs = ChangeTrust.snapshot_definitions(@repo, @sha)
+    assert_equal [ [ "boot.up", ChangeTrust.digest(defs["boot.up"]) ] ], ChangeApprovalStore.new(@sha).approvals
+    entry = ChangeApprovalStore.new(@sha).entries.first
+    assert_equal [ POLICY_SHA, "webauthn+totp" ], [ entry["policy_sha"], entry.dig("proof", "kind") ]
+  end
+
+  def test_without_remote_a_missing_tty_is_still_refused
+    status, _out, err = approve([ @sha, "--repo", @repo ])
+    assert_equal 1, status
+    assert_match(/real terminal/, err)
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
+  def test_remote_without_a_console_is_refused_without_a_tty
+    status, _out, err = approve([ @sha, "--repo", @repo, "--remote" ], console: nil)
+    assert_equal 1, status
+    assert_match(/no approval console/, err)
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
+  def test_remote_refuses_when_no_authoritative_pins_exist
+    status, _out, err = approve([ @sha, "--repo", @repo, "--remote" ], auth: authority(pins: nil))
+    assert_equal 1, status
+    assert_match(/no approval_pins.*nothing recorded/, err)
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+end

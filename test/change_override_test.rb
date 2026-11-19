@@ -150,3 +150,71 @@ class ChangeOverrideTest < Minitest::Test
     assert_nil @store.status[:last_step]
   end
 end
+
+require_relative "support/phone_console"
+
+# `--remote` without a TTY: the agent starts the override and posts the link;
+# only the phone approves, and ApprovalConsole::Recorder writes the record.
+class ChangeOverrideRemoteTest < Minitest::Test
+  include PhoneConsole
+
+  SHA = ChangeOverrideTest::SHA
+  REASON = "release gate stuck on a flaky lane"
+  NoTty = Struct.new(:tty?)
+
+  def setup
+    @home = File.realpath(Dir.mktmpdir)
+    @prev = ENV["HOME"]
+    ENV["HOME"] = @home
+    start_phone_console
+  end
+
+  def teardown
+    ENV["HOME"] = @prev
+    FileUtils.remove_entry(@home)
+  end
+
+  def run_remote(argv, console: client, auth: authority)
+    out = StringIO.new
+    err = StringIO.new
+    status = ChangeOverride.run(argv, stdin: NoTty.new(false), stdout: out, stderr: err, console: console, authority: auth, io: remote_io)
+    [ status, out.string, err.string ]
+  end
+
+  def test_remote_without_a_tty_records_a_phone_approved_override
+    status, out, err = run_remote([ SHA, "--remote", "--reason", REASON, "--profile", "prod" ])
+    assert_equal 0, status, err
+    assert_match(/approve on your phone/i, out)
+    assert_match(/approval_console.rb record [0-9a-f-]{36}/, out)
+    record = ChangeOverrideStore.new(SHA, profile: "prod").read
+    assert_equal [ REASON, POLICY_SHA, "webauthn+totp" ], [ record["reason"], record["policy_sha"], record.dig("proof", "kind") ]
+  end
+
+  def test_remote_refuses_a_reason_under_20_characters_before_asking_the_phone
+    status, _out, err = run_remote([ SHA, "--remote", "--reason", "hotfix" ])
+    assert_equal 1, status
+    assert_match(/at least 20 characters/, err)
+    assert_empty @db.items.keys.select { |(_, sk)| sk.to_s.start_with?("REQ#") }
+  end
+
+  def test_remote_without_a_console_is_refused_without_a_tty
+    status, _out, err = run_remote([ SHA, "--remote", "--reason", REASON ], console: nil)
+    assert_equal 1, status
+    assert_match(/no approval console/, err)
+    refute ChangeOverrideStore.new(SHA).authorized?
+  end
+
+  def test_remote_refuses_when_the_authoritative_pins_differ
+    wrong = authority(pins: authoritative_pins.merge("rp_id" => "evil.example.com"))
+    status, _out, err = run_remote([ SHA, "--remote", "--reason", REASON ], auth: wrong)
+    assert_equal 1, status
+    assert_match(/rpId pin.*nothing recorded/, err)
+    refute ChangeOverrideStore.new(SHA).authorized?
+  end
+
+  def test_without_remote_a_missing_tty_is_still_refused
+    status, _out, err = run_remote([ SHA, "--reason", REASON ])
+    assert_equal 1, status
+    assert_match(/real terminal/, err)
+  end
+end

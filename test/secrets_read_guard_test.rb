@@ -83,9 +83,15 @@ class SecretsReadGuardTest < Minitest::Test
 
   def test_approval_console_agent_verbs_stay_open
     cli = "~/.claude/cf/bin/approval_console.rb"
-    [ "ruby #{cli} status", "ruby #{cli} request --type prod-op", "ruby #{cli} wait abc", "ruby #{cli} verify abc" ].each do |cmd|
+    [ "ruby #{cli} status", "ruby #{cli} request --type prod-op", "ruby #{cli} wait abc", "ruby #{cli} verify abc",
+      "ruby #{cli} record abc" ].each do |cmd|
       assert_nil decide("Bash", "command" => cmd), cmd
     end
+  end
+
+  def test_the_agent_verbs_are_exactly_the_ones_that_never_print_a_secret
+    assert_equal %w[status request wait record], SecretsReadGuard::APPROVAL_AGENT_VERBS
+    assert_empty SecretsReadGuard::APPROVAL_AGENT_VERBS & SecretsReadGuard::APPROVAL_HUMAN_VERBS
   end
 
   def test_approval_denial_message_names_the_human_only_rule

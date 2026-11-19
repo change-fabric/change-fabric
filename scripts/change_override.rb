@@ -7,6 +7,7 @@ require_relative 'change_override_store'
 require_relative 'cf_project_identity'
 require_relative 'approval_console/terminal_prompt'
 require_relative 'approval_console/remote'
+require_relative 'approval_console/recorder'
 
 # Human-run companion to change_merge_guard.rb's CF_ALLOW_UNGATED_MERGE escape
 # hatch, for the case that hatch is documented but unreachable: the guard reads
@@ -32,15 +33,17 @@ require_relative 'approval_console/remote'
 # machine's enrolled seed (approval_console.rb totp-enroll), fenced to one use
 # per 30 second step, and stores a `totp-terminal` proof with the override.
 # With --remote and a console configured, the phone shows the override and
-# takes the TOTP code and the passkey instead; the proof is verified offline
-# before it is recorded.
+# takes the TOTP code and the passkey instead, and ApprovalConsole::Recorder
+# checks the receipt before it is recorded. --remote needs no TTY (an agent
+# starts it and posts the link; only the phone approves) and a --reason of at
+# least 20 characters.
 module ChangeOverride
   module_function
 
-  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, console: :default)
+  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, console: :default, authority: :default, io: {})
     sha, reason, profile, remote = parse_args(argv, stderr)
     return 1 unless sha
-    return 1 unless real_terminal?(stdin, stderr)
+    return 1 unless remote ? long_reason?(reason, stderr) : real_terminal?(stdin, stderr)
 
     sha = full_sha(sha)
     unless sha
@@ -49,32 +52,65 @@ module ChangeOverride
     end
     return 1 unless enrolled?(stderr)
 
-    client = remote && console_client(console, stderr)
-    proof = if client
-              prove_remote(attrs(sha, reason, profile), client, stdout: stdout, stderr: stderr)
-    else
-              return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
+    client = remote && console_client(console, stdin, stderr)
+    return 1 if remote && !client && !stdin.tty?
+    return override_remote(attrs(sha, reason, profile), client, authority, stdout: stdout, stderr: stderr, **io) if client
+    return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
-              prove(sha, reason, profile, stdin: stdin, stdout: stdout, stderr: stderr)
-    end
+    proof = prove(sha, reason, profile, stdin: stdin, stdout: stdout, stderr: stderr)
     return 1 unless proof
 
-    ChangeOverrideStore.new(sha, profile: profile).record(
-      reason: reason, recorded_by: ENV['USER'] || ENV['USERNAME'] || 'unknown', proof: proof
-    )
+    ChangeOverrideStore.new(sha, profile: profile).record(reason: reason, recorded_by: recorded_by, proof: proof)
+    recorded(sha, profile, stdout)
+  end
+
+  def recorded_by = ENV['USER'] || ENV['USERNAME'] || 'unknown'
+
+  def recorded(sha, profile, stdout)
     stdout.puts "[change] override recorded for #{sha[0, 12]}#{profile ? " (profile: #{profile})" : ''}. " \
                 'Scoped to this exact commit; a new commit needs a new override.'
     0
+  end
+
+  # The phone path, runnable without a TTY. The authoritative policy is
+  # resolved before the phone is asked; ApprovalConsole::Recorder checks and
+  # writes the receipt.
+  def override_remote(attrs, client, authority, stdout:, stderr:, **opts)
+    authority = ApprovalConsole::Recorder.authority_for(Dir.pwd) if authority == :default
+    proof = prove_remote(attrs, client, stdout: stdout, stderr: stderr, **opts)
+    return 1 unless proof
+
+    expected = ApprovalConsole::Remote.expected(attrs, ApprovalConsole::LocalStore.new.machine_id)
+    result = ApprovalConsole::Recorder.new(authority: authority, recorded_by: recorded_by, clock: opts[:clock] || -> { Time.now }).record(proof, expected: expected)
+    return recorded(attrs['sha'], attrs['profile'], stdout) if result.ok?
+
+    stderr.puts "[change] #{result.error}; nothing recorded."
+    1
+  rescue ChangePolicy::Unreadable => e
+    stderr.puts "[change] refusing: cannot read the authoritative approval policy (#{e.message})."
+    1
+  end
+
+  # A phone override says why in at least MIN_REASON characters.
+  def long_reason?(reason, stderr)
+    return true if reason.to_s.strip.length >= ApprovalConsole::Recorder::MIN_REASON
+
+    stderr.puts "[change] refusing: --remote needs a --reason of at least #{ApprovalConsole::Recorder::MIN_REASON} characters."
+    false
   end
 
   def attrs(sha, reason, profile)
     { 'type' => 'override', 'repo' => CfProjectIdentity.for(Dir.pwd).id, 'sha' => sha, 'profile' => profile, 'reason' => reason }
   end
 
-  def console_client(console, stderr)
+  # The console client, or nil: a real terminal falls back to the TOTP path,
+  # anything else is refused.
+  def console_client(console, stdin, stderr)
     client = console == :default ? ApprovalConsole::Client.for(ApprovalConsole::LocalStore.new) : console
-    stderr.puts '[change] no approval console is configured; using the terminal TOTP path.' unless client
-    client
+    return client if client
+
+    stderr.puts(stdin.tty? ? '[change] no approval console is configured; using the terminal TOTP path.' : '[change] refusing: no approval console is configured.')
+    nil
   end
 
   def prove_remote(attrs, client, stdout:, stderr:, **opts)

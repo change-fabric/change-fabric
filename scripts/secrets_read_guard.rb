@@ -25,7 +25,7 @@ class SecretsReadGuard
   CHAINING = /[;&|<>`\n]|\$\(/
   SAFE_CLIS = %w[cf_keys.rb secret_intake.rb].freeze
   APPROVAL_CLI = 'approval_console.rb'
-  APPROVAL_AGENT_VERBS = %w[status request wait].freeze
+  APPROVAL_AGENT_VERBS = %w[status request wait record].freeze
   APPROVAL_HUMAN_VERBS = %w[enroll totp-enroll unlock revoke].freeze
   ENV_NAME = %r{\A\.env(?:\.[^/]+)?\z}
   TEMPLATE_SUFFIX = /\.(?:example|sample|template)\z/

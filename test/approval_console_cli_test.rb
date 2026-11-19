@@ -374,3 +374,85 @@ class ApprovalConsoleCliTest < Minitest::Test
     assert_match(/totp-enroll/, result.error)
   end
 end
+
+require_relative "support/phone_console"
+
+# `record <request_id>`: the agent-runnable resume verb. It waits for a
+# request this machine made, then hands the receipt to the Recorder, which
+# writes the store for the signed type.
+class ApprovalConsoleRecordVerbTest < Minitest::Test
+  include PhoneConsole
+
+  SHA = "b" * 40
+  REPO = "repo:github.com/acme/widgets"
+  NoTty = Struct.new(:tty?)
+
+  def setup
+    @home = File.realpath(Dir.mktmpdir)
+    @prev = ENV["HOME"]
+    ENV["HOME"] = @home
+    start_phone_console
+  end
+
+  def teardown
+    ENV["HOME"] = @prev
+    FileUtils.remove_entry(@home)
+  end
+
+  def cli(argv, auth: authority)
+    out = StringIO.new
+    err = StringIO.new
+    status = ApprovalConsoleCli.run(argv, stdin: NoTty.new(false), stdout: out, stderr: err, env: { "CLAUDECODE" => "1" }, store: @store,
+                                          tty_open: -> { }, parents: -> { [ "claude" ] },
+                                          io: remote_io.merge(client: client, authority: auth))
+    [ status, out.string, err.string ]
+  end
+
+  # Starts a request the way a dead --remote process would have, and returns its id.
+  def submit(attrs)
+    body, = ApprovalConsole::Remote.submit(attrs, store: @store, client: client, now: @now)
+    ApprovalConsole::Canonical.parse(body)["request_id"]
+  end
+
+  def override_attrs = { "type" => "override", "repo" => REPO, "sha" => SHA, "profile" => nil, "reason" => "a reason of twenty-plus characters" }
+
+  def test_record_dispatches_an_override_to_the_override_store
+    status, out, err = cli([ "record", submit(override_attrs) ])
+    assert_equal 0, status, err
+    assert_match(/recorded override for #{SHA[0, 12]}/, out)
+    assert_equal POLICY_SHA, ChangeOverrideStore.new(SHA).read["policy_sha"]
+  end
+
+  def test_record_dispatches_a_carve_out_to_the_carve_out_store
+    attrs = { "type" => "carve-out", "repo" => REPO, "sha" => SHA, "profile" => nil, "summary" => "merge", "pr_url" => "https://github.com/acme/widgets/pull/7" }
+    status, out, err = cli([ "record", submit(attrs) ])
+    assert_equal 0, status, err
+    assert_match(/carve-out for PR #7/, out)
+    refute_nil ChangeCarveOutStore.new.lookup(repo: REPO, pr: "7", sha: SHA)
+  end
+
+  def test_record_dispatches_step_approvals_to_the_approval_store
+    attrs = { "type" => "step", "repo" => REPO, "sha" => SHA, "profile" => nil,
+              "items" => [ { "step" => "boot.up", "fields" => { "run" => "echo hi" }, "base_fields" => nil } ] }
+    status, _out, err = cli([ "record", submit(attrs) ])
+    assert_equal 0, status, err
+    assert_equal [ [ "boot.up", ApprovalConsole::Canonical.step_digest("run" => "echo hi") ] ], ChangeApprovalStore.new(SHA).approvals
+  end
+
+  def test_record_refuses_an_unknown_request_and_a_prod_op
+    status, _out, err = cli([ "record", "00000000-0000-0000-0000-000000000000" ])
+    assert_equal 2, status
+    assert_match(/no request with that id/, err)
+    rid = submit("type" => "prod-op", "repo" => REPO, "sha" => SHA, "profile" => nil, "summary" => "x", "argv" => %w[echo])
+    status, _out, err = cli([ "record", rid ])
+    assert_equal 2, status
+    assert_match(/not a recordable approval type/, err)
+  end
+
+  def test_record_refuses_when_the_authoritative_pins_differ
+    status, _out, err = cli([ "record", submit(override_attrs) ], auth: authority(pins: authoritative_pins.merge("rp_id" => "x.example.com")))
+    assert_equal 2, status
+    assert_match(/rpId pin/, err)
+    assert_nil ChangeOverrideStore.new(SHA).read
+  end
+end

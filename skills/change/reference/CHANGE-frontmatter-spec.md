@@ -206,10 +206,13 @@ with every secret in the shell. Since 0.17.0 the base branch defines them:
   (`origin/HEAD`, else `origin/main`), or the `change_policy.gate.trunk` that
   branch's own CHANGE.md names; it is fetched first and read with `git show`,
   never from the working tree. A step whose digest equals the base branch's
-  runs. A step that differs, or is new, runs only after a human approves that
-  exact definition for that exact commit from their own terminal:
-  `ruby ~/.claude/cf/bin/change_approve.rb <sha>`. It refuses without a real
-  terminal and applies to every pull request, the maintainer's own included.
+  runs. A step that differs, or is new, runs only after the maintainer's phone
+  approves that exact definition for that exact commit. The agent starts it
+  with `ruby ~/.claude/cf/bin/change_approve.rb <sha> --remote`, which needs no
+  terminal, posts the console link, and records the passkey receipt once the
+  phone approves (`approval_console.rb record <request_id>` resumes). Without
+  `--remote` it refuses without a real terminal. It applies to every pull
+  request, the maintainer's own included.
   Until then the run refuses to boot, says why, and records a failing gate.
   If the base cannot be fetched the last fetched ref is used and the report
   says so; if no base ref resolves at all, every step is untrusted.
@@ -240,8 +243,8 @@ PATH, HOME, DOCKER_HOST and TERM, the names listed in boot.env, and
 CF_CHANGE_RUN_ID, CF_CHANGE_TARGET_URL, CF_CHANGE_HEALTH_URL. Keys in
 boot.env_file are value sources only: list each one your boot needs under
 boot.env. A missing name stops the run and names it. Changes to boot.up or
-boot.down in a pull request need a one-time human approval per commit:
-ruby ~/.claude/cf/bin/change_approve.rb <sha>.
+boot.down in a pull request need a one-time phone approval per commit:
+ruby ~/.claude/cf/bin/change_approve.rb <sha> --remote.
 
 ```yaml
 change_config:

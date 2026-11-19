@@ -356,12 +356,15 @@ browserless responsive lane has no standalone skill; it runs as part of
   `ruby ~/.claude/cf/bin/change_config.rb doctor` against a `CHANGE.md` in
   progress to validate it before a full sweep.
 - `refusing to run boot.up: its definition differs from origin/main` (0.17.0):
-  the branch changed a boot step, so it does not run until a human approves
-  that exact definition for this commit from their own terminal with
-  `ruby ~/.claude/cf/bin/change_approve.rb <sha>`. It refuses without a real
-  TTY; never try to run it on the user's behalf. Report the refusal and ask
-  the user to run it, then re-run. The rule covers the maintainer's own pull
-  requests too.
+  the branch changed a boot step, so it does not run until the maintainer's
+  phone approves that exact definition for this commit. Start the request
+  yourself, in the background, with
+  `ruby ~/.claude/cf/bin/change_approve.rb <sha> --remote`, post the console
+  link it prints, and wait: only the phone approves, and the receipt is
+  recorded when it does. If the waiting process dies, resume with
+  `ruby ~/.claude/cf/bin/approval_console.rb record <request_id>`. Without
+  `--remote` it refuses without a real TTY; never drive that path. Then
+  re-run. The rule covers the maintainer's own pull requests too.
 - A command lane finding `refusing to run command:<name>`: the branch changed
   that entry; the same human approval as for boot covers it. A finding
   `missing declared env: A, B` names variables the entry's `env` lists that are

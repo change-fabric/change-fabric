@@ -36,8 +36,9 @@ class ChangeApprovalStore
   # `steps` is [[step, digest], ...]. Merges into what is already on record for
   # this sha, so approving a second profile's steps keeps the first. An
   # optional `proof` (see scripts/approval_console) rides on each added entry;
-  # ChangeGateCheck verifies it.
-  def record(steps:, by:, proof: nil)
+  # ChangeGateCheck verifies it. `policy_sha` is the authoritative policy
+  # commit the Recorder checked the proof against.
+  def record(steps:, by:, proof: nil, policy_sha: nil)
     return if @sha.empty?
 
     now = Time.now.utc.iso8601
@@ -49,6 +50,7 @@ class ChangeApprovalStore
     added = steps.reject { |step, digest| known.include?([ step, normalize(digest) ]) }.map do |step, digest|
       entry = { 'step' => step, 'digest' => digest, 'at' => now, 'by' => by.to_s }
       entry['proof'] = proof if proof
+      entry['policy_sha'] = policy_sha if policy_sha
       entry
     end
     write('sha' => @sha, 'approved' => existing + added)

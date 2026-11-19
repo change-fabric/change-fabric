@@ -9,6 +9,7 @@ require_relative 'cf_project_identity'
 require_relative 'approval_console/terminal_prompt'
 require_relative 'approval_console/remote'
 require_relative 'approval_console/proof_check'
+require_relative 'approval_console/recorder'
 require_relative 'change_policy'
 
 # Human-run approval of host-run step definitions (boot.up, boot.down, command
@@ -20,8 +21,11 @@ require_relative 'change_policy'
 #
 # --remote sends the exact steps to the approval console instead: the phone
 # shows every field, takes the TOTP code and the passkey, and the returned
-# proof is verified offline before it is recorded. Without a console
-# configured it falls back to the terminal path below.
+# proof is checked by ApprovalConsole::Recorder (passkey level, authoritative
+# pins, freshness) before it is recorded. --remote needs no TTY, so an agent
+# can start it and post the link; only the phone approves. Without a console
+# configured it falls back to the terminal path below at a real terminal, and
+# is refused otherwise.
 #
 # It reads the definitions committed at <sha> and on the base branch with
 # `git show` (nothing is checked out or executed), prints every step that
@@ -30,8 +34,8 @@ require_relative 'change_policy'
 # every listed step for that sha. It never consults who authored the commit:
 # the maintainer's own pull requests need the same approval.
 #
-# Refuses without a real TTY on stdin, then, after the typed confirmation,
-# requires a TOTP code from this machine's enrolled seed (approval_console.rb
+# Without --remote it refuses without a real TTY on stdin, then, after the
+# typed confirmation, requires a TOTP code from this machine's enrolled seed (approval_console.rb
 # totp-enroll) read with echo off. The code is fenced to one use per 30 second
 # step, and the record carries a `totp-terminal` proof bound to the exact
 # steps shown. The typed prefix is not secret, so a process that allocates its
@@ -44,12 +48,12 @@ module ChangeApprove
 
   module_function
 
-  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, fetch: true, console: :default)
+  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, fetch: true, console: :default, authority: :default, io: {})
     sha_arg, root, remote = parse_args(argv, stderr)
     return 1 unless sha_arg
 
-    unless stdin.tty?
-      stderr.puts '[change] refusing: this must be run from a real terminal, not scripted or piped.'
+    unless remote || stdin.tty?
+      stderr.puts '[change] refusing: this must be run from a real terminal, not scripted or piped (or use --remote).'
       return 1
     end
 
@@ -74,27 +78,51 @@ module ChangeApprove
     end
 
     describe(pending, sha, base, stdout)
-    client = remote && console_client(console, stderr)
-    proof = if client
-              prove_remote(pending, root, sha, client, stdout: stdout, stderr: stderr)
-    else
-              return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
+    client = remote && console_client(console, stdin, stderr)
+    return 1 if remote && !client && !stdin.tty?
+    return approve_remote(pending, root, sha, client, authority, stdout: stdout, stderr: stderr, **io) if client
+    return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
-              prove(pending, root, sha, stdin: stdin, stdout: stdout, stderr: stderr)
-    end
+    proof = prove(pending, root, sha, stdin: stdin, stdout: stdout, stderr: stderr)
     return 1 unless proof
 
     ChangeApprovalStore.new(sha).record(steps: pending.map { |item| [ item.step, item.digest ] }, by: approver(root), proof: proof)
+    approved(pending, sha, stdout)
+  end
+
+  def approved(pending, sha, stdout)
     stdout.puts "[change] approved #{pending.size} step(s) for #{sha[0, 12]}. A new commit or an edited step needs a new approval."
     0
   end
 
-  # The console client, or nil (with a note) when none is configured, so the
-  # caller falls back to the terminal path.
-  def console_client(console, stderr)
+  # The phone path, runnable without a TTY: the authoritative policy is
+  # resolved first (so a missing pin fails before the phone is asked), then
+  # the receipt goes through ApprovalConsole::Recorder, the only writer.
+  def approve_remote(pending, root, sha, client, authority, stdout:, stderr:, **opts)
+    authority = ApprovalConsole::Recorder.authority_for(root) if authority == :default
+    attrs = attrs(pending, root, sha)
+    proof = prove_remote(attrs, client, stdout: stdout, stderr: stderr, **opts)
+    return 1 unless proof
+
+    recorder = ApprovalConsole::Recorder.new(authority: authority, recorded_by: approver(root), clock: opts[:clock] || -> { Time.now })
+    result = recorder.record(proof, expected: ApprovalConsole::Remote.expected(attrs, ApprovalConsole::LocalStore.new.machine_id))
+    return approved(pending, sha, stdout) if result.ok?
+
+    stderr.puts "[change] #{result.error}; nothing recorded."
+    1
+  rescue ChangePolicy::Unreadable => e
+    stderr.puts "[change] refusing: cannot read the authoritative approval policy (#{e.message})."
+    1
+  end
+
+  # The console client, or nil (with a note) when none is configured: a real
+  # terminal falls back to the TOTP path, anything else is refused.
+  def console_client(console, stdin, stderr)
     client = console == :default ? ApprovalConsole::Client.for(ApprovalConsole::LocalStore.new) : console
-    stderr.puts '[change] no approval console is configured; using the terminal TOTP path.' unless client
-    client
+    return client if client
+
+    stderr.puts(stdin.tty? ? '[change] no approval console is configured; using the terminal TOTP path.' : '[change] refusing: no approval console is configured.')
+    nil
   end
 
   def attrs(pending, root, sha)
@@ -103,9 +131,8 @@ module ChangeApprove
   end
 
   # The console path: passkey plus TOTP on the phone, verified here.
-  def prove_remote(pending, root, sha, client, stdout:, stderr:, **opts)
-    result = ApprovalConsole::Remote.approve(attrs(pending, root, sha), store: ApprovalConsole::LocalStore.new, client: client,
-                                                                        out: stdout, **opts)
+  def prove_remote(attrs, client, stdout:, stderr:, **opts)
+    result = ApprovalConsole::Remote.approve(attrs, store: ApprovalConsole::LocalStore.new, client: client, out: stdout, **opts)
     return result.proof if result.ok?
 
     stderr.puts "[change] #{result.error}; nothing recorded."
