@@ -47,7 +47,7 @@ variable "dm_recipient_param" {
 }
 
 variable "claim_repos" {
-  description = "Consumer repos (OWNER/REPO) whose cf-prod.yml on the default branch may assume the cf-prod-claim role. No default: the role trusts exactly these."
+  description = "Consumer repos (OWNER/REPO) whose cf-prod workflow on the default branch may assume the cf-prod-claim role. No default: the role trusts exactly these."
   type        = list(string)
 
   validation {
@@ -60,4 +60,16 @@ variable "claim_default_branch" {
   description = "The default branch the cf-prod.yml workflow_ref must be on."
   type        = string
   default     = "main"
+}
+
+variable "claim_workflow_name" {
+  description = "The `name:` of the consumer workflow (cf-prod.yml) that may assume the claim role. GitHub's workflow claim is the name, not the file path."
+  type        = string
+  default     = "cf-prod"
+}
+
+variable "claim_environment" {
+  description = "Optional GitHub Environment the claiming job must run in. When set, the subject is pinned to it, which is the stronger lock. Empty means any job of the repo."
+  type        = string
+  default     = ""
 }

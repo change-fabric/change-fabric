@@ -11,7 +11,7 @@
 #   run_attempt GitHub run attempt (string)
 #   claimed_at  ISO 8601 UTC
 #   expires_at  epoch seconds, now + 30 days (TTL cleanup, long past approval TTL)
-# Write it with ConditionExpression "attribute_not_exists(pk)"; a failed condition
+# The runner writes it with ConditionExpression "attribute_not_exists(pk)"; a failed condition
 # means the approval was already consumed.
 # ---------------------------------------------------------------------------
 data "aws_iam_openid_connect_provider" "github" {
@@ -35,26 +35,40 @@ data "aws_iam_policy_document" "claim_trust" {
     }
 
     # Both subject shapes GitHub emits (see site/infra/oidc.tf), for the listed
-    # repos only.
+    # repos only. With claim_environment set the subject is pinned to that
+    # GitHub Environment, whose own rules (default-branch only, reviewers) then
+    # gate the job.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = flatten([
         for repo in var.claim_repos : [
-          "repo:${repo}:*",
-          "repo:${split("/", repo)[0]}@*/${split("/", repo)[1]}@*:*",
+          "repo:${repo}:${local.claim_subject_tail}",
+          "repo:${split("/", repo)[0]}@*/${split("/", repo)[1]}@*:${local.claim_subject_tail}",
         ]
       ])
     }
 
-    # The job must come from cf-prod.yml as it sits on the default branch, so a
-    # branch or a fork cannot claim.
+    # AWS exposes only a fixed set of GitHub claims as condition keys, and
+    # workflow_ref is not one of them. `ref` and `workflow` are: the job must run
+    # on the default branch, in the workflow named claim_workflow_name. The name
+    # is not a file path, so the Environment pin above is the stronger lock.
     condition {
       test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:workflow_ref"
-      values   = [for repo in var.claim_repos : "${repo}/.github/workflows/cf-prod.yml@refs/heads/${var.claim_default_branch}"]
+      variable = "token.actions.githubusercontent.com:ref"
+      values   = ["refs/heads/${var.claim_default_branch}"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:workflow"
+      values   = [var.claim_workflow_name]
     }
   }
+}
+
+locals {
+  claim_subject_tail = var.claim_environment == "" ? "*" : "environment:${var.claim_environment}"
 }
 
 resource "aws_iam_role" "prod_claim" {
@@ -64,8 +78,11 @@ resource "aws_iam_role" "prod_claim" {
 }
 
 # PutItem only, on CLAIM# keys only. No Get, Update or Delete, so the role can
-# neither read nor rewrite a claim, and an overwrite is impossible because the
-# put is conditional on the item not existing.
+# neither read nor delete a claim. LIMIT: IAM cannot require a condition
+# expression, and an unconditional PutItem replaces an item. Immutability holds
+# because the runner always sends attribute_not_exists(pk); a holder of this role
+# could still overwrite a claim. A claim is evidence of consumption, not a lock
+# the role cannot break.
 resource "aws_iam_role_policy" "prod_claim" {
   name = "claim-put"
   role = aws_iam_role.prod_claim.id

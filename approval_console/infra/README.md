@@ -50,12 +50,15 @@ Seed the DM parameters out of band (the handler skips the DM when missing):
 
 ## Prod claim
 
-`cf-prod-claim` is assumed by GitHub OIDC only, by `cf-prod.yml` on the default
-branch of each repo in `claim_repos`. It may `dynamodb:PutItem` on
-`CLAIM#*` keys only: a conditional put (`attribute_not_exists(pk)`), never a
-read, update or delete. Item: `pk` `CLAIM#<request_id>`, `sk` `CLAIM`,
-`digest`, `run_id`, `run_attempt`, `claimed_at`, `expires_at` (epoch seconds,
-30 days).
+`cf-prod-claim` is assumed by GitHub OIDC only, by the workflow named
+`claim_workflow_name` (default `cf-prod`) on the default branch of each repo in
+`claim_repos`; set `claim_environment` to also pin the job to a GitHub
+Environment (the stronger lock, since AWS cannot see the workflow file path). It
+may `dynamodb:PutItem` on `CLAIM#*` keys only, with no read, update or delete.
+The runner must send `ConditionExpression attribute_not_exists(pk)`; IAM cannot
+force it, so a holder of the role could overwrite a claim. Item: `pk`
+`CLAIM#<request_id>`, `sk` `CLAIM`, `digest`, `run_id`, `run_attempt`,
+`claimed_at`, `expires_at` (epoch seconds, 30 days).
 
 ## Cost
 
