@@ -36,8 +36,8 @@ and network needed; `CF_SKIP_GEMS=1` skips the gems for a plan-only dry run).
 cd approval_console/infra
 ./build.sh
 terraform init
-terraform plan  -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner/repo"]'
-terraform apply -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner/repo"]'
+terraform plan  -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner@123/repo@456"]'
+terraform apply -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner@123/repo@456"]'
 ```
 
 The agent never applies. The maintainer's script is
@@ -80,10 +80,14 @@ external script, and `Cache-Control: no-store`. Logs hold route and status only.
 
 `cf-prod-claim` is assumed by GitHub OIDC only, and only when the token's `sub`
 exactly equals
-`repo:<o>/<r>:environment:<claim_environment>:job_workflow_ref:<o>/<r>/.github/workflows/cf-prod.yml@refs/heads/<claim_default_branch>`
+`repo:<o>@<oid>/<r>@<rid>:environment:<claim_environment>:job_workflow_ref:<o>/<r>/.github/workflows/cf-prod.yml@refs/heads/<claim_default_branch>`
 for a repo in `claim_repos`. That needs the repo's custom subject template
-(`include_claim_keys`: `repo`, `context`, `job_workflow_ref`, which the runner
-generator prints). `claim_environment` defaults to `cf-claim`, a dedicated GitHub Environment with no required reviewers and a deployment branch rule of the default branch only (create it in each consumer repo); it must be non-empty. Matching the
+(`use_default` false, `use_immutable_subject` true, `include_claim_keys`:
+`repo`, `context`, `job_workflow_ref`, which the runner generator prints).
+Immutable subjects carry the owner and repo ids in the `repo` segment only, so
+each `claim_repos` entry is the `sub_claim_prefix` that
+`gh api repos/<o>/<r>/actions/oidc/customization/sub` reports, without `repo:`
+(for example `octo@123/app@456`). `claim_environment` defaults to `cf-claim`, a dedicated GitHub Environment with no required reviewers and a deployment branch rule of the default branch only (create it in each consumer repo); it must be non-empty. Matching the
 whole subject pins repo, Environment, workflow file path and branch; only `sub`
 and `aud` are used because they are the documented IAM condition keys.
 
