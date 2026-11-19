@@ -13,6 +13,7 @@ require_relative 'design_config'
 require_relative 'roast_kind'
 require_relative 'roast_image_fit'
 require_relative 'roast_codex'
+require_relative 'roast_followups'
 require_relative 'roast_lens'
 require_relative 'sensitive_terms'
 require_relative 'walkthrough_cache'
@@ -40,8 +41,8 @@ module Roast
   DEFAULT_EFFORT = 'medium'
   RESPONSES_URL = 'https://api.openai.com/v1/responses'
   DEFAULT_CEILING_USD = 0.5
-  DEFAULT_TARGET = 9
-  DEFAULT_CAP = 4
+  DEFAULT_TARGET = 8
+  DEFAULT_CAP = 5
   PRIORITIES = %w[P0 P1 P2].freeze
   BLOCKING = %w[P0 P1].freeze
   DEFAULT_OUT_DIR = 'roast'
@@ -734,19 +735,29 @@ module Roast
     File.write(File.join(dir, "round-#{round}.md"), render_markdown(critic, round))
   end
 
-  # The stop rule over the latest logged round: target, then no P0/P1, then cap.
+  # The single stop rule over the latest logged round; first matching row wins.
+  # A P0 continues until the cap, and a capped P0 stops as blocking. With no P0,
+  # a score at or above target stops; otherwise continue until the cap. A P1
+  # alone never continues: rows 3 and 5 hand the open P1s back as `followups`.
   def decide(history, target: DEFAULT_TARGET, cap: DEFAULT_CAP)
-    return { stop: false, reason: 'no rounds yet' } if history.empty?
+    return stop_verdict(false, 'no rounds yet') if history.empty?
 
     last = history.last
     critic = last[:critic]
     score = critic['score']
-    blockers = critic['issues'].count { |i| BLOCKING.include?(i['priority']) }
-    if score >= target then { stop: true, reason: "score #{score} reached target #{target}" }
-    elsif blockers.zero? then { stop: true, reason: 'no P0 or P1 issues left' }
-    elsif last[:round] >= cap then { stop: true, reason: "round cap #{cap} reached" }
-    else { stop: false, reason: "#{blockers} P0/P1 issue(s) open, score #{score}" }
+    p0s = critic['issues'].count { |i| i['priority'] == 'P0' }
+    followups = RoastFollowups.from_critic(last[:round], critic)
+    at_cap = last[:round] >= cap
+    if p0s.positive? && !at_cap then stop_verdict(false, "#{p0s} P0 issue(s) open, score #{score}")
+    elsif p0s.positive? then stop_verdict(true, "round cap #{cap} reached with #{p0s} P0 open (blocking)", blocking: true)
+    elsif score >= target then stop_verdict(true, "score #{score} at or above target #{target}", followups: followups)
+    elsif !at_cap then stop_verdict(false, "score #{score} below target #{target}")
+    else stop_verdict(true, "round cap #{cap} reached, score #{score}", followups: followups)
     end
+  end
+
+  def stop_verdict(stop, reason, blocking: false, followups: [])
+    { stop: stop, reason: reason, blocking: blocking, followups: followups }
   end
 
   # Run returns the exit code: 0 ok, 1 a named failure, 2 usage (as image.rb), 3 kind ambiguous.
@@ -958,7 +969,18 @@ module Roast
     def decide(opts, out)
       d = Roast.decide(Roast.load_history(opts[:out_dir]), target: opts[:target], cap: opts[:cap])
       out.puts("roast decision: #{d[:stop] ? 'stop' : 'continue'}: #{d[:reason]}")
+      record_followups(opts[:out_dir], d, out)
       0
+    end
+
+    # The open P1s of a stop, printed with their ids and upserted into the
+    # latest round's response json (a rerun keeps outcomes already recorded).
+    def record_followups(dir, decision, out)
+      return if decision[:followups].empty?
+
+      round = decision[:followups].first['id'][/\Ar(\d+)-/, 1]
+      RoastFollowups.upsert(File.join(dir, "round-#{round}.response.json"), decision[:followups])
+      out.puts('followups:', *decision[:followups].map { |e| RoastFollowups.line(e) })
     end
 
     def critique(opts, out, http, docker, codex_runner = nil)

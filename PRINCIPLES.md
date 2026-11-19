@@ -41,6 +41,15 @@ description still fits in 640. `scripts/slop_remind.rb` prompts at
 
 Enforcer: advisory
 
+## One roast stop rule
+
+cf:roast and the fidelity loop share one stop rule: a P0 continues until the
+cap, the cap stops with the P0 reported as blocking, a score of 8 or more with
+no P0 stops, otherwise continue. Open P1s become local follow-ups, never
+another paid round.
+
+Enforcer: scripts/roast.rb, scripts/roast_followups.rb, scripts/walkthrough_roast.rb, test/roast_test.rb, test/roast_followups_test.rb, test/walkthrough_roast_test.rb
+
 ## Push is gated on a design review
 
 A push or PR is denied until the files changed this session have a completed

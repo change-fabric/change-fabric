@@ -1172,7 +1172,7 @@ end
     gates = { roast: false, allow_roast: true, fidelity_targets: [ "portal" ] }
     fidelity_round([ { "priority" => "P1", "where" => "001.png header", "problem" => "foreign type scale", "fix" => "use the kit" } ])
     err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true, gates: gates) }
-    assert_includes err.message, "fidelity finding(s)"
+    assert_includes err.message, "fidelity P1 follow-up(s) not settled"
     assert_includes err.message, "--allow-fidelity-findings"
     assert run_render(final: true, gates: gates.merge(allow_fidelity: true))[:mp4]
   end
