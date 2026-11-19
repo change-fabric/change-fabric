@@ -22,6 +22,14 @@ module ApprovalConsole
       value
     end
 
+    # Decodes the first item and reports where it ended, for a COSE key that is
+    # followed by other bytes (authenticator data carries extensions after it).
+    def decode_first(bytes)
+      data = bytes.to_s.b
+      value, offset = read(data, 0, 0)
+      [ value, offset ]
+    end
+
     def read(data, offset, depth)
       raise Error, 'CBOR nested too deeply' if depth > MAX_DEPTH
 

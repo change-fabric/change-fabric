@@ -69,6 +69,17 @@ module ApprovalConsole
       Result.new(ok: false, reason: e.message)
     end
 
+    # Checks one WebAuthn assertion whose challenge must commit to `source` (any
+    # string, not only an approval body), against the pinned credential. Returns
+    # the SHA-256 hex of the assertion; raises Reject. Used by the console for
+    # the registration and secret-reveal assertions.
+    def assertion_sha(fields, source)
+      check_assertion(stringify(fields), source)
+    end
+
+    # Validates a COSE public key (ES256 or EdDSA) and returns an OpenSSL key.
+    def cose_public_key(bytes) = cose_key(Cbor.decode(bytes))
+
     private
 
     def stringify(value)

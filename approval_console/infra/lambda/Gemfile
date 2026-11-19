@@ -1,0 +1,8 @@
+source "https://rubygems.org"
+
+# Pure Ruby gems only, so the package has no native build. rqrcode_core draws
+# the TOTP enrollment QR as SVG on the server (no script on the page).
+gem "aws-sdk-dynamodb"
+gem "aws-sdk-kms"
+gem "aws-sdk-ssm"
+gem "rqrcode_core"
