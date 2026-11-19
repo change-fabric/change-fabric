@@ -88,9 +88,21 @@ module WalkthroughRoast
     entries.flat_map do |e|
       n = e['frames'].to_i
       local = { 'start' => 0, 'middle' => n / 2, 'end' => n - 1 }
-      (overlays[e['id']] || {}).each { |key, f| local[overlay_label(key)] ||= f.to_i }
+      overlay_holds(overlays[e['id']] || {}, n).each { |key, f| local[overlay_label(key)] ||= f }
       local.select { |_, f| f.between?(0, n - 1) }.map { |label, f| { scene: e['id'], label: label, frame: e['start_frame'].to_i + f } }
     end.uniq { |k| k[:frame] }.sort_by { |k| k[:frame] }
+  end
+
+  # Each overlay's hold midpoint, local to its scene: halfway from the frame
+  # it first shows (mid-fade, so a bad sample) to the next overlay or the
+  # scene's last frame, so the critic sees it settled. { key => local frame }.
+  def overlay_holds(overlays, frames)
+    starts = overlays.transform_values(&:to_i).select { |_, f| f.between?(0, frames - 1) }
+    ordered = starts.values.sort
+    starts.transform_values do |f|
+      stop = ordered.find { |o| o > f } || (frames - 1)
+      f + ((stop - f) / 2)
+    end
   end
 
   def overlay_label(key) = "overlay-#{key.gsub(/[^a-z0-9]+/i, '-').delete_prefix('-')}"

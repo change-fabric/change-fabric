@@ -9,9 +9,17 @@ class WalkthroughRoastTest < Minitest::Test
   def test_keyframes_take_start_middle_end_and_first_overlay_frames
     entries = [ { "id" => "a", "frames" => 30, "start_frame" => 0 }, { "id" => "b", "frames" => 10, "start_frame" => 30 } ]
     keys = WalkthroughRoast.keyframes(entries, { "a" => { "#toast" => 20, "#late" => 99 } })
-    assert_equal [ [ "a", "start", 0 ], [ "a", "middle", 15 ], [ "a", "overlay-toast", 20 ], [ "a", "end", 29 ],
+    assert_equal [ [ "a", "start", 0 ], [ "a", "middle", 15 ], [ "a", "overlay-toast", 24 ], [ "a", "end", 29 ],
                    [ "b", "start", 30 ], [ "b", "middle", 35 ], [ "b", "end", 39 ] ], keys.map { |k| [ k[:scene], k[:label], k[:frame] ] }
     assert_equal "003-a-overlay-toast.jpg", WalkthroughRoast.keyframe_name(2, keys[2])
+  end
+
+  def test_overlay_keyframes_sample_the_hold_midpoint_not_the_fade_in
+    entries = [ { "id" => "a", "frames" => 100, "start_frame" => 200 } ]
+    keys = WalkthroughRoast.keyframes(entries, { "a" => { "#one" => 10, "#two" => 50 } })
+    frames = keys.to_h { |k| [ k[:label], k[:frame] - 200 ] }
+    assert_equal 30, frames["overlay-one"]
+    assert_equal 74, frames["overlay-two"]
   end
 
   def test_extract_args_select_each_frame
