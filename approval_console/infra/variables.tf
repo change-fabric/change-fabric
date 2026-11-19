@@ -57,19 +57,17 @@ variable "claim_repos" {
 }
 
 variable "claim_default_branch" {
-  description = "The default branch the cf-prod.yml workflow_ref must be on."
+  description = "The default branch the cf-prod.yml job_workflow_ref must be on."
   type        = string
   default     = "main"
 }
 
-variable "claim_workflow_name" {
-  description = "The `name:` of the consumer workflow (cf-prod.yml) that may assume the claim role. GitHub's workflow claim is the name, not the file path."
-  type        = string
-  default     = "cf-prod"
-}
-
 variable "claim_environment" {
-  description = "Optional GitHub Environment the claiming job must run in. When set, the subject is pinned to it, which is the stronger lock. Empty means any job of the repo."
+  description = "Required GitHub Environment the claiming job must run in; pinned into the exact OIDC subject."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = length(trimspace(var.claim_environment)) > 0
+    error_message = "claim_environment must be non-empty."
+  }
 }

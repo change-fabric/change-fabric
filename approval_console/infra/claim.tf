@@ -1,7 +1,9 @@
 # ---------------------------------------------------------------------------
 # Approval consumption for the bounded prod runner. A prod run records that it
 # consumed an approval by writing one item here, from a GitHub Actions job, as a
-# conditional put that can never overwrite or remove an earlier claim.
+# conditional put. The claim stops honest replays: the runner always sends
+# attribute_not_exists(pk), so a second run for the same request is refused. It
+# is not a lock against the role holder (see the LIMIT note on the role policy).
 #
 # Item shape (the contract the runner codes against):
 #   pk          "CLAIM#<request_id>"   the approval's request id
@@ -34,41 +36,21 @@ data "aws_iam_policy_document" "claim_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Both subject shapes GitHub emits (see site/infra/oidc.tf), for the listed
-    # repos only. With claim_environment set the subject is pinned to that
-    # GitHub Environment, whose own rules (default-branch only, reviewers) then
-    # gate the job.
+    # The exact subject produced by the repo's custom OIDC subject template
+    # (include_claim_keys: repo, context, job_workflow_ref), per listed repo:
+    # repo:<o>/<r>:environment:<env>:job_workflow_ref:<o>/<r>/.github/workflows/cf-prod.yml@refs/heads/<default>
+    # Matching it in full pins repo, GitHub Environment, workflow file path and
+    # branch. Only sub and aud are documented IAM condition keys for
+    # token.actions.githubusercontent.com, so nothing else is relied on.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values = flatten([
-        for repo in var.claim_repos : [
-          "repo:${repo}:${local.claim_subject_tail}",
-          "repo:${split("/", repo)[0]}@*/${split("/", repo)[1]}@*:${local.claim_subject_tail}",
-        ]
-      ])
-    }
-
-    # AWS exposes only a fixed set of GitHub claims as condition keys, and
-    # workflow_ref is not one of them. `ref` and `workflow` are: the job must run
-    # on the default branch, in the workflow named claim_workflow_name. The name
-    # is not a file path, so the Environment pin above is the stronger lock.
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:ref"
-      values   = ["refs/heads/${var.claim_default_branch}"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:workflow"
-      values   = [var.claim_workflow_name]
+      values = [
+        for repo in var.claim_repos :
+        "repo:${repo}:environment:${var.claim_environment}:job_workflow_ref:${repo}/.github/workflows/cf-prod.yml@refs/heads/${var.claim_default_branch}"
+      ]
     }
   }
-}
-
-locals {
-  claim_subject_tail = var.claim_environment == "" ? "*" : "environment:${var.claim_environment}"
 }
 
 resource "aws_iam_role" "prod_claim" {

@@ -22,8 +22,9 @@ The shared bucket `changefabric-tfstate-569032832755`, key
 ## Inputs with no default
 
 `aws_profile` (your profile), `alert_email` (budget and alarm mail; confirm the
-SNS subscription after the first apply) and `claim_repos` (the consumer repos
-whose `cf-prod.yml` may assume `cf-prod-claim`).
+SNS subscription after the first apply), `claim_repos` (the consumer repos
+whose `cf-prod.yml` may assume `cf-prod-claim`) and `claim_environment` (the
+GitHub Environment the claim job runs in).
 
 ## Apply
 
@@ -31,8 +32,8 @@ whose `cf-prod.yml` may assume `cf-prod-claim`).
 cd approval_console/infra
 ./build.sh
 terraform init
-terraform plan  -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner/repo"]'
-terraform apply -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner/repo"]'
+terraform plan  -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner/repo"]' -var claim_environment=production
+terraform apply -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner/repo"]' -var claim_environment=production
 ```
 
 The agent never applies. The maintainer's script is
@@ -50,13 +51,19 @@ Seed the DM parameters out of band (the handler skips the DM when missing):
 
 ## Prod claim
 
-`cf-prod-claim` is assumed by GitHub OIDC only, by the workflow named
-`claim_workflow_name` (default `cf-prod`) on the default branch of each repo in
-`claim_repos`; set `claim_environment` to also pin the job to a GitHub
-Environment (the stronger lock, since AWS cannot see the workflow file path). It
-may `dynamodb:PutItem` on `CLAIM#*` keys only, with no read, update or delete.
-The runner must send `ConditionExpression attribute_not_exists(pk)`; IAM cannot
-force it, so a holder of the role could overwrite a claim. Item: `pk`
+`cf-prod-claim` is assumed by GitHub OIDC only, and only when the token's `sub`
+exactly equals
+`repo:<o>/<r>:environment:<claim_environment>:job_workflow_ref:<o>/<r>/.github/workflows/cf-prod.yml@refs/heads/<claim_default_branch>`
+for a repo in `claim_repos`. That needs the repo's custom subject template
+(`include_claim_keys`: `repo`, `context`, `job_workflow_ref`, which the runner
+generator prints). `claim_environment` is required (no default). Matching the
+whole subject pins repo, Environment, workflow file path and branch; only `sub`
+and `aud` are used because they are the documented IAM condition keys.
+
+The role may `dynamodb:PutItem` on `CLAIM#*` keys only, with no read, update or
+delete. The claim stops honest replays: the runner sends
+`ConditionExpression attribute_not_exists(pk)`, but IAM cannot force it, so the
+holder of the role could overwrite a claim and is already trusted. Item: `pk`
 `CLAIM#<request_id>`, `sk` `CLAIM`, `digest`, `run_id`, `run_attempt`,
 `claimed_at`, `expires_at` (epoch seconds, 30 days).
 
