@@ -97,7 +97,7 @@ The cf shim then surfaces it without anyone invoking it:
   and `review_gate.rb` (PreToolUse on push or PR create) both read the queue
   without draining it and block or deny while it is non-empty and not capped for
   the current batch fingerprint, handing the agent a fixed prompt - the skill's
-  principles plus the changed file list - to run a haiku background-agent review.
+  principles plus the changed file list - to run a classifier-role background-agent review.
   Only `review_ack.rb` drains the queue. `stop_hook_active` still bounds
   intra-turn looping, and the per-file content hash still makes the
   review -> fix -> re-edit loop converge. The hook writes the prompt; the agent

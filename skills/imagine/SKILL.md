@@ -82,7 +82,7 @@ Away mode: take the recommended combination and log it in `picks.md`.
 For round r in 1..R:
 
 1. Write `draft.md`: the current creative plan, rewritten from the picks and the previous round.
-2. Launch four background critic agents in parallel, each with its prompt from `reference/critic-lenses.md`: originality, brand fit, feasibility and production cost, audience. When `ui: true`, add cf:design's UI critics (usability, accessibility, simplicity).
+2. Launch four background critic agents in parallel (model {{model:critic}}, each description starting `[role:critic]`), each with its prompt from `reference/critic-lenses.md`: originality, brand fit, feasibility and production cost, audience. When `ui: true`, add cf:design's UI critics (usability, accessibility, simplicity).
 3. Merge findings into `rounds/r.md`. Settle the uncontested ones yourself. Ask each contested one with AskUserQuestion, recommendation first.
 4. Rewrite `draft.md` with the accepted findings and the user's answers, so the draft always reflects this round before any stop.
 5. Stop early when a round leaves nothing contested. The record is always written from this rewritten draft, including when the round cap is reached.

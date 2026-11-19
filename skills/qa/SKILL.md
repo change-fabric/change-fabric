@@ -104,9 +104,9 @@ Steps, all through `ruby ~/.claude/cf/bin/change_qa_film.rb`:
 Everything below is the exploratory mode, reached by a natural-language target.
 Use it to find out what to test; use `--suite` to check it still works.
 
-## Phase 1: Scope the plan (background, opus)
+## Phase 1: Scope the plan (background, author role)
 
-Spawn a background Agent (`model: "opus"`) with the raw target description.
+Spawn a background Agent (model {{model:author}}, description starting `[role:author]`) with the raw target description.
 Task it to:
 - Identify the target: a PR (read the diff and description with the GitHub
   tools), a semantic feature description (locate the relevant routes,
@@ -128,7 +128,7 @@ Task it to:
 - Fill a `screenshot` block alongside them, so the before/after phase needs no
   second relevance call of its own. Set `screenshot.ui_surface` true when the
   change touches a user-facing or browser-drivable surface, false when there is
-  no reachable UI to photograph. This is the same judgment `cf:drive`'s Haiku
+  no reachable UI to photograph. This is the same judgment `cf:drive`'s classifier-role
   relevance gate already applies; do not add a separate relevance check
   anywhere.
 
@@ -156,16 +156,16 @@ Otherwise call `AskUserQuestion` with up to four of the highest-value
 Under away mode, skip this question, proceed on the inferred plan (the
 highest-value guess for each open question), and report the assumption.
 
-## Phase 3: Refine (background, opus, max 3 rounds)
+## Phase 3: Refine (background, author role, max 3 rounds)
 
 An answered round can surface new ambiguity. Spawn another background Agent
-(`model: "opus"`) to integrate the round's answers into the plan and report
+(model {{model:author}}, description starting `[role:author]`) to integrate the round's answers into the plan and report
 any fresh `open_questions`. Empty means proceed to phase 4. Non-empty means
 repeat phase 2, then this phase, incrementing the round counter. Stop after
 round 3 regardless of remaining ambiguity, proceed with the plan's current
 best guesses, and note the unresolved points in the final report.
 
-## Phase 4: Execute (background, sonnet)
+## Phase 4: Execute (background, worker role)
 
 Execution is deterministic. The model's job is to turn the plan into
 declarative steps; it never writes the browser automation. `scripts/change_flow_compiler.rb`
@@ -173,7 +173,7 @@ compiles those steps into the browserless payload in pure Ruby, so the same
 flow file run twice produces the same JS and the same verdict, and the flow
 survives the session as a file instead of evaporating with the transcript.
 
-Spawn a background Agent (`model: "sonnet"`) with the finalized plan. Task it
+Spawn a background Agent (model {{model:worker}}, description starting `[role:worker]`) with the finalized plan. Task it
 to:
 1. Start the application under test if not already running, per the plan's
    setup step, and wait for a real readiness signal (a 200 from a health or
