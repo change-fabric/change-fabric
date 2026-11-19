@@ -1,0 +1,4 @@
+# A selector cohort sets exactly one of ids or segment.
+expect: "exactly one of ids or segment"
+patch:
+  change_config: { delivery: { cohorts: { pilot: { kind: adapter_selector, ids: [t_1], segment: pilot } } } }

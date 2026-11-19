@@ -1,0 +1,4 @@
+# Telemetry older than 180s is never fresh.
+expect: "max_telemetry_age_s must be an integer from 1 to 180"
+patch:
+  change_policy: { delivery: { verdicts: { max_telemetry_age_s: 600 } } }

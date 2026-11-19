@@ -1,0 +1,4 @@
+# human_checkpoints must keep everyone.
+expect: "must contain 'everyone'"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { human_checkpoints: [pilot] } } } }

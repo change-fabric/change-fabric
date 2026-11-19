@@ -1,0 +1,5 @@
+# money_affecting forbids advance: auto anywhere.
+expect: "money_affecting, so advance: auto"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { pacing: { advance: manual, money_affecting: true } } } } }
+  change_config: { delivery: { rollouts: { new-checkout: { stages: [ { cohort: internal, advance: auto }, { cohort: everyone } ] } } } }

@@ -1,0 +1,4 @@
+# At most 60 minutes of fix budget.
+expect: "fix_budget_minutes must be an integer from 1 to 60"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { fix_budget_minutes: 90 } } } } } }

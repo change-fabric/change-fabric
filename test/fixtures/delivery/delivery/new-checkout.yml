@@ -1,0 +1,9 @@
+rollout: new-checkout
+revision: 3
+stages:
+  - { cohort: internal, dwell_minutes: 60, min_requests: 20 }
+  - { cohort: hash50, dwell_minutes: 1440 }
+  - { cohort: everyone }
+pacing:
+  advance: manual
+  money_affecting: true

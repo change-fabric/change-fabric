@@ -1,0 +1,4 @@
+# on_breach.immediate is schema-fixed to flag_off.
+expect: "immediate must be flag_off"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { immediate: notify } } } } }

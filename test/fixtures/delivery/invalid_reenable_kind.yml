@@ -1,0 +1,5 @@
+# The first stage cohort, the one triage re-enables, must be adapter_selector.
+expect: "must be kind adapter_selector"
+patch:
+  change_config: { delivery: { rollouts: { new-checkout: { stages: [ { cohort: hash25 }, { cohort: everyone } ] } } } }
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { reenable: { cohort: hash25 } } } } } } }

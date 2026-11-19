@@ -3,6 +3,7 @@
 
 require 'open3'
 require_relative 'change_config'
+require_relative 'change_delivery_schema'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
 require_relative 'change_schema'
@@ -136,6 +137,7 @@ class ChangeAppRegistry
     end
     lines.concat(gate_scope_errors(change_md_path))
     lines.concat(tracker_policy_errors(change_md_path))
+    lines.concat(delivery_lines(change_md_path))
     lines.concat(promotion_target_lines(change_md_path))
     lines.concat(require_scheduled_lines(change_md_path))
 
@@ -207,6 +209,50 @@ class ChangeAppRegistry
     []
   end
   private_class_method :tracker_policy_errors
+
+  # change_config.delivery and change_policy.delivery (0.24.0) are read by the
+  # consumer's own controller, not by any guard here, so doctor is where a
+  # broken floor shows: one line per rollout, then every error, then a
+  # warning for each production rollout still on a fixture adapter. Silent
+  # when neither block exists.
+  def self.delivery_lines(change_md_path)
+    data = ChangeFrontmatter.parse_file(change_md_path)
+    config = data['change_config']
+    policy = data['change_policy']
+    root = File.dirname(change_md_path)
+    errors = ChangeDeliverySchema.errors(config, policy, root: root)
+    rollouts = ChangeDeliverySchema.rollouts(config, policy, root: root)
+    return [] if errors.empty? && rollouts.empty?
+
+    rollouts.map { |rollout| delivery_rollout_line(rollout) } +
+      errors.map { |message| "error: #{message}" } +
+      delivery_fixture_warnings(config, rollouts)
+  rescue StandardError
+    []
+  end
+  private_class_method :delivery_lines
+
+  def self.delivery_rollout_line(rollout)
+    stages = rollout.stages.map { |stage| stage.is_a?(Hash) ? stage['cohort'] : '?' }.join(' > ')
+    "delivery: rollout #{rollout.name} flag=#{rollout.flag} owner=#{rollout.owner || '(none)'} " \
+      "revision=#{rollout.revision || 1} advance=#{rollout.advance}#{' money_affecting' if rollout.money_affecting?} " \
+      "stages=#{stages}#{" source=#{rollout.source}" if rollout.source}"
+  end
+  private_class_method :delivery_rollout_line
+
+  def self.delivery_fixture_warnings(config, rollouts)
+    delivery = config.is_a?(Hash) && config['delivery'].is_a?(Hash) ? config['delivery'] : {}
+    rollouts.select { |rollout| rollout.config['profile'] == 'production' }.flat_map do |rollout|
+      %w[flags metrics].filter_map do |key|
+        adapter = (delivery[key].is_a?(Hash) ? delivery[key] : {})[rollout.config[key].to_s]
+        next unless adapter.is_a?(Hash) && adapter['kind'] == 'fixture'
+
+        "warning: delivery rollout #{rollout.name} runs on profile production with " \
+          "#{key} '#{rollout.config[key]}' still kind fixture"
+      end
+    end
+  end
+  private_class_method :delivery_fixture_warnings
 
   # promotion.<ref>.require_scheduled (0.20.0): every named
   # schedule must be declared in the root change_config.schedules with a sane

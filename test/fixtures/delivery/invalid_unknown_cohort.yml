@@ -1,0 +1,4 @@
+# A stage naming an unknown cohort.
+expect: "cohort names 'beta'"
+patch:
+  change_config: { delivery: { rollouts: { new-checkout: { stages: [ { cohort: internal }, { cohort: beta }, { cohort: everyone } ] } } } }

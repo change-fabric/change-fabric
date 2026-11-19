@@ -1,0 +1,26 @@
+# The sourced form: delivery/new-checkout.yml owns revision, stages and
+# pacing, so neither CHANGE.md block sets them for this rollout.
+change_config:
+  delivery:
+    flags:
+      main: { kind: fixture, path: tmp/flags.json }
+    metrics:
+      otel: { kind: fixture, path: tmp/metrics.json }
+    cohorts:
+      internal: { kind: adapter_selector, segment: staff_and_test }
+      hash50: { kind: hash, percent: 50, hash_key: tenant_id }
+      everyone: { kind: all }
+    rollouts:
+      new-checkout:
+        owner: "@maintainer"
+        flag: new_checkout
+        flags: main
+        metrics: otel
+        profile: production
+        source: delivery/new-checkout.yml
+change_policy:
+  delivery:
+    rollouts:
+      new-checkout:
+        guards:
+          new_5xx_on_flagged_spans: { max: 0 }

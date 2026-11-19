@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.23.0
+Schema version: 0.24.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -85,6 +85,8 @@ Field paths are dotted. Placeholder segments are literal and mean:
 - `<app>`: any name under `change_config.apps` (an app in a monorepo, 0.4.0).
 - `<adapter>`, `<channel>`, `<tracker>`, `<event>`, `<state>` (0.19.0): see
   "execution, outbound, trackers" and "change_policy.trackers" below.
+- `<flags>`, `<metrics>`, `<cohort>`, `<verdict_source>`, `<rollout>` (0.24.0):
+  see "change_config.delivery" and "change_policy.delivery" below.
 - `[]`: a field on each item of a list.
 
 Required means the platform cannot run without it. Almost everything is optional
@@ -579,6 +581,113 @@ surface at least every 15 minutes.
 | `change_config.trackers.<tracker>.provider` | string | yes | (0.19.0) The enrolled provider holding the tracker credential. |
 | `change_config.trackers.<tracker>.project` | string | yes | (0.19.0) The project key, for example `PROJ`. Ticket keys in a plan must belong to it. |
 
+### change_config.delivery (0.24.0): progressive delivery wiring
+
+A flagged feature reaches production by walking named cohorts (an internal
+group, a pilot list, hash buckets of tenants, then everyone) under absolute
+guards. The consumer's own app worker runs the rollout controller; cf supplies
+this contract, validates it (`scripts/change_delivery_schema.rb`, reported by
+`doctor`), and never calls the production flags adapter with production
+credentials. `change_config.delivery` is the wiring and
+`change_policy.delivery` is the governance; they join by rollout name, and
+both are read from the base branch at run time. Credentials appear only as an
+enrolled provider name. Commands are argv arrays, run without a shell, with a
+`timeout_s` from 1 to 3600 and `cwd: repo` (the default and the only value).
+
+Placeholders: `<flags>`, `<metrics>`, `<cohort>`, `<verdict_source>` and
+`<rollout>` are any name under that map, matching `[a-z0-9][a-z0-9_-]*`.
+
+A rollout's `revision` and `stages` may live in a per-flag file instead
+(`source: delivery/<flag>.yml`), which the cf:plan pacing interview writes.
+That file holds `rollout` (this rollout's name), `revision` (an integer of at
+least 1, raised on every edit), `stages` (same shape as below) and an optional
+`pacing` (same shape as `change_policy.delivery.rollouts.<rollout>.pacing`).
+With `source:` set, the file owns those keys: CHANGE.md setting `revision` or
+`stages` on the rollout, or `pacing` on its policy, is an error. A rollout
+whose content changed against base without a higher `revision` is rejected;
+the controller stamps the revision and the rollout's sha256 digest on every
+verdict and flags operation.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_config.delivery.flags.<flags>.kind` | `command` or `fixture` | yes | (0.24.0) The flags adapter. `command` speaks cf.flags/1: one JSON request on stdin, one JSON reply on stdout. `fixture` keeps state in a local file, for tests and dry runs. `doctor` warns when a rollout on profile `production` uses a fixture adapter. |
+| `change_config.delivery.flags.<flags>.argv` | list of string | yes for `command` | (0.24.0) The adapter command as an argv array. |
+| `change_config.delivery.flags.<flags>.cwd` | `repo` | no (default `repo`) | (0.24.0) Working directory: the repo checkout. |
+| `change_config.delivery.flags.<flags>.timeout_s` | integer | yes for `command` | (0.24.0) Seconds before the adapter call is killed, 1 to 3600. |
+| `change_config.delivery.flags.<flags>.environments.<profile>` | string | no | (0.24.0) The adapter's environment name for this profile, for example `production: production`. |
+| `change_config.delivery.flags.<flags>.path` | string | yes for `fixture` | (0.24.0) The fixture adapter's state file. |
+| `change_config.delivery.flags.<flags>.intents.kind` | `file_drop`, `command` or `fixture` | yes when `intents` is set | (0.24.0) The worker-owned queue triage writes signed flag intents to (`get`, `disable`, `reenable_internal`). The worker checks incident state, fencing and approvals before acting. |
+| `change_config.delivery.flags.<flags>.intents.path` | string | yes for `file_drop` and `fixture` | (0.24.0) The queue directory or fixture file. |
+| `change_config.delivery.flags.<flags>.intents.argv` | list of string | yes for `command` | (0.24.0) The queue command as an argv array. |
+| `change_config.delivery.flags.<flags>.intents.cwd` | `repo` | no (default `repo`) | (0.24.0) Working directory for a `command` queue. |
+| `change_config.delivery.flags.<flags>.intents.timeout_s` | integer | yes for `command` | (0.24.0) Seconds before a `command` queue call is killed, 1 to 3600. |
+| `change_config.delivery.flags.<flags>.discover.argv` | list of string | yes when `discover` is set | (0.24.0) A command that prints, as JSON, the flag keys the code references at a ref. `require_rollout` diffs it between protected tags. Dynamically named flags are not detected. |
+| `change_config.delivery.flags.<flags>.discover.cwd` | `repo` | no (default `repo`) | (0.24.0) Working directory for `discover`. |
+| `change_config.delivery.flags.<flags>.discover.timeout_s` | integer | yes when `discover` is set | (0.24.0) Seconds before `discover` is killed, 1 to 3600. |
+| `change_config.delivery.metrics.<metrics>.kind` | `signoz`, `prometheus`, `command` or `fixture` | yes | (0.24.0) Where guard telemetry comes from. |
+| `change_config.delivery.metrics.<metrics>.url` | string | yes for `signoz` and `prometheus` | (0.24.0) The metrics endpoint. |
+| `change_config.delivery.metrics.<metrics>.provider` | string | yes for `signoz` and `prometheus` | (0.24.0) The enrolled provider holding the metrics credential, never a value. |
+| `change_config.delivery.metrics.<metrics>.service` | string | yes for `signoz` and `prometheus` | (0.24.0) The service whose spans are evaluated. |
+| `change_config.delivery.metrics.<metrics>.flag_attribute` | string | yes for `signoz` and `prometheus` | (0.24.0) The span attribute carrying the evaluated flag, with `<key>` standing for the flag key. |
+| `change_config.delivery.metrics.<metrics>.cohort_attribute` | string | no | (0.24.0) A span attribute carrying the cohort key (for example a `tenant_id`), for a per-cohort breakdown. |
+| `change_config.delivery.metrics.<metrics>.error_source` | `unsampled` or `sampled` | no (default `sampled`) | (0.24.0) Error guards need complete capture. Only `unsampled` lets an error guard read `pass`; otherwise the verdict reports incomplete coverage and reads `unknown`. |
+| `change_config.delivery.metrics.<metrics>.argv` | list of string | yes for `command` | (0.24.0) The metrics command as an argv array. |
+| `change_config.delivery.metrics.<metrics>.cwd` | `repo` | no (default `repo`) | (0.24.0) Working directory for a `command` source. |
+| `change_config.delivery.metrics.<metrics>.timeout_s` | integer | yes for `command` | (0.24.0) Seconds before the metrics command is killed, 1 to 3600. |
+| `change_config.delivery.metrics.<metrics>.path` | string | yes for `fixture` | (0.24.0) The fixture telemetry file. |
+| `change_config.delivery.cohorts.<cohort>.kind` | `adapter_selector`, `hash` or `all` | yes | (0.24.0) How the flags adapter resolves the cohort. The cohort named `everyone` must be kind `all`. |
+| `change_config.delivery.cohorts.<cohort>.ids` | list of string | one of `ids` or `segment` for `adapter_selector` | (0.24.0) Explicit ids, for example tenant ids. |
+| `change_config.delivery.cohorts.<cohort>.segment` | string | one of `ids` or `segment` for `adapter_selector` | (0.24.0) A segment the flags adapter already knows. |
+| `change_config.delivery.cohorts.<cohort>.percent` | integer | yes for `hash` | (0.24.0) The stable hash bucket size, 1 to 99. |
+| `change_config.delivery.cohorts.<cohort>.hash_key` | string | yes for `hash` | (0.24.0) The attribute hashed into buckets, for example `tenant_id`. |
+| `change_config.delivery.verdict_sources.<verdict_source>.kind` | `file_drop`, `command` or `fixture` | yes | (0.24.0) Where the worker's cf.verdict/1 records and heartbeats reach cf. |
+| `change_config.delivery.verdict_sources.<verdict_source>.path` | string | yes for `file_drop` and `fixture` | (0.24.0) The drop directory or fixture file. |
+| `change_config.delivery.verdict_sources.<verdict_source>.argv` | list of string | yes for `command` | (0.24.0) The source command as an argv array. |
+| `change_config.delivery.verdict_sources.<verdict_source>.cwd` | `repo` | no (default `repo`) | (0.24.0) Working directory for a `command` source. |
+| `change_config.delivery.verdict_sources.<verdict_source>.timeout_s` | integer | yes for `command` | (0.24.0) Seconds before the source command is killed, 1 to 3600. |
+| `change_config.delivery.rollouts.<rollout>.owner` | string | yes | (0.24.0) The rollout's named owner, a role or handle. A rollout without one fails. |
+| `change_config.delivery.rollouts.<rollout>.flag` | string | yes | (0.24.0) The flag key in the flags adapter. |
+| `change_config.delivery.rollouts.<rollout>.flags` | string | yes | (0.24.0) The `delivery.flags` adapter this rollout uses. |
+| `change_config.delivery.rollouts.<rollout>.metrics` | string | yes | (0.24.0) The `delivery.metrics` source its guards read. |
+| `change_config.delivery.rollouts.<rollout>.profile` | string | yes | (0.24.0) The deploy profile the rollout runs in, mapped to an adapter environment by `flags.<flags>.environments`. |
+| `change_config.delivery.rollouts.<rollout>.source` | string | no | (0.24.0) A per-flag file under `delivery/`, ending in `.yml` or `.yaml`, that owns `revision`, `stages` and `pacing`. |
+| `change_config.delivery.rollouts.<rollout>.revision` | integer | no (default 1; yes in a per-flag file) | (0.24.0) The rollout revision, at least 1. It must rise whenever the rollout changes; a verdict stamped with any other revision is ignored. |
+| `change_config.delivery.rollouts.<rollout>.stages[].cohort` | string | yes | (0.24.0) The cohort this stage enables, in order. Unknown cohorts fail. The last stage must be `everyone`. |
+| `change_config.delivery.rollouts.<rollout>.stages[].dwell_minutes` | integer | no (default 0) | (0.24.0) Minutes the stage holds before it may advance, counted from stage entry. An `unknown` verdict pauses the clock. |
+| `change_config.delivery.rollouts.<rollout>.stages[].min_requests` | integer | no (default 0) | (0.24.0) Flagged requests the stage must see before it may advance. Zero traffic reads `unknown`, never `pass`. |
+| `change_config.delivery.rollouts.<rollout>.stages[].advance` | `auto` or `manual` | no (default the rollout's pacing) | (0.24.0) Overrides the rollout's `pacing.advance` for this stage. `auto` is rejected on a money-affecting rollout. |
+
+Example (inline form; with `source:` the stages move to the per-flag file):
+
+```yaml
+change_config:
+  delivery:
+    flags:
+      main: { kind: command, argv: [pnpm, app, flags], cwd: repo, timeout_s: 30,
+              environments: { staging: staging, production: production } }
+    metrics:
+      otel: { kind: signoz, url: https://signoz.example.internal, provider: signoz_prod,
+              service: api, flag_attribute: "app.flag.<key>", error_source: unsampled }
+    cohorts:
+      internal: { kind: adapter_selector, segment: staff_and_test }
+      pilot:    { kind: adapter_selector, ids: [t_101, t_102] }
+      hash25:   { kind: hash, percent: 25, hash_key: tenant_id }
+      everyone: { kind: all }
+    rollouts:
+      new-checkout:
+        owner: "@maintainer"
+        flag: new_checkout
+        flags: main
+        metrics: otel
+        profile: production
+        revision: 1
+        stages:
+          - { cohort: internal, dwell_minutes: 60, min_requests: 20 }
+          - { cohort: pilot, dwell_minutes: 1440, advance: manual }
+          - { cohort: hash25, dwell_minutes: 1440 }
+          - { cohort: everyone }
+```
+
 ### change_config.profiles (0.2.0): multiple deploy targets, one audit shape
 
 A repo with more than one deployable target (a local Docker stack, a real
@@ -1002,6 +1111,80 @@ change_policy:
         In Progress: builder
         Ready to Ship: releaser
       locks: { estimates: false, move_between_boards: false, rename: false }
+```
+
+### change_policy.delivery (0.24.0): rollout governance
+
+The governance for each `change_config.delivery` rollout, joined by name:
+every rollout in one block must exist in the other. Validated by
+`scripts/change_delivery_schema.rb` and reported by `doctor`. Some rules are
+fixed by design and the schema rejects a looser value:
+
+- On a breach the flag goes off first, every time (`on_breach.immediate` is
+  `flag_off`).
+- Entering `everyone` always needs a human (`human_checkpoints` keeps
+  `everyone`).
+- A money-affecting rollout never advances automatically, at the rollout or
+  any stage, and after a breach it stays off until a human approves.
+- The triage diagnosis must roast at 9 or more; at most 2 fix attempts in at
+  most 60 minutes; re-enable only the first stage's cohort, which must be kind
+  `adapter_selector`; every page trigger stays on; dispatch pages within 10
+  minutes and acknowledgement within 20.
+- Telemetry older than 180 seconds is never fresh, and a controller heartbeat
+  gap over 10 minutes always alerts.
+
+Approvals are console receipts bound to the rollout revision, stage and
+cohort, never a chat message or a DM. The gates rest on hooks, not on the
+agent token's scope.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_policy.delivery.require_rollout` | boolean | no (default false) | (0.24.0) When true, a protected tag that introduces a flag needs a rollout for it at the tagged commit. Enforced by the tag gate in a later release; 0.24.0 only declares it. |
+| `change_policy.delivery.verdicts.max_telemetry_age_s` | integer | no (default 180) | (0.24.0) A verdict whose telemetry is older than this reads `unknown`, never `pass`. 1 to 180. |
+| `change_policy.delivery.verdicts.heartbeat_max_gap_minutes` | integer | no (default 10) | (0.24.0) A controller heartbeat gap longer than this alerts. 1 to 10. |
+| `change_policy.delivery.notify.dm` | string | no | (0.24.0) The enrolled provider that sends breach and resolution DMs. A DM only notifies. |
+| `change_policy.delivery.notify.page` | string | no | (0.24.0) The enrolled provider that pages a human. |
+| `change_policy.delivery.one_way_door_paths` | list of glob | no | (0.24.0) Paths a triage fix may not touch on its own: a fix touching one pages `one_way_door` and stops. |
+| `change_policy.delivery.rollouts.<rollout>.guards.new_5xx_on_flagged_spans.max` | integer | at least one guard | (0.24.0) New 5xx error fingerprints on flagged spans allowed in the evaluation window, at least 0. New means not seen on flag-off spans in the baseline. |
+| `change_policy.delivery.rollouts.<rollout>.guards.new_exceptions_on_flagged_spans.max` | integer | at least one guard | (0.24.0) New exception fingerprints on flagged spans allowed, at least 0. |
+| `change_policy.delivery.rollouts.<rollout>.guards.p95_ms_vs_baseline.max_ratio` | number | yes with this guard | (0.24.0) The highest allowed ratio of flagged p95 latency to the baseline, above 1. Fewer than 50 baseline requests reads `unknown`. |
+| `change_policy.delivery.rollouts.<rollout>.guards.p95_ms_vs_baseline.baseline` | `flag_off_last_7d` | yes with this guard | (0.24.0) The baseline window: flag-off traffic over the last 7 days. |
+| `change_policy.delivery.rollouts.<rollout>.pacing.advance` | `auto` or `manual` | no (default `manual`) | (0.24.0) Whether a stage advances on its own once dwell, traffic and guards pass. A stage may override it. Owned by the per-flag file when the rollout has `source:`. |
+| `change_policy.delivery.rollouts.<rollout>.pacing.money_affecting` | boolean | no (default false) | (0.24.0) True forces manual advance and a human approval at every stage, and keeps the flag off after a breach until a human approves its recovery. |
+| `change_policy.delivery.rollouts.<rollout>.human_checkpoints` | list of cohort | no (default `[everyone]`) | (0.24.0) Cohorts whose entry needs a human approval. Must contain `everyone`. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.immediate` | `flag_off` | no (default `flag_off`) | (0.24.0) Schema-fixed: the flag goes off first. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.then` | `triage` or `human` | no (default `triage`) | (0.24.0) After flag-off: an agent triage under the limits below, or straight to a human. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.fix_budget_minutes` | integer | no (default 60) | (0.24.0) Minutes the triage agent has to land a fix and prove it on staging, 1 to 60. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.fix_attempts` | integer | no (default 2) | (0.24.0) Fix attempts, 1 to 2. A failed merge gate or a red staging run ends an attempt. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.gate.kind` | `roast` | yes when `gate` is set | (0.24.0) The diagnosis gate. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.gate.min_score` | number | no (default 9) | (0.24.0) The roast score the diagnosis must reach, 9 to 10. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.notify` | `dm` | no (default `dm`) | (0.24.0) A DM at breach and at resolution. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.page_human_when` | list | no (default all four) | (0.24.0) Must list every trigger: `gate_failed`, `budget_exhausted`, `one_way_door`, `rebreach_after_fix`. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.dispatch_timeout_minutes` | integer | no (default 10) | (0.24.0) A triage agent not started within this pages, 1 to 10. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.ack_timeout_minutes` | integer | no (default 20) | (0.24.0) A triage agent not acknowledged within this pages, 1 to 20. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.reenable.after` | `fix_merged_and_staging_green` | no (default that) | (0.24.0) When the flag may come back: the fix merged through the normal gates, green on staging, and serving in production. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.reenable.cohort` | string | no (default the first stage's cohort) | (0.24.0) The only cohort triage re-enables: the first stage's, which must be kind `adapter_selector`. Further advance follows normal pacing. |
+
+Example:
+
+```yaml
+change_policy:
+  delivery:
+    verdicts: { max_telemetry_age_s: 180, heartbeat_max_gap_minutes: 10 }
+    rollouts:
+      new-checkout:
+        guards:
+          new_5xx_on_flagged_spans: { max: 0 }
+          new_exceptions_on_flagged_spans: { max: 0 }
+          p95_ms_vs_baseline: { max_ratio: 1.25, baseline: flag_off_last_7d }
+        pacing: { advance: auto, money_affecting: false }
+        human_checkpoints: [everyone]
+        on_breach:
+          immediate: flag_off
+          then: triage
+          triage:
+            gate: { kind: roast, min_score: 9 }
+            page_human_when: [gate_failed, budget_exhausted, one_way_door, rebreach_after_fix]
 ```
 
 ## contributors_team fields (0.6.0)
@@ -1703,3 +1886,9 @@ root `RELEASING.md`.
   A command entry's trust digest now covers the content of the repo files its
   `run` names and its `trust_paths` match, so editing one needs approval like
   editing the entry. Every command entry's digest changes once.
+- 0.24.0: additive. Adds `change_config.delivery` (flag adapters speaking
+  cf.flags/1, metric sources, cohorts, verdict sources, and rollouts with
+  ordered stages, optionally in a per-flag `delivery/<flag>.yml`) and
+  `change_policy.delivery` (absolute guards, pacing, human checkpoints, and
+  a flag-off-first breach response with roast-gated, time-boxed triage).
+  Validated with schema-fixed floors and reported by `doctor`.

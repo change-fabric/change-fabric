@@ -1,0 +1,4 @@
+# An agent that never starts pages within 10 minutes.
+expect: "dispatch_timeout_minutes must be an integer from 1 to 10"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { dispatch_timeout_minutes: 30 } } } } } }

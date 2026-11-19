@@ -1,0 +1,4 @@
+# Every rollout has a named owner.
+expect: "owner is required"
+patch:
+  change_config: { delivery: { rollouts: { new-checkout: { owner: "" } } } }

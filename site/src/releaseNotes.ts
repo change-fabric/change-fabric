@@ -28,6 +28,24 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.24.0": {
+    version: "0.24.0",
+    date: "2026-11-18",
+    headline: "Progressive delivery: flagged features walk named cohorts under absolute guards.",
+    highlights: [
+      {
+        title: "change_config.delivery",
+        body:
+          "Flag adapters, metric sources, cohorts (selector, hash bucket, all), verdict sources, and rollouts whose ordered stages end at everyone, inline or in a per-flag delivery/<flag>.yml.",
+      },
+      {
+        title: "change_policy.delivery",
+        body:
+          "Absolute guards, pacing, human checkpoints, and a breach response that turns the flag off first, then runs a roast-gated triage inside fixed limits. doctor reports every rollout and each floor it breaks.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. Nothing changes until a repo declares a delivery block.",
+  },
   "0.23.0": {
     version: "0.23.0",
     date: "2026-11-18",

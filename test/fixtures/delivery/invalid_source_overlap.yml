@@ -1,0 +1,4 @@
+# With source set, CHANGE.md must not set what the per-flag file owns.
+expect: "the per-flag file delivery/new-checkout.yml owns it"
+patch:
+  change_config: { delivery: { rollouts: { new-checkout: { source: delivery/new-checkout.yml } } } }
