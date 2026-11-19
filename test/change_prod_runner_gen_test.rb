@@ -170,14 +170,15 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert Gen.tampered?("name: cf-prod\n")
   end
 
-  def test_cli_writes_the_file_prints_the_reset_not_a_customization_and_checks_it
+  def test_cli_writes_the_file_prints_the_template_prerequisite_and_checks_it
     Dir.mktmpdir do |root|
       out = StringIO.new
       assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out)
-      refute_includes out.string, "-F use_default=false"
-      refute_includes out.string, "include_claim_keys"
+      refute_includes out.string, "-F use_default=true"
       assert_includes out.string, "accepted limit: any default-branch workflow that runs in cf-claim can claim"
-      assert_match(%r{-X PUT repos/\S+/actions/oidc/customization/sub -F use_default=true}, out.string)
+      assert_includes out.string, "gh api -X PUT repos/acme/app/actions/oidc/customization/sub -F use_default=false " \
+                                  "-F use_immutable_subject=true -f 'include_claim_keys[]=repo' " \
+                                  "-f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
       assert_includes out.string, "gh api repos/acme/app/actions/oidc/customization/sub --jq .sub_claim_prefix"
       assert_equal 0, Gen.run([ "--check", "--root", root ], stdout: StringIO.new)
       path = File.join(root, Gen::WORKFLOW)
@@ -273,12 +274,16 @@ class ChangeProdRunnerGenTest < Minitest::Test
     end
     lines = out.string.lines.grep(/trust condition/)
     assert_equal 2, lines.size
-    claim = lines.find { |line| line.include?("cf-prod-claim") }
-    assert_includes claim, "\"repo:acme@11/app@22:environment:cf-claim\""
-    staging = lines.find { |line| line.include?("cf-staging") }
-    assert_includes staging, "\"repo:acme@11/app@22:environment:staging\""
-    assert_includes staging, '"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"'
-    assert_includes staging, "StringEquals"
+    claim = JSON.parse(lines.find { |line| line.include?("cf-prod-claim") }[/\{.*\}/])["Condition"]
+    assert_equal({ "token.actions.githubusercontent.com:sub" => "repo:acme@11/app@22:environment:cf-claim:job_workflow_ref:*" },
+                 claim["StringLike"])
+    refute claim["StringEquals"].key?("token.actions.githubusercontent.com:sub")
+    staging = JSON.parse(lines.find { |line| line.include?("cf-staging") }[/\{.*\}/])["Condition"]
+    assert_nil staging["StringLike"]
+    assert_equal({ "token.actions.githubusercontent.com:aud" => "sts.amazonaws.com",
+                   "token.actions.githubusercontent.com:sub" =>
+                     "repo:acme@11/app@22:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/main" },
+                 staging["StringEquals"])
     refute_includes out.string, "role/cf-prod\""
     refute_includes out.string, "sub prefix for the trust subject"
   end
@@ -289,14 +294,18 @@ class ChangeProdRunnerGenTest < Minitest::Test
       args = [ "--config", FIXTURE, "--root", root, "--repo", "change-fabric/change-fabric", "--sub-prefix", "repo:change-fabric@311455213/change-fabric@1180238677" ]
       assert_equal 0, Gen.run(args, stdout: out)
     end
-    sub = "repo:change-fabric@311455213/change-fabric@1180238677:environment:cf-claim"
+    sub = "repo:change-fabric@311455213/change-fabric@1180238677:environment:cf-claim:job_workflow_ref:*"
     assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, "\"#{sub}\""
   end
 
-  def test_legacy_name_only_prefix_is_taken_verbatim
+  def test_legacy_name_only_prefix_is_taken_verbatim_and_default_branch_is_pinned
     out = StringIO.new
-    Dir.mktmpdir { |root| assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--sub-prefix", "repo:acme/app" ], stdout: out) }
-    assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, "\"repo:acme/app:environment:cf-claim\""
+    Dir.mktmpdir do |root|
+      assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--sub-prefix", "repo:acme/app", "--default-branch", "trunk" ], stdout: out)
+    end
+    assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, "\"repo:acme/app:environment:cf-claim:job_workflow_ref:*\""
+    assert_includes out.string.lines.find { |line| line.include?("cf-staging") },
+                    "\"repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk\""
   end
 
   def test_sub_prefix_must_be_a_repo_prefix
@@ -312,7 +321,7 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert_equal "cf-claim", claim["environment"]
     out = StringIO.new
     Dir.mktmpdir { |root| Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out) }
-    sub = "\"<sub_claim_prefix>:environment:cf-claim\""
+    sub = "\"<sub_claim_prefix>:environment:cf-claim:job_workflow_ref:*\""
     assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, sub
     assert_match(/create a cf-claim environment with deployment branch = default only, no reviewers/, out.string)
     reserved = config
