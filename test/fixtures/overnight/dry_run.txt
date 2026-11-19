@@ -40,6 +40,10 @@ Scope and order: the schedule below | a subset | a different order
 Flag after ship: on | off | as the plan says
 Walkthrough: numbered drafts overnight, final in the morning | none
 
+## Walkthrough stories
+none
+classifier: {{model:classifier}} at intake for phases without a walkthrough: line
+
 ## Units
 p1 Add the export endpoint (new) depends on: none
 p2 Show exports in the dashboard (new) depends on: p1

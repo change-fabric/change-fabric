@@ -14,6 +14,7 @@ class OvernightPlanTest < Minitest::Test
   ROOT = File.expand_path("..", __dir__)
   REPO = "test/fixtures/overnight/repo"
   PLAN = "test/fixtures/overnight/plan"
+  TWO = "test/fixtures/overnight/plan-two-walkthroughs"
   SNAPSHOT = File.join(ROOT, "test/fixtures/overnight/dry_run.txt")
   SCRIPT = File.join(ROOT, "scripts/overnight_plan.rb")
 
@@ -224,6 +225,33 @@ class OvernightPlanTest < Minitest::Test
   def test_yolo_refused_when_trunk_is_protected
     steps = OvernightPlan.schedule({ "id" => "p1", "origin" => "new" }, manifest, "yolo", true)
     assert_equal "refused", steps.last[0]
+  end
+
+  def test_units_parse_the_walkthrough_line
+    units = Dir.chdir(ROOT) { OvernightPlan.plan_units(TWO) }
+    assert_equal [ "admin-console", "audit-log" ], units.map { |u| u["walkthrough"] }
+    assert_equal [ [ nil ] ], [ Dir.chdir(ROOT) { OvernightPlan.plan_units(PLAN) }.map { |u| u["walkthrough"] }.uniq ]
+  end
+
+  def test_dry_run_lists_walkthrough_stories_present_and_missing
+    out = Dir.chdir(ROOT) { OvernightPlan.dry_run(repo: REPO, plan_dir: TWO, discovery: FakeDiscovery.new) }
+    section = out[/^## Walkthrough stories\n(.*?)\n\n/m, 1].lines.map(&:chomp)
+    assert_equal [ "p1 admin-console: story #{TWO}/story/admin-console.json (present)",
+                   "p2 audit-log: story #{TWO}/story/audit-log.json (missing: interview at intake)",
+                   "classifier: {{model:classifier}} at intake for phases without a walkthrough: line" ], section
+    assert_operator out.index("## Interview"), :<, out.index("## Walkthrough stories")
+    assert_operator out.index("## Walkthrough stories"), :<, out.index("## Units")
+  end
+
+  def test_dry_run_without_walkthrough_lines_prints_none
+    assert_includes dry_run, "## Walkthrough stories\nnone\nclassifier: {{model:classifier}}"
+  end
+
+  def test_single_walkthrough_uses_story_json
+    FileUtils.mkdir_p(File.join(@tmp, "plan"))
+    File.write(File.join(@tmp, "plan/plan.md"), "### Phase 1: One\n\nwalkthrough: demo\n")
+    out = Dir.chdir(ROOT) { OvernightPlan.dry_run(repo: REPO, plan_dir: File.join(@tmp, "plan"), discovery: FakeDiscovery.new) }
+    assert_includes out, "p1 demo: story #{@tmp}/plan/story.json (missing: interview at intake)"
   end
 
   def test_dry_run_matches_snapshot_and_is_byte_stable
