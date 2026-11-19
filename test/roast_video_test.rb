@@ -8,6 +8,9 @@ require_relative "../scripts/roast_video"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
 
+# These tests drive the API path; the default backend would try the host's real codex.
+ENV["CF_ROAST_BACKEND"] = "api"
+
 class RoastVideoTest < Minitest::Test
   include EnrollHelpers
 

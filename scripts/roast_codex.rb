@@ -29,6 +29,16 @@ module RoastCodex
   LIMIT_CODES = %w[usage_limit_reached rate_limit_reached workspace_owner_credits_depleted
                    workspace_member_credits_depleted workspace_owner_usage_limit_reached
                    workspace_member_usage_limit_reached credits_depleted].freeze
+  # One ranking, strongest first, shared by every tier. It is pinned so scores are
+  # reproducible across machines; it is the definition of strongest.
+  MODEL_RANK = %w[gpt-6.2-sol gpt-6.2-astra gpt-6.1-sol gpt-6.1-terra gpt-6-sol gpt-6-astra gpt-6-luna
+                  gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna gpt-5.5 gpt-5.4 gpt-5.4-mini gpt-5.3-codex gpt-5.2].freeze
+  # The tier only breaks ties and sets effort; it never narrows the list.
+  TIERS = { 'sol' => { prefer: 'sol', effort: 'high' }, 'terra' => { prefer: 'terra', effort: 'medium' } }.freeze
+  # A model that is rejected costs no quota; roast tries this many more.
+  EXTRA_MODEL_ATTEMPTS = 2
+  # Codex takes low through xhigh; roast's wider scale is clamped onto it.
+  EFFORT_CLAMP = { 'none' => 'low', 'max' => 'xhigh' }.freeze
   MODEL_REJECTED = /not supported when using Codex with a ChatGPT account|requires a newer version of Codex/
 
   # Base class so a caller can rescue every codex-backend outcome at once.
@@ -111,6 +121,38 @@ module RoastCodex
 
     raise Failed.new(:probe, detail)
   end
+
+  # Vision-capable, user-listed model slugs from `codex debug models` (the live
+  # catalog the CLI itself resolves against). Raises Failed(:probe) when the
+  # catalog cannot be read.
+  def live_models(runner: method(:run_process), env: ENV)
+    result = runner.call([ *command(env), 'debug', 'models' ], env: child_env(env), stdin: '', timeout: PROBE_TIMEOUT, chdir: nil)
+    raise Failed.new(:probe, 'model list timed out') if result.timed_out
+    raise Failed.new(:probe, "model list exited #{result.exit_code}") unless result.exit_code.zero?
+
+    JSON.parse(result.stdout).fetch('models').select do |m|
+      m['visibility'] == 'list' && Array(m['input_modalities']).include?('image')
+    end.map { |m| m['slug'] }
+  rescue JSON::ParserError, KeyError, TypeError
+    raise Failed.new(:probe, 'model list was not the expected JSON')
+  rescue Errno::ENOENT, Errno::EACCES
+    raise Unavailable.new(:missing)
+  end
+
+  # The tier a roast model name belongs to (gpt-6.1-sol is sol), or nil.
+  def tier_for(model) = TIERS.keys.find { |t| model.to_s.end_with?("-#{t}") }
+
+  # Every vision model, strongest first. Ranked models lead in MODEL_RANK
+  # order; the tier's suffix only orders models of equal rank, and unranked
+  # ones sort last.
+  def rank(models, tier: nil)
+    prefer = TIERS.dig(tier, :prefer)
+    models.sort_by { |m| [ MODEL_RANK.index(m) || MODEL_RANK.size, prefer && m.end_with?("-#{prefer}") ? 0 : 1, m ] }
+  end
+
+  def unranked(models) = models.reject { |m| MODEL_RANK.include?(m) }
+
+  def clamp_effort(effort) = EFFORT_CLAMP.fetch(effort.to_s, effort.to_s)
 
   def build_argv(model:, effort:, images:, schema_path:, out_path:, dir:, command: DEFAULT_COMMAND)
     [ *command, 'exec', *images.flat_map { |i| [ '-i', i ] },

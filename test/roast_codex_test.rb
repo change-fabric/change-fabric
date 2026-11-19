@@ -28,6 +28,7 @@ class RoastCodexTest < Minitest::Test
   def runner_for(res, answer: nil)
     lambda do |argv, **kw|
       next status_result("login_status_chatgpt.txt") if argv.include?("login")
+      next result(fixture("models.json")) if argv.include?("debug")
 
       @seen = { argv: argv, **kw }
       File.write(argv[argv.index("-o") + 1], answer) if answer
@@ -180,7 +181,24 @@ class RoastCodexTest < Minitest::Test
       assert_operator Time.now - started, :<, 10
       pids = File.read("#{out}.pids").split.map(&:to_i)
       assert_equal 2, pids.size
-      pids.each { |pid| assert_raises(Errno::ESRCH) { Process.kill(0, pid) } }
+      pids.each { |pid| assert gone?(pid), "process #{pid} survived the timeout kill" }
+    end
+  end
+
+  # A killed process can linger as a zombie until init reaps it, so poll (bounded)
+  # for it to be gone or defunct rather than checking once.
+  def gone?(pid, within: 10)
+    deadline = Time.now + within
+    loop do
+      begin
+        Process.kill(0, pid)
+      rescue Errno::ESRCH
+        return true
+      end
+      return true if `ps -o stat= -p #{pid}`.strip.start_with?("Z")
+      return false if Time.now > deadline
+
+      sleep 0.1
     end
   end
 
@@ -194,7 +212,7 @@ class RoastCodexTest < Minitest::Test
   end
 
   def test_backend_resolution_and_cache_key
-    assert_equal "api", Roast.backend_for(env: {})
+    assert_equal "auto", Roast.backend_for(env: {})
     assert_equal "codex", Roast.backend_for(env: { "CF_ROAST_BACKEND" => "codex" })
     assert_equal "api", Roast.backend_for(flag: "api", env: { "CF_ROAST_BACKEND" => "codex" })
     assert_raises(Roast::UsageError) { Roast.backend_for(flag: "nope") }
@@ -227,6 +245,27 @@ class RoastCodexTest < Minitest::Test
       again = Roast.critique(**args.merge(codex_runner: ->(*, **) { calls += 1 }))
       assert_equal 0, calls
       assert_equal critic, again
+    end
+  end
+
+  def test_pinned_and_tier_selections_never_share_a_codex_cache_entry
+    Dir.mktmpdir do |dir|
+      shot = File.join(dir, "s.png")
+      FileUtils.cp(File.join(FIXTURES, "tiny64.png"), shot)
+      models = []
+      runner = lambda do |argv, **kw|
+        next status_result("login_status_chatgpt.txt") if argv.include?("login")
+        next result(fixture("models.json")) if argv.include?("debug")
+
+        models << argv[argv.index("-m") + 1]
+        runner_for(result(fixture("exec_ok.jsonl")), answer: fixture("exec_ok_last.json")).call(argv, **kw)
+      end
+      args = { brief: "b", shots: [ shot ], history: [], round: 1, cache_root: File.join(dir, "cache"), backend: "codex",
+               codex_runner: runner, env: { "PATH" => "/bin" }, out: StringIO.new, model: "gpt-6.1-terra" }
+      Roast.critique(**args)
+      Roast.critique(**args, pin: { model: true })
+      Roast.critique(**args, pin: { model: true })
+      assert_equal %w[gpt-6.2-sol gpt-6.1-terra], models
     end
   end
 end

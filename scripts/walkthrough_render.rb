@@ -1009,13 +1009,19 @@ module WalkthroughRender
       return say("roast: loop finished (#{verdict[:reason]}); no further round") if verdict[:stop]
 
       inputs = roast_inputs(manifest, mp4, reports)
-      usd = Roast.round_usd(@cache, **inputs)
-      return roast_capped unless say_roast_estimate(inputs, usd)
+      requested = @gates[:roast_backend] || 'api'
+      effective = Roast.route(requested, inputs: inputs, cache_root: @cache, pin: roast_pin, runner: @p[:codex_runner], out: @out)
+      api_usd = Roast.round_usd(@cache, **inputs)
+      usd = effective == 'codex' ? 0.0 : api_usd
+      return roast_capped unless say_roast_estimate(inputs, usd, effective)
       return roast_over_max_usd(usd) if roast_over_max_usd?(usd)
 
-      critic = @p[:roast].call(**inputs, cache_root: @cache, allow_sensitive: @gates[:allow_sensitive])
+      info = {}
+      critic = @p[:roast].call(**inputs, cache_root: @cache, allow_sensitive: @gates[:allow_sensitive], backend: effective == 'codex' ? requested : 'api',
+                                         probed: true, info: info, out: @out, codex_runner: @p[:codex_runner], pin: roast_pin,
+                                         max_usd: (roast_fallback_usd if effective == 'codex'))
       Roast.write_round(roast_dir, inputs[:round], critic)
-      WalkthroughRoast.record_spend(roast_dir, inputs[:round], usd)
+      WalkthroughRoast.record_spend(roast_dir, inputs[:round], info[:backend] == 'codex' ? 0.0 : api_usd, backend: info[:backend], subscription_tokens: info[:subscription_tokens])
       WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
       WalkthroughRoast.record_scenes(roast_dir, @roast_scenes)
       report_roast_round(inputs[:round], critic)
@@ -1030,7 +1036,7 @@ module WalkthroughRender
       raise if e.surface?
 
       say("roast: skipped (#{e.message})")
-    rescue WalkthroughEnv::MissingKeyError, Roast::RequestError, Roast::SensitiveError, SystemCallError => e
+    rescue WalkthroughEnv::MissingKeyError, Roast::RequestError, Roast::SensitiveError, Roast::CeilingError, RoastCodex::Error, SystemCallError => e
       say("roast: skipped (#{e.message})")
     end
 
@@ -1048,12 +1054,27 @@ module WalkthroughRender
     end
 
     # Prints the estimate and returns whether it fits what the run cap has left.
-    def say_roast_estimate(inputs, usd)
-      left = [ roast_cap - WalkthroughRoast.spent(roast_dir), 0 ].max
-      say("roast estimate: #{inputs[:shots].size} keyframe(s) plus transcript, $#{format('%.2f', usd)} " \
+    def say_roast_estimate(inputs, usd, backend = 'api')
+      left = roast_left
+      cost = backend == 'codex' ? 'subscription (codex), no USD' : "$#{format('%.2f', usd)}"
+      say("roast estimate: #{inputs[:shots].size} keyframe(s) plus transcript, #{cost} " \
           "(run cap $#{format('%.2f', roast_cap)}, $#{format('%.2f', left)} left)")
       usd <= left + 1e-9
     end
+
+    def roast_left = [ roast_cap - WalkthroughRoast.spent(roast_dir), 0 ].max
+
+    # What an API fallback may spend: what the roast cap has left, and under an
+    # explicit --max-usd, what the render's own estimate left of it.
+    def roast_fallback_usd
+      return roast_left if @max_usd.nil?
+
+      [ roast_left, [ @max_usd - @estimated_usd.to_f, 0 ].max ].min
+    end
+
+    # Whether the user chose the model (flag, CF_ROAST_MODEL, CHANGE.md), so the
+    # codex tier table never replaces it.
+    def roast_pin = { model: @gates[:roast_model_pinned] == true }
 
     # An explicit --max-usd also bounds the roast round: what the render's
     # paid estimate left of it must cover the round.
@@ -1396,7 +1417,7 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final|--final-only] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
-          '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]' \
+          '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--backend auto|codex|api] [--recapture]' \
           "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report" \
           "\n  --recapture films every live scene again, changed or not (film after a deploy); without it only changed live scenes refilm"
   dir = ARGV.first
@@ -1416,14 +1437,17 @@ if __FILE__ == $PROGRAM_NAME
   max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : nil
   roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : nil
   begin
-    roast = WalkthroughRoast.settings(Dir.pwd, roast: ARGV.include?('--no-roast') ? false : nil, max_usd: roast_usd)
+    roast = WalkthroughRoast.settings(Dir.pwd, roast: ARGV.include?('--no-roast') ? false : nil, max_usd: roast_usd,
+                                       backend: ARGV.include?('--backend') ? (ARGV[ARGV.index('--backend') + 1] || abort(usage)) : nil)
     fidelity_targets = DesignConfig.load(Dir.pwd).select { |c| c.target.reference? }.map { |c| c.target.name }
+  rescue Roast::UsageError => e
+    abort(e.message)
   rescue DesignConfig::Error => e
     abort("CHANGE.md design block: #{e.message}")
   end
   gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'), allow_sensitive: ARGV.include?('--allow-sensitive'),
             roast: roast[:roast], roast_max_usd: roast[:max_usd], roast_target: roast[:target],
-            roast_rounds: roast[:rounds], roast_model: roast[:model], roast_review: roast[:review],
+            roast_rounds: roast[:rounds], roast_model: roast[:model], roast_backend: roast[:backend], roast_model_pinned: roast[:model_pinned], roast_review: roast[:review],
             allow_fidelity: ARGV.include?('--allow-fidelity-findings'), fidelity_targets: fidelity_targets }
   begin
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,

@@ -5,6 +5,7 @@ require "json"
 require "tmpdir"
 require_relative "../scripts/walkthrough_roast"
 
+
 class WalkthroughRoastTest < Minitest::Test
   def test_keyframes_take_start_middle_end_and_first_overlay_frames
     entries = [ { "id" => "a", "frames" => 30, "start_frame" => 0 }, { "id" => "b", "frames" => 10, "start_frame" => 30 } ]
@@ -245,6 +246,35 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  def test_codex_rounds_record_usd_zero_with_backend_and_tokens_beside_the_rounds
+    Dir.mktmpdir do |dir|
+      WalkthroughRoast.record_spend(dir, 1, 0.25)
+      WalkthroughRoast.record_spend(dir, 2, 0.0, backend: "codex", subscription_tokens: 321)
+      WalkthroughRoast.record_spend(dir, 3, 0.0, backend: "codex")
+      ledger = WalkthroughRoast.ledger(dir)
+      assert_equal({ "1" => 0.25, "2" => 0.0, "3" => 0.0 }, ledger["rounds"])
+      assert_equal({ "2" => { "backend" => "codex", "subscription_tokens" => 321 }, "3" => { "backend" => "codex" } }, ledger["backends"])
+      assert_in_delta 0.25, WalkthroughRoast.spent(dir)
+    end
+  end
+
+  def test_settings_record_whether_the_model_was_chosen
+    Dir.mktmpdir do |dir|
+      refute WalkthroughRoast.settings(dir)[:model_pinned] if ENV["CF_ROAST_MODEL"].to_s.empty?
+      assert WalkthroughRoast.settings(dir, model: "sol")[:model_pinned]
+      write_change(dir, { "model" => "m-cfg" })
+      assert WalkthroughRoast.settings(dir)[:model_pinned]
+    end
+  end
+
+  def test_settings_carry_the_backend_with_auto_default
+    Dir.mktmpdir do |dir|
+      assert_equal "auto", WalkthroughRoast.settings(dir)[:backend] if ENV["CF_ROAST_BACKEND"].to_s.empty?
+      assert_equal "codex", WalkthroughRoast.settings(dir, backend: "codex")[:backend]
+      assert_raises(Roast::UsageError) { WalkthroughRoast.settings(dir, backend: "nope") }
+    end
+  end
+
   def test_unreadable_ledger_fails_closed_as_cap_reached
     Dir.mktmpdir do |dir|
       round(dir, 1, [ issue("P2") ], score: 7)
@@ -277,7 +307,7 @@ class WalkthroughRoastTest < Minitest::Test
   def test_settings_default_with_no_change_md
     Dir.mktmpdir do |dir|
       s = WalkthroughRoast.settings(dir)
-      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: "gpt-6.1-sol", review: {} }, s)
+      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: "gpt-6.1-sol", review: {} }, s.except(:backend, :model_pinned))
     end
   end
 
@@ -285,9 +315,9 @@ class WalkthroughRoastTest < Minitest::Test
     Dir.mktmpdir do |dir|
       write_change(dir, { "auto" => false, "target" => 7, "rounds" => 2, "max_usd" => 1.25, "model" => "m-cfg" })
       s = WalkthroughRoast.settings(dir)
-      assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg", review: {} }, s)
+      assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg", review: {} }, s.except(:backend, :model_pinned))
       s = WalkthroughRoast.settings(dir, roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag")
-      assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag", review: {} }, s)
+      assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag", review: {} }, s.except(:backend, :model_pinned))
       assert_equal "gpt-6.1-terra", WalkthroughRoast.settings(dir, model: "terra")[:model]
       s = WalkthroughRoast.settings(dir, roast: nil, max_usd: nil)
       assert_equal 1.25, s[:max_usd]

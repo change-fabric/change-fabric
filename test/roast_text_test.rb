@@ -9,6 +9,9 @@ require_relative "../scripts/walkthrough_storyboard"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
 
+# These tests drive the API path; the default backend would try the host's real codex.
+ENV["CF_ROAST_BACKEND"] = "api"
+
 class RoastTextTest < Minitest::Test
   include ImagegenHelpers
   include EnrollHelpers

@@ -8,6 +8,9 @@ require_relative "../scripts/roast"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
 
+# These tests drive the API path; the default backend would try the host's real codex.
+ENV["CF_ROAST_BACKEND"] = "api"
+
 # The CLI-only fidelity kind (spec 0.18.0 design targets): prototype and
 # reference stills fed in pairs. Every paid call is stubbed with a fake HTTP
 # transport; nothing here reaches the network.

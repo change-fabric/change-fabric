@@ -8,6 +8,9 @@ require_relative "../scripts/roast"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
 
+# These tests drive the API path; the default backend would try the host's real codex.
+ENV["CF_ROAST_BACKEND"] = "api"
+
 class RoastTest < Minitest::Test
   include ImagegenHelpers
   include EnrollHelpers
@@ -52,10 +55,10 @@ class RoastTest < Minitest::Test
     FileUtils.remove_entry(@dir)
   end
 
-  def run_cli(*args, cache: @cache, http: RoastHttp.new)
+  def run_cli(*args, cache: @cache, http: RoastHttp.new, runner: nil)
     review = args.include?("--no-default-review") ? [] : [ "--audience", "Dog groomers", "--purpose", "Book a slot" ]
     args -= [ "--no-default-review" ]
-    code = Roast::Cli.run([ "--brief", @brief, "--shot", @shot, "--cache", cache, "--out-dir", @roast, *review, *args ], out: @out, http: http)
+    code = Roast::Cli.run([ "--brief", @brief, "--shot", @shot, "--cache", cache, "--out-dir", @roast, *review, *args ], out: @out, http: http, codex_runner: runner)
     [ code, @out.string, http ]
   end
 
@@ -692,5 +695,200 @@ class RoastTest < Minitest::Test
     assert_equal 1, code
     assert_includes text, "roast response was not valid JSON; raw response at"
     assert_includes File.read(File.join(@roast, "raw-1.json")), "{not json"
+  end
+
+  # -- codex backend resolution ------------------------------------------
+
+  CODEX_FX = File.expand_path("fixtures/roast_codex", __dir__)
+
+  def fx(name) = File.read(File.join(CODEX_FX, name))
+
+  def codex_result(stdout, code = 0)
+    RoastCodex::Result.new(stdout: stdout, stderr: "", exit_code: code, timed_out: false)
+  end
+
+  def status_fx(name)
+    text = fx(name)
+    codex_result(text.sub(/^exit=\d+\s*\z/, ""), text[/^exit=(\d+)/, 1].to_i)
+  end
+
+  # A scripted codex: login and model list from fixtures; `exec` maps a model
+  # to [result, answer-or-nil] and may raise. `tried` records the models run.
+  def fake_codex(login: "login_status_chatgpt.txt", models: fx("models.json"), &exec)
+    tried = []
+    runner = lambda do |argv, **|
+      next status_fx(login) if argv.include?("login")
+      next codex_result(models) if argv.include?("debug")
+
+      model = argv[argv.index("-m") + 1]
+      tried << { model: model, effort: argv[argv.index("-c") + 1], argv: argv }
+      result, answer = exec.call(model)
+      File.write(argv[argv.index("-o") + 1], answer) if answer
+      result
+    end
+    [ runner, tried ]
+  end
+
+  def codex_ok = [ codex_result(fx("exec_ok.jsonl")), fx("exec_ok_last.json") ]
+
+  def codex_rejected = [ codex_result(fx("exec_model_rejected.jsonl"), 1), nil ]
+
+  def test_default_backend_is_auto_and_flag_beats_env
+    assert_equal "auto", Roast.backend_for(env: {})
+    assert_equal "codex", Roast.backend_for(env: { "CF_ROAST_BACKEND" => "codex" })
+    assert_equal "api", Roast.backend_for(flag: "api", env: { "CF_ROAST_BACKEND" => "codex" })
+  end
+
+  def test_auto_answers_from_codex_with_the_best_ranked_model_and_never_posts
+    runner, tried = fake_codex { codex_ok }
+    code, text, http = run_cli("--backend", "auto", runner: runner)
+    assert_equal 0, code, text
+    assert_empty http.requests
+    assert_equal [ "gpt-6.2-sol" ], tried.map { |a| a[:model] }
+    assert_includes text, "subscription (codex, best sol-tier vision model), no USD"
+    assert_includes text, "roast: codex answered with gpt-6.2-sol"
+    assert_equal 3, JSON.parse(File.read(File.join(@roast, "round-1.json")))["score"]
+  end
+
+  def test_tiers_set_effort_and_rank_the_whole_live_list
+    sol = Roast.codex_inputs({ model: "gpt-6.1-sol", effort: "medium" })
+    terra = Roast.codex_inputs({ model: "gpt-6.1-terra", effort: "medium" })
+    assert_equal "high", sol[:effort]
+    assert_equal "medium", terra[:effort]
+    live = %w[gpt-5.5 gpt-6.2-astra gpt-6.2-sol gpt-6.1-terra]
+    assert_equal "gpt-6.2-sol", RoastCodex.rank(live, tier: "terra").first
+    assert_equal %w[gpt-6.2-sol gpt-6.2-astra gpt-6.1-terra gpt-5.5], RoastCodex.rank(live, tier: "sol")
+    assert_equal "low", Roast.codex_inputs({ model: "gpt-6.1-sol", effort: "none" }, pin: { effort: true })[:effort]
+    assert_equal "gpt-5.5", Roast.codex_inputs({ model: "gpt-5.5", effort: "medium" }, pin: { model: true })[:model]
+  end
+
+  def test_pinned_model_and_effort_pass_through
+    runner, tried = fake_codex { codex_ok }
+    code, text, = run_cli("--backend", "codex", "--model", "gpt-5.6-terra", "--effort", "max", runner: runner)
+    assert_equal 0, code, text
+    assert_equal [ "gpt-5.6-terra" ], tried.map { |a| a[:model] }
+    assert_equal "model_reasoning_effort=xhigh", tried.first[:effort]
+  end
+
+  def test_unranked_vision_model_prints_one_warning
+    models = JSON.generate("models" => [ { "slug" => "gpt-9-new", "visibility" => "list", "input_modalities" => %w[text image] },
+                                          { "slug" => "gpt-5.5", "visibility" => "list", "input_modalities" => %w[text image] } ])
+    runner, tried = fake_codex(models: models) { codex_ok }
+    _code, text, = run_cli("--backend", "codex", runner: runner)
+    assert_includes text, "roast: codex lists gpt-9-new, not in CODEX_MODEL_RANK; update the table or pass --model"
+    assert_equal "gpt-5.5", tried.first[:model]
+  end
+
+  def test_rejected_model_tries_the_next_then_answers
+    runner, tried = fake_codex { |m| m == "gpt-6.2-sol" ? codex_rejected : codex_ok }
+    code, text, http = run_cli("--backend", "auto", runner: runner)
+    assert_equal 0, code, text
+    assert_equal %w[gpt-6.2-sol gpt-6.2-astra], tried.map { |a| a[:model] }
+    assert_empty http.requests
+  end
+
+  def test_three_rejections_fall_back_to_the_api_under_auto_and_fail_under_codex
+    runner, tried = fake_codex { codex_rejected }
+    code, text, http = run_cli("--backend", "auto", runner: runner)
+    assert_equal 0, code, text
+    assert_equal 3, tried.size
+    assert_equal 1, http.requests.size
+    assert_includes text, "roast: codex unavailable (model_rejected), falling back to API"
+    @out = StringIO.new
+    runner, = fake_codex { codex_rejected }
+    code, text, = run_cli("--backend", "codex", "--round", "2", runner: runner)
+    assert_equal 1, code
+    assert_includes text, "model rejected"
+  end
+
+  def test_each_unavailable_reason_falls_back_under_auto
+    cases = { "missing" => ->(*, **) { raise Errno::ENOENT }, "not_logged_in" => fake_codex(login: "login_status_logged_out.txt") { codex_ok }.first,
+              "limit" => fake_codex { [ codex_result(fx("exec_usage_limit.jsonl"), 1), nil ] }.first,
+              "no_vision_model" => fake_codex(models: JSON.generate("models" => [])) { codex_ok }.first }
+    cases.each_with_index do |(reason, runner), i|
+      @out = StringIO.new
+      code, text, http = run_cli("--backend", "auto", "--round", (i + 1).to_s, runner: runner)
+      assert_equal 0, code, "#{reason}: #{text}"
+      assert_includes text, "roast: codex unavailable (#{reason}), falling back to API"
+      assert_equal 1, http.requests.size, reason
+    end
+  end
+
+  def test_forced_codex_never_falls_back
+    runner, = fake_codex(login: "login_status_logged_out.txt") { codex_ok }
+    code, text, http = run_cli("--backend", "codex", runner: runner)
+    assert_equal 1, code
+    assert_includes text, "not logged in"
+    assert_empty http.requests
+  end
+
+  def test_failed_codex_rounds_never_fall_back_under_auto
+    crash = [ codex_result(fx("exec_ok.jsonl"), 2), fx("exec_ok_last.json") ]
+    schema = [ codex_result(fx("exec_ok.jsonl")), JSON.generate("score" => 99) ]
+    { "crash" => crash, "schema" => schema }.each_with_index do |(reason, answer), i|
+      @out = StringIO.new
+      runner, = fake_codex { answer }
+      code, text, http = run_cli("--backend", "auto", "--round", (i + 1).to_s, runner: runner)
+      assert_equal 1, code, reason
+      assert_includes text, "codex #{reason}"
+      assert_empty http.requests
+    end
+    @out = StringIO.new
+    code, text, http = run_cli("--backend", "auto", "--round", "3", runner: ->(*, **) { raise "boom" })
+    assert_equal 1, code
+    assert_includes text, "codex probe"
+    assert_empty http.requests
+  end
+
+  def test_an_api_cache_entry_never_stands_in_for_a_codex_failure
+    run_cli("--backend", "api")
+    @out = StringIO.new
+    crash = [ codex_result(fx("exec_ok.jsonl"), 2), nil ]
+    runner, = fake_codex { crash }
+    code, text, http = run_cli("--backend", "auto", runner: runner)
+    assert_equal 1, code, text
+    assert_empty http.requests
+    assert_includes text, "codex crash"
+  end
+
+  def test_codex_and_api_answers_cache_separately
+    runner, tried = fake_codex { codex_ok }
+    run_cli("--backend", "auto", "--round", "1", runner: runner)
+    @out = StringIO.new
+    FileUtils.rm_rf(@roast) # the logged round is part of the next key's history
+    _code, text, http = run_cli("--backend", "auto", "--round", "1", runner: runner)
+    assert_equal 1, tried.size
+    assert_includes text, "1 call (cached)"
+    assert_empty http.requests
+    @out = StringIO.new
+    FileUtils.rm_rf(@roast)
+    _code, _text, http = run_cli("--backend", "api", "--round", "1")
+    assert_equal 1, http.requests.size
+  end
+
+  def test_the_fallback_still_answers_to_the_ceiling
+    runner, = fake_codex(login: "login_status_logged_out.txt") { codex_ok }
+    code, text, http = run_cli("--backend", "auto", "--max-usd", "0.0001", runner: runner)
+    assert_equal 1, code
+    assert_includes text, "ceiling"
+    assert_empty http.requests
+  end
+
+  def test_codex_rounds_ignore_the_api_ceiling
+    runner, = fake_codex { codex_ok }
+    code, text, = run_cli("--backend", "codex", "--max-usd", "0.0001", runner: runner)
+    assert_equal 0, code, text
+  end
+
+  def test_video_routing_per_backend
+    video = Roast::Cli.run([ "--video", "x.mp4", "--backend", "auto", "--brief", @brief ], out: @out = StringIO.new)
+    assert_includes @out.string, "roast: --video is API-only, using API"
+    refute_equal 0, video
+    out = StringIO.new
+    assert_equal 1, Roast::Cli.run([ "--video", "x.mp4", "--backend", "codex" ], out: out)
+    assert_includes out.string, "roast: --video is API-only; --backend codex cannot film"
+    out = StringIO.new
+    Roast::Cli.run([ "--video", "x.mp4", "--backend", "api", "--brief", @brief ], out: out)
+    refute_includes out.string, "using API"
   end
 end
