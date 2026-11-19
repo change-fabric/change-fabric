@@ -13,24 +13,26 @@
 // Inputs come from scripts/thread_history.rb, run by SKILL.md step 1:
 // threads, priorThreads and recurrence are its output fields verbatim.
 //
-// Model tiers:
-//   Evaluate    opus     One call per thread, low volume, high stakes: it is
+// Model roles (see model_roles.yml for what each role maps to per host):
+//   Evaluate    critic   One call per thread, low volume, high stakes: it is
 //                        both the read on whether the concern is real and the
 //                        decision to write code in response.
-//   Root cause  opus     Runs only when recurrence fired or a verdict named an
+//   Root cause  critic   Cluster map; the systemic fix itself runs as author.
+//                        Runs only when recurrence fired or a verdict named an
 //                        earlier fix. It decides whether a cluster's
 //                        per-thread diffs are thrown away for one systemic
 //                        change, or the cluster is deferred to cf:plan.
-//   Apply       inherit  Mechanical reconciliation of an already-decided diff
-//                        against a moving working tree.
+//   Apply       worker   Mechanical application of an already-decided diff.
+//                        A diff that no longer applies cleanly is retried
+//                        once on author, never reconciled by the worker.
 
 export const meta = {
   name: "cf-resolve-threads-scope",
   description: "Evaluate every unresolved PR thread in its own worktree, find the root cause when feedback recurs, then apply accepted fixes sequentially",
   phases: [
-    { title: "Evaluate", model: "opus" },
-    { title: "Root cause", model: "opus" },
-    { title: "Apply" }
+    { title: "Evaluate", model: {{model-js:critic}} },
+    { title: "Root cause", model: {{model-js:critic}} },
+    { title: "Apply", model: {{model-js:worker}} }
   ]
 }
 
@@ -190,7 +192,7 @@ const verdicts = await parallel(threads.map((t) => () =>
     "tieBreakable false for missing product intent or a call only a maintainer can make. " +
     "Always include a short reply " +
     "meant for the thread itself.",
-    { phase: "Evaluate", label: t.path + ":" + t.line, schema: VERDICT_SCHEMA }
+    { model: {{model-js:critic}}, phase: "Evaluate", label: t.path + ":" + t.line, schema: VERDICT_SCHEMA }
   ).then((v) => (v ? { ...t, ...v } : { ...t, action: "needs_human", concernClass: "unknown", rationale: "evaluation agent did not return a result" }))
 ))
 
@@ -227,7 +229,7 @@ if (candidates.length > 0) {
     "when the honest fix is a redesign (a real parser instead of regex scanning, a new module " +
     "boundary, changes across subsystems, a migration). Use only threadIds from the list above, " +
     "and put each thread in at most one cluster.",
-    { model: "opus", phase: "Root cause", schema: CLUSTER_SCHEMA }
+    { model: {{model-js:critic}}, phase: "Root cause", schema: CLUSTER_SCHEMA }
   )
   const known = new Set(candidates.map((v) => v.threadId))
   const taken = new Set()
@@ -264,7 +266,7 @@ if (candidates.length > 0) {
       "every thread in the cluster will cite it.\n\nRoot cause (" + c.concernClass + "): " +
       c.rootCause + "\n\nThreads and their per-thread verdicts:\n" +
       JSON.stringify(c.threadIds.map((id) => byId.get(id)), null, 2),
-      { model: "opus", phase: "Root cause", label: c.concernClass, schema: SYSTEMIC_SCHEMA }
+      { model: {{model-js:author}}, phase: "Root cause", label: c.concernClass, schema: SYSTEMIC_SCHEMA }
     )
   ))
   // An in-run cluster with no systemic diff (agent null, or empty diff)
@@ -282,20 +284,35 @@ if (candidates.length > 0) {
   })
 }
 
+// A diff that no longer applies cleanly is the one case the worker role is not
+// trusted with: it reports applied false, and that single apply is retried
+// once on the author role, which may re-implement the change by hand.
+const AUTHOR_RETRY =
+  "\n\nSECOND ATTEMPT: a first pass could not apply this diff as-is. The instruction above " +
+  "not to re-implement it no longer holds. Re-read the current files, re-implement the " +
+  "equivalent change by hand, then commit and report the sha exactly as described above. " +
+  "If it still cannot be reconciled with what is already on disk, make no commit and report why."
+async function applyAgent(prompt, options) {
+  const first = await agent(prompt, { model: {{model-js:worker}}, ...options })
+  if (first && first.applied) return first
+  const retry = await agent(prompt + AUTHOR_RETRY, { ...options, model: {{model-js:author}}, label: options.label + ":author" })
+  return retry || first
+}
+
 phase("Apply")
 const clustered = new Set(clusters.flatMap((c) => c.threadIds))
 const clusterApplied = []
 for (const c of clusters.filter((k) => k.size === "in_run")) {
-  const result = await agent(
+  const result = await applyAgent(
     "In the repository at " + repoPath + " (already checked out on the branch under review), " +
     "apply this systemic fix for the root cause " + c.concernClass + ".\n\nDiff captured from " +
     "an isolated trial:\n\n" + c.diff + "\n\nTry to apply it as-is first; if it no longer " +
-    "applies cleanly because an earlier fix in this same run touched overlapping code, re-read " +
-    "the current files and re-implement the equivalent change by hand instead of forcing the " +
-    "patch. Create exactly one commit for the whole cluster, its message naming the root cause " +
-    "and every file it touches, then report the commit sha by running `git rev-parse HEAD` and " +
-    "copying its output verbatim; never guess or recall a sha from memory. If the change cannot " +
-    "be reconciled with what is already on disk, make no commit and report why.",
+    "applies cleanly because an earlier fix in this same run touched overlapping code, do not " +
+    "re-implement it: make no commit, leave the working tree as you found it, and report " +
+    "applied false with the reason. Otherwise commit as follows. Create exactly one commit for the whole cluster, " +
+    "its message naming the root cause and every file it touches, then report the commit sha by " +
+    "running `git rev-parse HEAD` and copying its output verbatim; never guess or recall a sha " +
+    "from memory.",
     { phase: "Apply", label: c.concernClass, schema: APPLY_SCHEMA }
   )
   clusterApplied.push({ ...c, ...(result || { applied: false, note: "apply agent did not return a result" }) })
@@ -304,16 +321,15 @@ for (const c of clusters.filter((k) => k.size === "in_run")) {
 const toApply = verdicts.filter((v) => v.action === "fix" && v.diff && !clustered.has(v.threadId))
 const applied = []
 for (const v of toApply) {
-  const result = await agent(
+  const result = await applyAgent(
     "In the repository at " + repoPath + " (already checked out on the branch under review), " +
     "apply this fix for the review thread at " + v.path + ":" + v.line + ".\n\nDiff captured " +
     "from an isolated trial:\n\n" + v.diff + "\n\nTry to apply it as-is first; if it no longer " +
-    "applies cleanly because an earlier fix in this same run touched overlapping code, re-read " +
-    "the current file and re-implement the equivalent change by hand instead of forcing the " +
-    "patch. Once the working tree has the change, create exactly one commit for it referencing " +
+    "applies cleanly because an earlier fix in this same run touched overlapping code, do not " +
+    "re-implement it: make no commit, leave the working tree as you found it, and report " +
+    "applied false with the reason. Otherwise create exactly one commit for it referencing " +
     v.path + " and the concern it addresses, then report the commit sha by running `git rev-parse HEAD` " +
-    "and copying its output verbatim; never guess or recall a sha from memory. If the change cannot be " +
-    "reconciled with what is already on disk, make no commit and report why.",
+    "and copying its output verbatim; never guess or recall a sha from memory.",
     { phase: "Apply", label: v.path + ":" + v.line, schema: APPLY_SCHEMA }
   )
   applied.push({ ...v, ...(result || { applied: false, note: "apply agent did not return a result" }) })

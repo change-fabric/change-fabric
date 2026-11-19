@@ -22,22 +22,23 @@
 // those docs at runtime, and none of the git/gh work below happens in this
 // script either; every `agent()` call is a real sub-agent with tool access.
 //
-// Model tiers:
-//   Gather    inherit  Runs real gh/git commands per PR and classifies the
-//                      changed paths; mechanical but tool-driven.
-//   Conflict  inherit  Must perform an actual trial merge, not predict one.
-//   Infra     opus     One call, whole-repo blast radius: gets terraform and
+// Model roles (see model_roles.yml for what each role maps to per host):
+//   Gather    worker   Runs real gh/git commands per PR and classifies the
+//                      changed paths; mechanical but tool-driven. Its infra
+//                      and migration fields are re-derived by Infra.
+//   Conflict  worker   Must perform an actual trial merge, not predict one.
+//   Infra     critic   One call, whole-repo blast radius: gets terraform and
 //                      migration ordering wrong and a deploy breaks.
-//   Order     opus     The barrier synthesis every later merge follows.
+//   Order     author   The barrier synthesis every later merge follows.
 
 export const meta = {
   name: "cf-sweep-plan",
   description: "Gather every in-scope feature PR, trial-merge the overlapping pairs, then plan a trust-weighted landing order",
   phases: [
-    { title: "Gather" },
-    { title: "Conflict" },
-    { title: "Infra", model: "opus" },
-    { title: "Order", model: "opus" }
+    { title: "Gather", model: {{model-js:worker}} },
+    { title: "Conflict", model: {{model-js:worker}} },
+    { title: "Infra", model: {{model-js:critic}} },
+    { title: "Order", model: {{model-js:author}} }
   ]
 }
 
@@ -196,7 +197,7 @@ const gathered = await parallel(prs.map((pr) => () =>
     "migration, auth, CI config, lockfile) and its CI state. summary is one line a maintainer can " +
     "read in a merge queue, not a restatement of the title.\n\n" +
     "Open PRs in this sweep: " + prs.map((p) => "#" + p.number + " " + p.headRef).join(", "),
-    { phase: "Gather", label: "#" + pr.number, schema: FACTS_SCHEMA }
+    { model: {{model-js:worker}}, phase: "Gather", label: "#" + pr.number, schema: FACTS_SCHEMA }
   ).then((f) => (f
     ? { ...pr, ...f, ...identity(pr) }
     : { ...pr, gatherFailed: true, changedFiles: [], ciState: "none", risk: "high", summary: "gather agent returned no result", ...identity(pr) }))
@@ -241,7 +242,7 @@ const conflicts = await parallel(overlapPairs.map((pair) => () =>
     "lower-risk change first unless a real dependency says otherwise; where the two are otherwise " +
     "equivalent, the higher-trust author's PR goes first. Set recommendedFirst to that PR's number. " +
     "If the merge is clean, say so plainly and set conflicts false.",
-    { phase: "Conflict", label: "#" + pair.a.number + "+#" + pair.b.number, schema: CONFLICT_SCHEMA }
+    { model: {{model-js:worker}}, phase: "Conflict", label: "#" + pair.a.number + "+#" + pair.b.number, schema: CONFLICT_SCHEMA }
   ).then((c) => ({
     a: pair.a.number,
     b: pair.b.number,
@@ -274,6 +275,11 @@ const infraResult = infraCandidates.length === 0
       "last, after every deployed reader is off the old shape, and gets its own gate. Flag any pair " +
       "whose migrations touch the same table.\n\n" +
       (changeConfigSummary ? "The repo's CHANGE.md declares this deploy target for trunk:\n" + changeConfigSummary + "\n\n" : "") +
+      "Re-derive, do not trust: infraShared and migrationCompatibility were filled in by a cheaper " +
+      "gathering pass. For every PR, check them against infraPaths and migrationPaths (read the " +
+      "paths' diffs when the names alone do not settle it): is the infra change shared or core, and " +
+      "is each migration additive or backward-incompatible? Where your reading differs, use yours, " +
+      "and say so in notes.\n\n" +
       "PR classifications:\n" + JSON.stringify(facts.map((f) => ({
         number: f.number,
         author: f.author,
@@ -283,7 +289,7 @@ const infraResult = infraCandidates.length === 0
         migrationCompatibility: f.migrationCompatibility,
         summary: f.summary
       })), null, 2),
-      { model: "opus", phase: "Infra", schema: INFRA_SCHEMA }
+      { model: {{model-js:critic}}, phase: "Infra", schema: INFRA_SCHEMA }
     )
 
 // A null infra agent result must never read as "no gates": every candidate
@@ -342,7 +348,7 @@ const planResult = await agent(
   })), null, 2) +
   "\n\nVerified conflict results:\n" + JSON.stringify(conflicts, null, 2) +
   "\n\nInfrastructure and migration gates:\n" + JSON.stringify(infra, null, 2),
-  { model: "opus", phase: "Order", schema: ORDER_SCHEMA }
+  { model: {{model-js:author}}, phase: "Order", schema: ORDER_SCHEMA }
 )
 
 // A null order agent result must never fall through to an empty order read

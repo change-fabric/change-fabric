@@ -18,6 +18,8 @@
     "Root cause#1": { "clusters": [ { "threadIds": [ "t1" ], "concernClass": "missing-null-check", "sameClass": true, "rootCause": "Several call sites skip null checks.", "size": "in_run" } ] },
     "missing-null-check#1": { "diff": "diff --git a/t1.md b/t1.md\n+fixed\n", "reply": "Root cause fixed.", "note": "" },
     "missing-null-check#2": { "applied": true, "commitSha": "abc1234", "note": "" },
-    "t1.md:1#2": { "applied": true, "commitSha": "abc9999", "note": "" }
+    "missing-null-check:author#1": { "applied": true, "commitSha": "abc5678", "note": "" },
+    "t1.md:1#2": { "applied": true, "commitSha": "abc9999", "note": "" },
+    "t1.md:1:author#1": { "applied": true, "commitSha": "abc8765", "note": "" }
   }
 }

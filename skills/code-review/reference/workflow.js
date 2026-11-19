@@ -15,24 +15,22 @@
 // here can fetch those docs at runtime; they are for a human keeping this
 // script in sync with the tool's actual API.
 //
-// Model tiers: the script picks a model per call so the cheap tier is used
-// only where the work is itself high-volume and mechanically separable,
-// never as a reflex.
-//   Shard mapping             opus    One call gates the whole run; needs
-//                                     real semantic boundaries, not directory
-//                                     splits.
-//   Find, folded (small shard) inherit One pass covering both lenses; no
-//                                     checklist-only slice big enough to
-//                                     split out.
-//   Find, rubric split (large) haiku  Applies an already-written skill's
-//                                     rules across enough files to be its
-//                                     own job.
-//   Find, general split (large) inherit No checklist; needs full reasoning
-//                                     to name what a rubric cannot.
-//   Verify                     inherit Must write and run a real repro or
-//                                     refactor correctly.
-//   Recheck P1                 opus   Low volume, highest stakes: gates a
-//                                     red, auto-apply-diff finding.
+// Model roles (see model_roles.yml for what each role maps to per host):
+//   Shard mapping             author      One call gates the whole run; needs
+//                                         real semantic boundaries, not
+//                                         directory splits.
+//   Find, folded (small shard) critic     One pass covering both lenses; no
+//                                         checklist-only slice big enough to
+//                                         split out.
+//   Find, rubric split (large) classifier Applies an already-written skill's
+//                                         rules across enough files to be its
+//                                         own job.
+//   Find, general split (large) critic    No checklist; needs full reasoning
+//                                         to name what a rubric cannot.
+//   Verify                     critic     Must write and run a real repro or
+//                                         refactor correctly.
+//   Recheck P1                 critic     Low volume, highest stakes: gates a
+//                                         red, auto-apply-diff finding.
 
 export const meta = {
   name: "cf-code-review-scope",
@@ -41,7 +39,7 @@ export const meta = {
     { title: "Shard" },
     { title: "Find" },
     { title: "Verify" },
-    { title: "Recheck P1", model: "opus" }
+    { title: "Recheck P1", model: {{model-js:critic}} }
   ]
 }
 
@@ -141,7 +139,7 @@ if (files.length <= shardThreshold) {
     "Map this file list into coherent semantic sections a reviewer would treat as one unit " +
     "(e.g. auth, billing, the caching layer), not directory splits. Give each section a short " +
     "name, a one-line rationale, and its file list.\n\nFiles:\n" + files.join("\n"),
-    { model: "opus", phase: "Shard", schema: SHARD_SCHEMA }
+    { model: {{model-js:author}}, phase: "Shard", schema: SHARD_SCHEMA }
   )
   // Row 34: a null Shard result must not throw. One shard holding every
   // file is always a safe, if coarse, fallback.
@@ -166,7 +164,7 @@ const shardResults = await pipeline(
         "`ruby ~/.claude/cf/bin/skill_route.rb <files>` where they cover a file, plus general " +
         "judgment where they do not. Every candidate needs a concrete failure scenario, not a " +
         "vague quality note.\n\nFiles:\n" + shard.files.join("\n"),
-        { phase: "Find", label: shard.name, schema: CANDIDATES_SCHEMA }
+        { model: {{model-js:critic}}, phase: "Find", label: shard.name, schema: CANDIDATES_SCHEMA }
       )
       // Row 34/35: a null Find result must not throw, and must never pass
       // for a complete review of this shard.
@@ -179,13 +177,13 @@ const shardResults = await pipeline(
       () => agent(
         "Route these files with `ruby ~/.claude/cf/bin/skill_route.rb <files>` and apply " +
         "each matched skill principles verbatim. Files:\n" + shard.files.join("\n"),
-        { model: "haiku", phase: "Find", label: shard.name + ":rubric", schema: CANDIDATES_SCHEMA }
+        { model: {{model-js:classifier}}, phase: "Find", label: shard.name + ":rubric", schema: CANDIDATES_SCHEMA }
       ),
       () => agent(
         "General review pass, unscoped to any named rubric: correctness bugs, security, " +
         "API and contract breaks, missing or wrong test coverage, performance. Files:\n" +
         shard.files.join("\n"),
-        { phase: "Find", label: shard.name + ":general", schema: CANDIDATES_SCHEMA }
+        { model: {{model-js:critic}}, phase: "Find", label: shard.name + ":general", schema: CANDIDATES_SCHEMA }
       )
     ])
     // Row 35: one lens coming back null, or with no `candidates`, must mark
@@ -213,7 +211,7 @@ const shardResults = await pipeline(
         "60 characters naming what is wrong (e.g. 'Missing cf:ctx row in Command skills table'). " +
         "The title states what is wrong; it must not restate the scenario's detail or repeat its " +
         "wording, since both are posted together under one character budget.",
-        { phase: "Verify", label: locKey(c), schema: VERDICT_SCHEMA }
+        { model: {{model-js:critic}}, phase: "Verify", label: locKey(c), schema: VERDICT_SCHEMA }
       ).then((v) => (v ? { ...c, ...v } : null))
     ))
     const survivors = verified.filter(Boolean).filter((f) => f.reproduced)
@@ -229,7 +227,7 @@ const shardResults = await pipeline(
         worktreeSetup() +
         "Independently try to reproduce this finding with no prior context: " + locKey(f) +
         " - " + f.scenario,
-        { model: "opus", phase: "Recheck P1", label: locKey(f), schema: RECHECK_SCHEMA }
+        { model: {{model-js:critic}}, phase: "Recheck P1", label: locKey(f), schema: RECHECK_SCHEMA }
       ).then((r) => ({ key: locKey(f), confirmed: Boolean(r && r.reproduced) }))
     ))
     const confirmedKeys = new Set(rechecks.filter((r) => r.confirmed).map((r) => r.key))

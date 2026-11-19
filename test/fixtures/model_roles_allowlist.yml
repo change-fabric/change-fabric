@@ -5,39 +5,15 @@ entries:
 - key: 88ce59719d8e394d0ad2b4802b2f9c61506159219f4e3d3d870bf973e401d82a
   path: skills/README.md
   line: principles plus the changed file list - to run a haiku background-agent review.
-- key: d2696816293aab494cb43eb65409f8dd0ac07c2849c15bd9779ac9549e0263a9
-  path: skills/code-review/reference/workflow.js
-  line: "//   Find, rubric split (large) haiku  Applies an already-written skill's"
-- key: e93ed19c5a73235085ba373398ab4a144cf4c8b0ec511df0cff59407ef5e898b
-  path: skills/code-review/reference/workflow.js
-  line: "//   Recheck P1                 opus   Low volume, highest stakes: gates
-    a"
-- key: 06b7b1f311d969772485eba8679ca6794866b956e6fa90c6c38986c273ca9076
-  path: skills/code-review/reference/workflow.js
-  line: "//   Shard mapping             opus    One call gates the whole run; needs"
-- key: e00d0e4f4fc4b9644517c1f8f163d82866a36f32b875c9ba8057e53149b19b40
-  path: skills/code-review/reference/workflow.js
-  line: '{ model: "haiku", phase: "Find", label: shard.name + ":rubric", schema: CANDIDATES_SCHEMA
-    }'
-- key: 79a12ccbd4a00a1dcde5a1e888193b383c013d6f2d3bb7cee82d0c0327eaca87
-  path: skills/code-review/reference/workflow.js
-  line: '{ model: "opus", phase: "Recheck P1", label: locKey(f), schema: RECHECK_SCHEMA
-    }'
-- key: 629317023704dad22710c6d0e0e06df3b4bf10905578a790b484ff848f8b173c
-  path: skills/code-review/reference/workflow.js
-  line: '{ model: "opus", phase: "Shard", schema: SHARD_SCHEMA }'
-- key: 2d902a76bc534b63e3bbcc95a37620358efae9b019cdee020f95a8b7d29f65ec
-  path: skills/code-review/reference/workflow.js
-  line: '{ title: "Recheck P1", model: "opus" }'
 - key: e95b93268913d5014291ccbb14bfd2624a9aebe6ad43a8c0ce3f936c1e7d783a
   path: skills/qa/SKILL.md
-  line: "## Phase 1: Scope the plan (background, opus)"
+  line: '## Phase 1: Scope the plan (background, opus)'
 - key: 332272ee94d0485fbaa7381678363b3a2375928256f5281f41199e7edcbf5270
   path: skills/qa/SKILL.md
-  line: "## Phase 3: Refine (background, opus, max 3 rounds)"
+  line: '## Phase 3: Refine (background, opus, max 3 rounds)'
 - key: 3d5e8f83f3c74e697791a75dbca691797406a28cf54838f59b7b8e1ba1198d23
   path: skills/qa/SKILL.md
-  line: "## Phase 4: Execute (background, sonnet)"
+  line: '## Phase 4: Execute (background, sonnet)'
 - key: b736543fda0e987fb72a1ebb84b096141b210b9b0b9a04d4a15fb6a155bc93f3
   path: skills/qa/SKILL.md
   line: '(`model: "opus"`) to integrate the round''s answers into the plan and report'
@@ -53,37 +29,16 @@ entries:
   line: no reachable UI to photograph. This is the same judgment `cf:drive`'s Haiku
 - key: f7890a60fce1d089d75879b51d9ea46921383f35c78acca53dd9818bec3f843b
   path: skills/qa/VALIDATION.md
-  line: "- Phase 1 (opus, background) produces a plan with concrete, disambiguated"
+  line: '- Phase 1 (opus, background) produces a plan with concrete, disambiguated'
 - key: 9d9c1ba9c03ce8937b6dbd53abefd58c682dc8e7cdcdbd68dfebedd33b64477d
   path: skills/qa/VALIDATION.md
-  line: "- Phase 4 (sonnet, background) launches the browserless Chromium image with"
+  line: '- Phase 4 (sonnet, background) launches the browserless Chromium image with'
 - key: c561e161f2fbe38893c04a50195f139e84301873f2c463d17a35c6c589f570df
   path: skills/qa/VALIDATION.md
   line: This repo's cloud session proved the `cf:qa` orchestration (opus scope ->
 - key: c454626af152d89ee69ce71d5fda570849875593829253b3460dd1ba2f2bb6b6
   path: skills/qa/VALIDATION.md
   line: clarify -> opus refine -> sonnet execute -> report) end to end against a
-- key: daf4ef4e0d6f9a0f399b3bbd6ef7f7285ae72f66f0cec5bd25d6fd7ef557d39f
-  path: skills/resolve-threads/reference/workflow.js
-  line: "//   Evaluate    opus     One call per thread, low volume, high stakes: it
-    is"
-- key: dc88bc9dd0f5359c237c5c1d0d3dbe46a08b08c800d779946ff25ef452bfe26a
-  path: skills/resolve-threads/reference/workflow.js
-  line: "//   Root cause  opus     Runs only when recurrence fired or a verdict named
-    an"
-- key: e1a5b1a0539f319e0e0b6f9257520f87721e5424a03eb37a5774fdc7babe63a4
-  path: skills/resolve-threads/reference/workflow.js
-  line: '{ model: "opus", phase: "Root cause", label: c.concernClass, schema: SYSTEMIC_SCHEMA
-    }'
-- key: 3ffe40ac93c8a47974447451b85872dfcefb36dbeebeaf70d023ca48c262b9f2
-  path: skills/resolve-threads/reference/workflow.js
-  line: '{ model: "opus", phase: "Root cause", schema: CLUSTER_SCHEMA }'
-- key: '07608b5eaaf1da8bb118dd7b48b96767196638b599f7457b37ee77502e60602f'
-  path: skills/resolve-threads/reference/workflow.js
-  line: '{ title: "Evaluate", model: "opus" },'
-- key: 0b911d00f4e16944c8f638c08372c5116dbb2eaea23e2fe5973cc5642aae68e2
-  path: skills/resolve-threads/reference/workflow.js
-  line: '{ title: "Root cause", model: "opus" },'
 - key: 26d141aa7e9500a50103e3a1708cb062432c42e0c16a01006978e15c19087a0b
   path: skills/roast/SKILL.md
   line: 2. If candidates exist and the user named no lens, run one Agent (subagent_type
@@ -99,25 +54,6 @@ entries:
     the path router never suggests it and it applies only when named with `--lens
     cf:simplicity`. `--lens NAME` (repeatable) takes `aws` or `cf:aws`. Ruby routes,
     a haiku agent culls:'
-- key: 8b7a939c708a4e0dac0abd66277abec24235ae715302dedfdd350fa247261e03
-  path: skills/sweep/reference/workflow.js
-  line: "//   Infra     opus     One call, whole-repo blast radius: gets terraform
-    and"
-- key: 1c94619207329d1e2600b35e76be82f17b39b89f518d3d5dcfe797006467a58d
-  path: skills/sweep/reference/workflow.js
-  line: "//   Order     opus     The barrier synthesis every later merge follows."
-- key: a0ea9b8a530ef25776f4efe159b56421c634ea57ca1dd8c1dba75eb22455f8d0
-  path: skills/sweep/reference/workflow.js
-  line: '{ model: "opus", phase: "Infra", schema: INFRA_SCHEMA }'
-- key: c0bca65f9ce67e820cf91a0feed68d02feed1b2e2291a32ed34824a5b8203578
-  path: skills/sweep/reference/workflow.js
-  line: '{ model: "opus", phase: "Order", schema: ORDER_SCHEMA }'
-- key: fc8e1df2cdcdceff39bdb4239a2b50cf1511364270b81f0eb902e3f72c4ba43e
-  path: skills/sweep/reference/workflow.js
-  line: '{ title: "Infra", model: "opus" },'
-- key: 9d5fc96afae472e5c7d9d2f41418457a09202599c385b4478d7fcf309d21bd47
-  path: skills/sweep/reference/workflow.js
-  line: '{ title: "Order", model: "opus" }'
 - key: f92fd79b66fa4fed4ef9a0cde9163a1ea6b6fd846619a4aa9d700071922f4b41
   path: skills/walkthrough/reference/storyboard-schema.md
   line: Live capture runs open-source Chromium, which cannot decode H.264 video or
