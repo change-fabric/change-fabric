@@ -25,6 +25,7 @@ require_relative 'change_prod_envelope'
 module ChangeProdRunnerGen
   class Refused < StandardError; end
 
+  CLAIM_ENVIRONMENT = 'cf-claim'
   WORKFLOW = '.github/workflows/cf-prod.yml'
   SCRIPTS = '.github/cf-prod/scripts'
   # The runner's own code, copied into the consumer repo under SCRIPTS with the
@@ -115,6 +116,7 @@ module ChangeProdRunnerGen
 
   def checked_environment(profile, name)
     raise Refused, "environment for #{profile} is not a plain name" unless profile.to_s.match?(NAME) && name.to_s.match?(NAME)
+    raise Refused, "environment #{CLAIM_ENVIRONMENT} is reserved for the claim job" if name == CLAIM_ENVIRONMENT
 
     name
   end
@@ -192,16 +194,17 @@ module ChangeProdRunnerGen
 
   # The claim job assumes the claim role (conditional PutItem on the console's
   # table, nothing else) and exports the identity it claimed with. It runs in
-  # the request's GitHub Environment so its OIDC subject carries the
-  # environment the claim role's trust policy pins. It has no repo write:
-  # single use no longer lives in git.
+  # the dedicated `cf-claim` GitHub Environment (no reviewers, default branch
+  # only) so its OIDC subject is one fixed value the claim role pins, and the
+  # job adds no second reviewer prompt. It has no repo write: single use no
+  # longer lives in git.
   def claim_job(allowed, claim)
     <<~YAML.gsub(/^(?=.)/, '  ')
       claim:
         needs: validate
         if: needs.validate.outputs.environment != ''
         runs-on: ubuntu-24.04
-        environment: ${{ needs.validate.outputs.environment }}
+        environment: #{CLAIM_ENVIRONMENT}
         permissions:
           id-token: write
           contents: read
@@ -296,20 +299,19 @@ module ChangeProdRunnerGen
   # The AWS trust conditions the roles need. The sub is matched exactly, so it
   # pins the repo, the GitHub Environment, the workflow file and the default
   # branch; aud must be sts.amazonaws.com. They follow the one-time OIDC
-  # customization (repo, context, job_workflow_ref). The claim job runs in the
-  # request's Environment, so the claim role trusts one subject per allowed
-  # Environment; the approval console's `claim_environment` pins one of them.
+  # customization (repo, context, job_workflow_ref). The claim role trusts the
+  # one `cf-claim` subject; each credential role trusts its own Environment.
   def trust_policy(config, repo: nil, default_branch: 'main', blockers: production_blockers)
     slug = repo || '<o>/<r>'
     job_workflow_ref = "#{slug}/#{WORKFLOW}@refs/heads/#{default_branch}"
     claim = ChangeProdClaim.settings(config)
     jobs = environments(runner_config(config), blockers)
     subject = ->(environment) { "repo:#{slug}:environment:#{environment}:job_workflow_ref:#{job_workflow_ref}" }
-    entries = [ [ claim[:role], jobs.map { |_, environment, _| subject.call(environment) } ] ] +
-              jobs.map { |_, environment, role| [ role, [ subject.call(environment) ] ] }
-    entries.map do |role, subs|
+    entries = [ [ claim[:role], subject.call(CLAIM_ENVIRONMENT) ] ] +
+              jobs.map { |_, environment, role| [ role, subject.call(environment) ] }
+    entries.map do |role, sub|
       condition = { 'StringEquals' => { 'token.actions.githubusercontent.com:aud' => 'sts.amazonaws.com',
-                                        'token.actions.githubusercontent.com:sub' => subs.one? ? subs.first : subs } }
+                                        'token.actions.githubusercontent.com:sub' => sub } }
       "trust condition for #{role}: #{JSON.generate('Condition' => condition)}"
     end
   rescue ChangeProdClaim::Unavailable => e
@@ -335,6 +337,7 @@ module ChangeProdRunnerGen
     stdout.puts "wrote #{path}"
     vendor(opts[:root]).each { |file| stdout.puts "wrote #{file}" }
     stdout.puts "one-time repo setting (human, once): #{oidc_command(opts[:repo])}"
+    stdout.puts "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment with deployment branch = default only, no reviewers"
     trust_policy(config, repo: opts[:repo], default_branch: opts[:default_branch] || 'main').each { |line| stdout.puts line }
     0
   rescue Refused, ChangeProdEnvelope::Invalid, OptionParser::ParseError, KeyError => e

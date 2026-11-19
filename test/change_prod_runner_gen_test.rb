@@ -271,12 +271,25 @@ class ChangeProdRunnerGenTest < Minitest::Test
     lines = out.string.lines.grep(/trust condition/)
     assert_equal 2, lines.size
     claim = lines.find { |line| line.include?("cf-prod-claim") }
-    assert_includes claim, "repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
+    assert_includes claim, "repo:acme/app:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
     staging = lines.find { |line| line.include?("cf-staging") }
     assert_includes staging, "repo:acme/app:environment:staging:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/trunk"
     assert_includes staging, '"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"'
     assert_includes staging, "StringEquals"
     refute_includes out.string, "role/cf-prod\""
+  end
+
+  def test_claim_job_runs_in_the_dedicated_cf_claim_environment
+    claim = YAML.safe_load(generate)["jobs"]["claim"]
+    assert_equal "cf-claim", claim["environment"]
+    out = StringIO.new
+    Dir.mktmpdir { |root| Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out) }
+    sub = "repo:acme/app:environment:cf-claim:job_workflow_ref:acme/app/.github/workflows/cf-prod.yml@refs/heads/main"
+    assert_includes out.string.lines.find { |line| line.include?("cf-prod-claim") }, sub
+    assert_match(/create a cf-claim environment with deployment branch = default only, no reviewers/, out.string)
+    reserved = config
+    runner(reserved)["environments"]["staging"] = "cf-claim"
+    assert_refused(/reserved/) { generate(reserved) }
   end
 
   def test_cli_refuses_a_missing_config
