@@ -7,13 +7,21 @@ require_relative 'change_trust'
 require_relative 'change_approval_store'
 require_relative 'cf_project_identity'
 require_relative 'approval_console/terminal_prompt'
+require_relative 'approval_console/remote'
+require_relative 'approval_console/proof_check'
+require_relative 'change_policy'
 
 # Human-run approval of host-run step definitions (boot.up, boot.down, command
 # lane entries) that differ from the base branch at one exact commit. cf:change
 # refuses to execute such a step until it is approved here, and the merge and
 # tag guards refuse a gate record that ran one without approval.
 #
-# Usage: change_approve.rb <sha> [--repo PATH]
+# Usage: change_approve.rb <sha> [--repo PATH] [--remote]
+#
+# --remote sends the exact steps to the approval console instead: the phone
+# shows every field, takes the TOTP code and the passkey, and the returned
+# proof is verified offline before it is recorded. Without a console
+# configured it falls back to the terminal path below.
 #
 # It reads the definitions committed at <sha> and on the base branch with
 # `git show` (nothing is checked out or executed), prints every step that
@@ -36,8 +44,8 @@ module ChangeApprove
 
   module_function
 
-  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, fetch: true)
-    sha_arg, root = parse_args(argv, stderr)
+  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, fetch: true, console: :default)
+    sha_arg, root, remote = parse_args(argv, stderr)
     return 1 unless sha_arg
 
     unless stdin.tty?
@@ -66,9 +74,14 @@ module ChangeApprove
     end
 
     describe(pending, sha, base, stdout)
-    return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
+    client = remote && console_client(console, stderr)
+    proof = if client
+              prove_remote(pending, root, sha, client, stdout: stdout, stderr: stderr)
+    else
+              return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
-    proof = prove(pending, root, sha, stdin: stdin, stdout: stdout, stderr: stderr)
+              prove(pending, root, sha, stdin: stdin, stdout: stdout, stderr: stderr)
+    end
     return 1 unless proof
 
     ChangeApprovalStore.new(sha).record(steps: pending.map { |item| [ item.step, item.digest ] }, by: approver(root), proof: proof)
@@ -76,14 +89,33 @@ module ChangeApprove
     0
   end
 
+  # The console client, or nil (with a note) when none is configured, so the
+  # caller falls back to the terminal path.
+  def console_client(console, stderr)
+    client = console == :default ? ApprovalConsole::Client.for(ApprovalConsole::LocalStore.new) : console
+    stderr.puts '[change] no approval console is configured; using the terminal TOTP path.' unless client
+    client
+  end
+
+  def attrs(pending, root, sha)
+    items = pending.map { |item| { 'step' => item.step, 'fields' => item.fields, 'base_fields' => item.base_fields } }
+    { 'type' => 'step', 'repo' => CfProjectIdentity.for(root).id, 'sha' => sha, 'profile' => nil, 'items' => items }
+  end
+
+  # The console path: passkey plus TOTP on the phone, verified here.
+  def prove_remote(pending, root, sha, client, stdout:, stderr:, **opts)
+    result = ApprovalConsole::Remote.approve(attrs(pending, root, sha), store: ApprovalConsole::LocalStore.new, client: client,
+                                                                        out: stdout, **opts)
+    return result.proof if result.ok?
+
+    stderr.puts "[change] #{result.error}; nothing recorded."
+    nil
+  end
+
   # The TOTP second factor over the exact items just shown. Nil (with the
   # reason on stderr) when the code is refused; nothing is recorded then.
   def prove(pending, root, sha, stdin:, stdout:, stderr:)
-    items = pending.map { |item| { 'step' => item.step, 'fields' => item.fields, 'base_fields' => item.base_fields } }
-    result = ApprovalConsole::TerminalPrompt.approve(
-      { 'type' => 'step', 'repo' => CfProjectIdentity.for(root).id, 'sha' => sha, 'profile' => nil, 'items' => items },
-      stdin: stdin, stdout: stdout
-    )
+    result = ApprovalConsole::TerminalPrompt.approve(attrs(pending, root, sha), stdin: stdin, stdout: stdout)
     return result.proof if result.ok?
 
     stderr.puts "[change] #{result.error}; nothing recorded."
@@ -98,12 +130,23 @@ module ChangeApprove
   # its unprofiled config), since a profile may override boot and so define a
   # different step. In a monorepo the profiles live in each app's own config.
   def pending_steps(root, sha, base, stderr: $stderr)
-    approvals = ChangeApprovalStore.new(sha).approvals
+    approvals = standing_approvals(root, sha)
     ChangeTrust.profiles_by_app(root, sha).flat_map do |app, profiles|
       profiles.flat_map do |profile|
         pending_for(root, sha, base, app: app, profile: profile, approvals: approvals, stderr: stderr)
       end
     end.uniq { |item| [ item.step, item.digest ] }
+  end
+
+  # The recorded (step, digest) pairs whose proof passes this repo's
+  # require_approval_proof. A refused one is offered for approval again.
+  def standing_approvals(root, sha)
+    level = ChangePolicy.for_repo(root)&.require_approval_proof
+    check = ApprovalConsole::ProofCheck.new(level: level)
+    repo = CfProjectIdentity.for(root).id
+    ChangeApprovalStore.new(sha).entries.group_by { |entry| entry['proof'].is_a?(Hash) ? entry['proof']['body'] : entry.object_id }
+                       .values.select { |group| check.approvals_problem(group, repo: repo, sha: sha).nil? }
+                       .flatten.map { |entry| [ entry['step'].to_s, entry['digest'].to_s.delete_prefix('sha256:') ] }
   end
 
   def pending_for(root, sha, base, app:, profile:, approvals:, stderr:)
@@ -160,13 +203,17 @@ module ChangeApprove
   def parse_args(argv, stderr)
     args = argv.dup
     root = nil
-    OptionParser.new { |o| o.on('--repo PATH') { |value| root = value } }.parse!(args)
+    remote = false
+    OptionParser.new do |o|
+      o.on('--repo PATH') { |value| root = value }
+      o.on('--remote') { remote = true }
+    end.parse!(args)
     sha = args.first
     if sha.to_s.empty?
-      stderr.puts 'usage: change_approve.rb <sha> [--repo PATH]'
-      return [ nil, nil ]
+      stderr.puts 'usage: change_approve.rb <sha> [--repo PATH] [--remote]'
+      return [ nil, nil, false ]
     end
-    [ sha, File.expand_path(root || repo_root) ]
+    [ sha, File.expand_path(root || repo_root), remote ]
   end
 
   def repo_root

@@ -58,7 +58,9 @@ class ChangeMergeGuard
     return unreadable_violation(root, base) if policy == :unreadable
     return nil if policy.nil?
     return nil unless policy.protects?(base)
-    return nil if ChangeOverrideStore.new(sha, profile: policy.profile_for(base)).authorized?
+    # An override counts only when its proof stands (ChangeGateCheck#overridden?).
+    return nil if ChangeGateCheck.new(sha: sha, profile: policy.profile_for(base), root: root,
+                                      proof_level: policy.require_approval_proof).overridden?
 
     admin?(command) ? admin_violation(policy, base, sha) : normal_violation(policy, base, sha)
   end
@@ -126,7 +128,7 @@ class ChangeMergeGuard
   def gate_violation(base, sha, policy, kind:)
     profile = policy.profile_for(base)
     apps = ChangeGateCheck.required_apps(repo_root, policy.apps_for(base))
-    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: repo_root)
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: repo_root, proof_level: policy.require_approval_proof)
     return check.overridden? ? nil : testcases_violation(base, sha, policy, check, kind: kind) if check.satisfied?
 
     conditions = policy.admin_bypass_conditions

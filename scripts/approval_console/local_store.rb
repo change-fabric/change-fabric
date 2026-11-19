@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require 'openssl'
 require 'securerandom'
 require 'socket'
 require 'time'
@@ -83,6 +84,81 @@ module ApprovalConsole
     # Without a console URL the local fence is the only channel.
     def console_configured? = !console['base_url'].to_s.empty?
 
+    def base_url = console['base_url']
+
+    # The P-256 key this machine signs console calls with. Created once at
+    # `enroll`; its public half lives in the console's M#<id>/META row.
+    def machine_key
+      file = path('machine_key.pem')
+      File.file?(file) ? OpenSSL::PKey.read(File.read(file)) : nil
+    end
+
+    def ensure_machine_key!
+      require_enrolled!
+      existing = machine_key
+      return existing if existing
+
+      key = OpenSSL::PKey::EC.generate('prime256v1')
+      write_new(path('machine_key.pem'), key.to_pem)
+      key
+    end
+
+    # Pins the console for this machine: base URL and rpId in console.json, the
+    # passkey public keys and the receipt public key in credentials.json.
+    def pin!(base_url:, rp_id:, credentials:, receipt_public_key:, receipt_key_id:)
+      require_enrolled!
+      write_atomic(path('credentials.json'), JSON.pretty_generate(
+                                               'rp_id' => rp_id, 'credentials' => credentials,
+                                               'receipt_public_key' => receipt_public_key, 'receipt_key_id' => receipt_key_id
+                                             ))
+      write_atomic(path('console.json'), JSON.pretty_generate(console.merge('base_url' => base_url, 'rp_id' => rp_id)))
+    end
+
+    # { 'rp_id', 'credentials' => {id => cose}, 'receipt_public_key' } or {}.
+    def pins = read_json(path('credentials.json'))
+
+    # Raises the local fence mirror to a step the console accepted, and records
+    # a successful console contact for the offline bounds.
+    def observe_step(step, now: Time.now)
+      with_lock do
+        state = read_state
+        state['last_step'] = [ state['last_step'], step ].compact.max
+        state['last_sync'] = now.utc.iso8601
+        write_state(state)
+      end
+    end
+
+    # Settles one queued offline approval, matched by body hash: `:synced`
+    # removes it, `:conflict` keeps it (without its code) so status and the
+    # gate see it.
+    def settle(body_sha256, status, reason: nil, now: Time.now)
+      with_lock do
+        entries = pending.filter_map do |entry|
+          next entry unless entry['body_sha256'] == body_sha256
+          next nil if status == :synced
+
+          entry.except('code').merge('status' => 'conflict', 'reason' => reason.to_s)
+        end
+        write_atomic(path('pending_sync.jsonl'), entries.map { |entry| "#{JSON.generate(entry)}\n" }.join)
+        state = read_state
+        state['last_sync'] = now.utc.iso8601 if status == :synced
+        write_state(state)
+      end
+    end
+
+    # Request bodies this machine sent with `request --no-wait`, for `wait`.
+    def save_request(request_id, body)
+      FileUtils.mkdir_p(path('requests'), mode: DIR_MODE)
+      write_atomic(File.join(path('requests'), "#{request_id}.json"), body)
+    end
+
+    def saved_request(request_id)
+      return nil unless request_id.to_s.match?(/\A[0-9a-f-]{36}\z/)
+
+      file = File.join(path('requests'), "#{request_id}.json")
+      File.file?(file) ? File.read(file) : nil
+    end
+
     # Checks `code` against the seed under the lock and, on success, commits the
     # fence (`last_step`) and the optional `entry` for the sync queue in the
     # same locked write. Fails closed: any error is :error and nothing is
@@ -101,12 +177,15 @@ module ApprovalConsole
       locked = locked_until(state)
       { enrolled: enrolled?, machine_id: machine_id, label: label, last_step: state['last_step'],
         failures: state['failures'].to_i, locked_until: locked && locked > now ? locked : nil,
-        pending: pending.size, conflicts: conflicts.size, console_configured: console_configured? }
+        pending: unsynced.size, conflicts: conflicts.size, console_configured: console_configured? }
     end
 
     def pending = read_lines(path('pending_sync.jsonl'))
 
     def conflicts = pending.select { |entry| entry['status'] == 'conflict' }
+
+    # Queued offline approvals still waiting for a console receipt.
+    def unsynced = pending.reject { |entry| entry['status'] == 'conflict' }
 
     private
 
@@ -152,7 +231,7 @@ module ApprovalConsole
       return false unless console_configured?
 
       last = readable_time(state['last_sync'])
-      pending.size >= MAX_PENDING || (!last.nil? && now - last > OFFLINE_GRACE)
+      unsynced.size >= MAX_PENDING || (!last.nil? && now - last > OFFLINE_GRACE)
     end
 
     def blank_state = { 'last_step' => nil, 'failures' => 0, 'lockouts' => 0, 'locked_until' => nil, 'last_sync' => nil }

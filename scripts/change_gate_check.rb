@@ -2,6 +2,9 @@
 # frozen_string_literal: true
 
 require_relative 'change_apps'
+require_relative 'change_approval_store'
+require_relative 'cf_project_identity'
+require_relative 'approval_console/proof_check'
 require_relative 'change_gate_store'
 require_relative 'change_override_store'
 require_relative 'change_trust'
@@ -16,11 +19,17 @@ class ChangeGateCheck
   # `root` (0.17.0) is the repo the guard is deciding for. When given, a
   # passing record must also prove its host-run steps were trusted (see
   # trust_problem); without it the check is the pre-0.17.0 question.
-  def initialize(sha:, profile:, apps: nil, root: nil)
+  #
+  # `proof_level` is change_policy.require_approval_proof: 'local', 'remote',
+  # or nil for the compatibility window (a missing proof only warns). An
+  # invalid proof is refused at every level.
+  def initialize(sha:, profile:, apps: nil, root: nil, proof_level: nil, proof_store: nil)
     @sha = sha
     @profile = profile
     @apps = apps
     @root = root
+    @proof_level = proof_level
+    @proof_store = proof_store
   end
 
   # True when a human-recorded override covers this (sha, profile), or a
@@ -41,14 +50,35 @@ class ChangeGateCheck
   def trust_problem
     return @trust_problem if defined?(@trust_problem)
 
-    @trust_problem = @root && ChangeTrust.record_problem(root: @root, sha: @sha, record: store.read,
-                                                         profile: @profile, apps: @apps)
+    @trust_problem = @root && (ChangeTrust.record_problem(root: @root, sha: @sha, record: store.read,
+                                                          profile: @profile, apps: @apps) || approval_proof_problem)
   end
+
+  # nil, or why a step approval recorded for this sha has a proof that does
+  # not verify (or none, once require_approval_proof is set).
+  def approval_proof_problem
+    proof_check.approvals_problem(ChangeApprovalStore.new(@sha).entries, repo: repo_id, sha: @sha)
+  end
+
+  # nil, or why the recorded override does not stand on its proof.
+  def override_problem
+    return @override_problem if defined?(@override_problem)
+
+    record = ChangeOverrideStore.new(@sha, profile: @profile).read
+    @override_problem = if record.nil? then nil
+    elsif record.is_a?(Hash) then proof_check.override_problem(record, repo: repo_id, sha: @sha, profile: @profile)
+    else 'override record is malformed'
+    end
+  end
+
+  # Missing-proof warnings collected during the compatibility window.
+  def proof_warnings = proof_check.warnings
 
   # " (trust: <reason>)" or '', for a deny message.
   # Empty when no passing record exists at all: that case already has its own
   # wording, and a trust reason would only confuse it.
   def trust_clause
+    return " (#{override_problem})" if override_problem
     return '' unless store.comprehensive_pass?(apps: @apps) && trust_problem
 
     " (trust: #{trust_problem})"
@@ -62,7 +92,7 @@ class ChangeGateCheck
   def overridden?
     return @overridden if defined?(@overridden)
 
-    @overridden = ChangeOverrideStore.new(@sha, profile: @profile).authorized?
+    @overridden = ChangeOverrideStore.new(@sha, profile: @profile).authorized? && override_problem.nil?
   end
 
   # The app set this check is scoped to, or nil in single-app mode.
@@ -96,6 +126,12 @@ class ChangeGateCheck
   def store
     @store ||= ChangeGateStore.new(@sha, profile: @profile)
   end
+
+  def proof_check
+    @proof_check ||= ApprovalConsole::ProofCheck.new(level: @proof_level, **({ store: @proof_store }.compact))
+  end
+
+  def repo_id = CfProjectIdentity.for(@root || Dir.pwd).id
 
   # The app names (0.4.0) a passing gate record must cover for a promotion
   # rule, or nil in single-app mode (where `satisfied?` asks its original,

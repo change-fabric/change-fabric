@@ -333,7 +333,14 @@ class ChangePolicy
     value.is_a?(String) && !value.strip.empty? ? value : 'main'
   end
 
-  def gate_errors = ChangeSchema.gate_errors(@policy)
+  def gate_errors = ChangeSchema.gate_errors(@policy) + ChangeSchema.approval_proof_errors(@policy)
+
+  # change_policy.require_approval_proof (0.25.0): 'local', 'remote', or nil
+  # (unset or invalid) for the compatibility window.
+  def require_approval_proof
+    value = @policy['require_approval_proof']
+    ChangeSchema::APPROVAL_PROOF_LEVELS.include?(value) ? value : nil
+  end
 
   # change_policy.trackers (0.19.0). config is the change_config block, for
   # the checks that span both (a policy's wiring, an enabled template).

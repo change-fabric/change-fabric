@@ -6,6 +6,7 @@ require 'open3'
 require_relative 'change_override_store'
 require_relative 'cf_project_identity'
 require_relative 'approval_console/terminal_prompt'
+require_relative 'approval_console/remote'
 
 # Human-run companion to change_merge_guard.rb's CF_ALLOW_UNGATED_MERGE escape
 # hatch, for the case that hatch is documented but unreachable: the guard reads
@@ -30,11 +31,14 @@ require_relative 'approval_console/terminal_prompt'
 # After the typed confirmation it also requires a TOTP code from this
 # machine's enrolled seed (approval_console.rb totp-enroll), fenced to one use
 # per 30 second step, and stores a `totp-terminal` proof with the override.
+# With --remote and a console configured, the phone shows the override and
+# takes the TOTP code and the passkey instead; the proof is verified offline
+# before it is recorded.
 module ChangeOverride
   module_function
 
-  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr)
-    sha, reason, profile = parse_args(argv, stderr)
+  def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr, console: :default)
+    sha, reason, profile, remote = parse_args(argv, stderr)
     return 1 unless sha
     return 1 unless real_terminal?(stdin, stderr)
 
@@ -44,9 +48,15 @@ module ChangeOverride
       return 1
     end
     return 1 unless enrolled?(stderr)
-    return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
-    proof = prove(sha, reason, profile, stdin: stdin, stdout: stdout, stderr: stderr)
+    client = remote && console_client(console, stderr)
+    proof = if client
+              prove_remote(attrs(sha, reason, profile), client, stdout: stdout, stderr: stderr)
+    else
+              return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
+
+              prove(sha, reason, profile, stdin: stdin, stdout: stdout, stderr: stderr)
+    end
     return 1 unless proof
 
     ChangeOverrideStore.new(sha, profile: profile).record(
@@ -57,13 +67,28 @@ module ChangeOverride
     0
   end
 
+  def attrs(sha, reason, profile)
+    { 'type' => 'override', 'repo' => CfProjectIdentity.for(Dir.pwd).id, 'sha' => sha, 'profile' => profile, 'reason' => reason }
+  end
+
+  def console_client(console, stderr)
+    client = console == :default ? ApprovalConsole::Client.for(ApprovalConsole::LocalStore.new) : console
+    stderr.puts '[change] no approval console is configured; using the terminal TOTP path.' unless client
+    client
+  end
+
+  def prove_remote(attrs, client, stdout:, stderr:, **opts)
+    result = ApprovalConsole::Remote.approve(attrs, store: ApprovalConsole::LocalStore.new, client: client, out: stdout, **opts)
+    return result.proof if result.ok?
+
+    stderr.puts "[change] #{result.error}; nothing recorded."
+    nil
+  end
+
   # The TOTP second factor over this exact (sha, profile, reason). Nil, with
   # the reason on stderr, when refused; nothing is recorded then.
   def prove(sha, reason, profile, stdin:, stdout:, stderr:)
-    result = ApprovalConsole::TerminalPrompt.approve(
-      { 'type' => 'override', 'repo' => CfProjectIdentity.for(Dir.pwd).id, 'sha' => sha, 'profile' => profile,
-        'reason' => reason }, stdin: stdin, stdout: stdout
-    )
+    result = ApprovalConsole::TerminalPrompt.approve(attrs(sha, reason, profile), stdin: stdin, stdout: stdout)
     return result.proof if result.ok?
 
     stderr.puts "[change] #{result.error}; nothing recorded."
@@ -110,17 +135,19 @@ module ChangeOverride
     args = argv.dup
     reason = nil
     profile = nil
+    remote = false
     OptionParser.new do |o|
+      o.on('--remote') { remote = true }
       o.on('--reason REASON') { |value| reason = value }
       o.on('--profile NAME') { |value| profile = value }
     end.parse!(args)
     sha = args.first
 
     if sha.to_s.empty? || reason.to_s.empty?
-      stderr.puts 'usage: change_override.rb <sha> --reason "<why>" [--profile NAME]'
-      return [ nil, nil, nil ]
+      stderr.puts 'usage: change_override.rb <sha> --reason "<why>" [--profile NAME] [--remote]'
+      return [ nil, nil, nil, false ]
     end
-    [ sha, reason, profile ]
+    [ sha, reason, profile, remote ]
   end
 end
 

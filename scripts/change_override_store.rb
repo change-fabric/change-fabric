@@ -17,7 +17,7 @@ require_relative 'change_sha_record'
 # colliding with a gate-store record for the same key.
 class ChangeOverrideStore < ChangeShaRecord
   # An optional `proof` (see scripts/approval_console) is stored beside the
-  # reason; nothing reads or enforces it yet.
+  # reason; ChangeGateCheck verifies it.
   def record(reason:, recorded_by:, proof: nil)
     payload = {
       'sha' => @sha,
@@ -31,6 +31,16 @@ class ChangeOverrideStore < ChangeShaRecord
   end
 
   def authorized? = !read.nil?
+
+  # Rewrites the stored proof when its body is `body` (a sync attaching a
+  # console receipt, or marking a conflict).
+  def update_proof(body)
+    record = read
+    return 0 unless record.is_a?(Hash) && record.dig('proof', 'body') == body
+
+    write(record.merge('proof' => yield(record['proof'])))
+    1
+  end
 
   private
 

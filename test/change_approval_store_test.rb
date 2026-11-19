@@ -58,14 +58,14 @@ class ChangeApprovalStoreTest < Minitest::Test
     assert_empty store("abc").approvals
   end
 
-  def test_proof_rides_on_added_entries_only_and_reads_do_not_change
+  def test_a_proofed_record_supersedes_the_entries_it_reapproves
     proof = { "kind" => "totp-terminal", "body" => "{}", "totp_step" => 1, "receipt" => nil }
-    store("abc").record(steps: [ [ "boot.up", "d1" ] ], by: "a")
+    store("abc").record(steps: [ [ "boot.up", "d1" ], [ "lane.x", "d3" ] ], by: "a")
     store("abc").record(steps: [ [ "boot.up", "d1" ], [ "boot.down", "d2" ] ], by: "b", proof: proof)
     entries = JSON.parse(File.read(File.join(@dir, "abc.json")))["approved"]
-    refute entries[0].key?("proof")
-    assert_equal proof, entries[1]["proof"]
-    assert_equal [ [ "boot.up", "d1" ], [ "boot.down", "d2" ] ], store("abc").approvals
+    refute entries[0].key?("proof"), "an entry the new proof does not cover is kept as it was"
+    assert_equal [ proof, proof ], entries[1..].map { |entry| entry["proof"] }
+    assert_equal [ [ "lane.x", "d3" ], [ "boot.up", "d1" ], [ "boot.down", "d2" ] ], store("abc").approvals
   end
 
   def test_no_proof_key_without_a_proof
