@@ -74,6 +74,7 @@ module WalkthroughRoast
       target: given.fetch(:target, cfg.target || TARGET).to_f,
       rounds: given.fetch(:rounds, cfg.rounds || ROUND_CAP).to_i,
       model: Roast.model_for(kind: cfg.kind, flag: given[:model], config: cfg.model),
+      backend: Roast.backend_for(flag: given[:backend]),
       review: { kind: cfg.kind, audience: cfg.audience }.compact }
   end
 
@@ -179,7 +180,8 @@ module WalkthroughRoast
 
     content = data['content'].is_a?(Hash) ? data['content'] : {}
     scenes = data['scenes'].is_a?(Hash) ? { 'scenes' => data['scenes'] } : {}
-    { 'rounds' => data['rounds'] || {}, 'capped' => data['capped'] == true, 'content' => content, **scenes }
+    backends = data['backends'].is_a?(Hash) ? { 'backends' => data['backends'] } : {}
+    { 'rounds' => data['rounds'] || {}, 'capped' => data['capped'] == true, 'content' => content, **scenes, **backends }
   rescue JSON::ParserError
     { 'rounds' => {}, 'capped' => true, 'unreadable' => true, 'content' => {} }
   end
@@ -195,8 +197,17 @@ module WalkthroughRoast
     File.write(File.join(dir, LEDGER), "#{JSON.pretty_generate(data)}\n")
   end
 
-  def record_spend(dir, round, usd)
-    write_ledger(dir, ledger(dir).tap { |l| l['rounds'][round.to_s] = usd.to_f.round(4) })
+  # A codex round records usd 0.0; its backend and subscription token count
+  # ride in a parallel `backends` map so `rounds` stays a plain USD sum.
+  def record_spend(dir, round, usd, backend: nil, subscription_tokens: nil)
+    write_ledger(dir, ledger(dir).tap do |l|
+      l['rounds'][round.to_s] = usd.to_f.round(4)
+      next unless backend
+
+      entry = { 'backend' => backend }
+      entry['subscription_tokens'] = subscription_tokens if subscription_tokens
+      (l['backends'] ||= {})[round.to_s] = entry
+    end)
   end
 
   # The content key of what a round reviewed, so a later edit voids its pass.

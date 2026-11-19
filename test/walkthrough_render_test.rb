@@ -8,6 +8,9 @@ require_relative "../scripts/walkthrough_render"
 require_relative "support/png_fixture"
 require_relative "enroll_helpers"
 
+# These tests drive the API path; the default backend would try the host's real codex.
+ENV["CF_ROAST_BACKEND"] = "api"
+
 class WalkthroughRenderTest < Minitest::Test
   include EnrollHelpers
 
@@ -777,6 +780,49 @@ class WalkthroughRenderTest < Minitest::Test
       end
     end
     refute File.exist?(File.join(@root, "roast", "round-1.json"))
+  end
+
+  CODEX_FX = File.expand_path("fixtures/roast_codex", __dir__)
+
+  def codex_runner(login: "login_status_chatgpt.txt")
+    fx = ->(name) { File.read(File.join(CODEX_FX, name)) }
+    result = ->(out, code = 0) { RoastCodex::Result.new(stdout: out, stderr: "", exit_code: code, timed_out: false) }
+    lambda do |argv, **|
+      text = fx.call(login)
+      next result.call(text.sub(/^exit=\d+\s*\z/, ""), text[/^exit=(\d+)/, 1].to_i) if argv.include?("login")
+      next result.call(fx.call("models.json")) if argv.include?("debug")
+
+      File.write(argv[argv.index("-o") + 1], fx.call("exec_ok_last.json"))
+      result.call(fx.call("exec_ok.jsonl"))
+    end
+  end
+
+  def codex_providers(runner)
+    providers.merge(codex_runner: runner, roast: ->(**kw) { Roast.critique(**kw, codex_runner: runner) })
+  end
+
+  def test_codex_answers_a_draft_roast_with_no_enrolled_key_and_ledgers_it
+    with_enrolled do
+      out = StringIO.new
+      WalkthroughRender::Run.new(@root, providers: codex_providers(codex_runner), out: out,
+                                        gates: { roast: true, roast_backend: "auto" }).call
+      assert_includes out.string, "subscription (codex), no USD"
+      ledger = WalkthroughRoast.ledger(File.join(@root, "roast"))
+      assert_equal({ "1" => 0.0 }, ledger["rounds"])
+      assert_equal({ "backend" => "codex", "subscription_tokens" => 19_263 }, ledger["backends"]["1"])
+      assert File.file?(File.join(@root, "roast", "round-1.json"))
+    end
+  end
+
+  def test_auto_fallback_with_no_enrolled_key_still_needs_enrollment
+    with_enrolled do
+      runner = codex_runner(login: "login_status_logged_out.txt")
+      out = StringIO.new
+      assert_raises(WalkthroughEnv::NeedsEnrollment) do
+        WalkthroughRender::Run.new(@root, providers: codex_providers(runner), out: out, gates: { roast: true, roast_backend: "auto" }).call
+      end
+      assert_includes out.string, "roast: codex unavailable (not_logged_in), falling back to API"
+    end
   end
 
   def test_deferred_draft_roast_skips_the_round_and_keeps_rendering

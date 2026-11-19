@@ -28,6 +28,7 @@ class RoastCodexTest < Minitest::Test
   def runner_for(res, answer: nil)
     lambda do |argv, **kw|
       next status_result("login_status_chatgpt.txt") if argv.include?("login")
+      next result(fixture("models.json")) if argv.include?("debug")
 
       @seen = { argv: argv, **kw }
       File.write(argv[argv.index("-o") + 1], answer) if answer
@@ -194,7 +195,7 @@ class RoastCodexTest < Minitest::Test
   end
 
   def test_backend_resolution_and_cache_key
-    assert_equal "api", Roast.backend_for(env: {})
+    assert_equal "auto", Roast.backend_for(env: {})
     assert_equal "codex", Roast.backend_for(env: { "CF_ROAST_BACKEND" => "codex" })
     assert_equal "api", Roast.backend_for(flag: "api", env: { "CF_ROAST_BACKEND" => "codex" })
     assert_raises(Roast::UsageError) { Roast.backend_for(flag: "nope") }
