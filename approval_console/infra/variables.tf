@@ -62,7 +62,7 @@ variable "claim_environment" {
   default     = "cf-claim"
 
   validation {
-    condition     = length(trimspace(var.claim_environment)) > 0
-    error_message = "claim_environment must be non-empty."
+    condition     = can(regex("^[A-Za-z0-9_.-]+$", var.claim_environment))
+    error_message = "claim_environment must be a non-empty name of letters, digits, _, . or - (it sits in a StringLike sub, so no wildcards)."
   }
 }
