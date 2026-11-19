@@ -261,11 +261,48 @@ module WalkthroughRoast
       return nil
     end
 
+    carried = carry_history(dir, was, scenes)
     archive = File.join(dir, SUPERSEDED, (Dir.glob(File.join(dir, SUPERSEDED, '*')).size + 1).to_s)
     FileUtils.mkdir_p(archive)
-    Dir.glob(File.join(dir, 'round-*')).push(File.join(dir, LEDGER), File.join(dir, 'keyframes')).each { |f| FileUtils.mv(f, archive) if File.exist?(f) }
+    Dir.glob(File.join(dir, 'round-*')).push(File.join(dir, LEDGER), File.join(dir, 'keyframes'), File.join(dir, CARRIED)).each { |f| FileUtils.mv(f, archive) if File.exist?(f) }
+    File.write(File.join(dir, CARRIED), JSON.pretty_generate(carried)) unless carried.empty?
     archive
   end
+
+  # The file in the roast dir holding the history a reset carried over.
+  CARRIED = 'carried-history.json'
+
+  # The critic's history: what earlier loops carried over, then this loop's
+  # rounds. Round numbers restart on a reset; carried entries keep theirs.
+  def history(dir)
+    carried = File.file?(File.join(dir, CARRIED)) ? JSON.parse(File.read(File.join(dir, CARRIED))) : []
+    carried.map { |h| { round: h['round'], critic: h['critic'], response: h['response'] } } + Roast.load_history(dir)
+  rescue JSON::ParserError
+    Roast.load_history(dir)
+  end
+
+  # Earlier rounds (and the history already carried) for the scenes that
+  # survive the reset, matched by scene id, so a re-key does not forget which
+  # issues were accepted or rebutted. An issue naming only a dropped scene is
+  # left behind; one naming no scene at all is film-wide and stays.
+  def carry_history(dir, was, scenes)
+    gone = (was || {}).keys - scenes.keys
+    named = ->(item) { scene_named?(Roast.location(item), scenes.keys + gone) }
+    keep = lambda do |item|
+      loc = Roast.location(item)
+      !named.call(item) || scene_named?(loc, scenes.keys)
+    end
+    history(dir).filter_map do |h|
+      issues = Array(h[:critic]['issues']).select(&keep)
+      responses = Array(h.dig(:response, 'responses')).select(&keep)
+      next if issues.empty? && responses.empty?
+
+      { 'round' => "#{h[:round]}, before a re-key", 'critic' => h[:critic].merge('issues' => issues),
+        'response' => h[:response] && h[:response].merge('responses' => responses) }
+    end
+  end
+
+  def scene_named?(location, ids) = ids.any? { |id| location.match?(/(?<![\w-])#{Regexp.escape(id)}(?![\w-])/) }
 
   # A round skipped because it would pass the run cap: the loop is over.
   def mark_capped(dir) = write_ledger(dir, ledger(dir).merge('capped' => true))

@@ -170,6 +170,25 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  # Re-keyed scenes keep their ids, so earlier issues and rebuttals still reach the critic.
+  def test_a_reset_carries_rebuttals_for_surviving_scenes
+    Dir.mktmpdir do |dir|
+      WalkthroughRoast.record_scenes(dir, { "a" => "k1", "b" => "k2", "c" => "k3" })
+      kept = { "priority" => "P1", "screen" => "a", "problem" => "Toast hides CTA", "fix" => "f" }
+      gone = { "priority" => "P1", "screen" => "c", "problem" => "Old nitpick", "fix" => "f" }
+      round(dir, 2, [ kept, gone ], [ { "screen" => "a", "problem" => "Toast hides CTA", "verdict" => "rebut" }, { "screen" => "c", "problem" => "Old nitpick", "verdict" => "rebut" } ])
+      assert WalkthroughRoast.rescope!(dir, { "a" => "n1", "b" => "n2" })
+      assert_empty Roast.load_history(dir)
+      carried = WalkthroughRoast.history(dir)
+      assert_equal 1, carried.size
+      assert_equal [ "Toast hides CTA" ], carried.first[:critic]["issues"].map { |i| i["problem"] }
+      assert_equal "rebut", carried.first[:response]["responses"].first["verdict"]
+      round(dir, 1, [ issue("P2") ])
+      assert_equal 2, WalkthroughRoast.history(dir).size
+      assert_equal 2, Roast.next_round(dir)
+    end
+  end
+
   # A capped loop roasted before scene tracking can still restart.
   def test_a_legacy_ledger_restarts_once_on_changed_content_else_takes_a_baseline
     Dir.mktmpdir do |dir|
