@@ -162,6 +162,19 @@ class InstallUpgradeTest < Minitest::Test
     assert Dir.glob("#{@paths.extensions_copy_root}/*.new-*").empty?
   end
 
+  def test_a_second_backup_in_the_same_directory_never_overwrites_the_first
+    install
+    edited = File.join(@paths.pi_extension_copy, "index.ts")
+    manifest = CfInstallManifest.new(path: File.join(@paths.runtime_root, "installation.json"), home: @home)
+    dir = File.join(@paths.runtime_root, "backups", "extensions-fixed")
+    File.write(edited, "// first edit\n")
+    capture_io { Install::ExtensionCopy.new(source: @paths.pi_extension_source, dest: @paths.pi_extension_copy, label: "pi-cf-hooks", backup_dir: dir, manifest: manifest).sync }
+    File.write(edited, "// second edit\n")
+    capture_io { Install::ExtensionCopy.new(source: @paths.pi_extension_source, dest: @paths.pi_extension_copy, label: "pi-cf-hooks", backup_dir: dir, manifest: manifest).sync }
+    kept = Dir.glob(File.join(dir, "pi-cf-hooks", "index.ts*")).map { |f| File.read(f) }
+    assert_equal [ "// first edit\n", "// second edit\n" ], kept.sort
+  end
+
   def test_unedited_rerun_creates_no_backup_and_prints_no_warning
     install
     _out, err = install

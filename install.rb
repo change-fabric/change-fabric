@@ -190,6 +190,7 @@ module Install
 
     def move_to_backup(path)
       target = File.join(@backup_dir, @label, path == @dest ? File.basename(path) : path.delete_prefix("#{@dest}/"))
+      target = "#{target}.#{Process.pid}-#{rand(36**4).to_s(36)}" while File.exist?(target) || File.symlink?(target)
       FileUtils.mkdir_p(File.dirname(target))
       FileUtils.mv(path, target)
       warn "  cf: #{path} was edited or not installed by cf; moved to #{target}"
