@@ -354,4 +354,18 @@ class ApprovalConsoleVerifierTest < Minitest::Test
       refute_predicate verifier.verify(proof, expected: expected(items: items)), :ok?, items.inspect
     end
   end
+
+  def test_accepts_raw_cose_bytes_for_a_pinned_credential
+    [ SoftAuthenticator.new, SoftAuthenticator.new(alg: :ed25519) ].each do |passkey|
+      @passkey = passkey
+      raw = Verifier.new(rp_id: RP_ID, credentials: { passkey.credential_id => passkey.cose_public_key })
+      result = raw.verify(proof, expected: expected)
+      assert_predicate result, :ok?, result.reason
+    end
+  end
+
+  def test_rejects_a_non_string_pinned_credential
+    odd = Verifier.new(rp_id: RP_ID, credentials: { @passkey.credential_id => 7 })
+    assert_rejected odd.verify(proof, expected: expected), /pinned key/
+  end
 end

@@ -157,7 +157,16 @@ module ApprovalConsole
 
     def pinned_key(credential_id)
       pinned = @credentials[credential_id.to_s] or raise Reject, 'credential is not pinned'
-      cose_key(Cbor.decode(decode64(pinned, 'pinned key')))
+      cose_key(Cbor.decode(cose_bytes(pinned)))
+    end
+
+    # A pinned key is base64url text or raw COSE bytes. A COSE map starts with a
+    # byte of 0xa0 or above, which is never in the base64url alphabet.
+    def cose_bytes(pinned)
+      raise Reject, 'pinned key is not a string' unless pinned.is_a?(String)
+
+      raw = pinned.b
+      raw.match?(/\A[A-Za-z0-9_-]+\z/) ? decode64(raw, 'pinned key') : raw
     end
 
     def cose_key(map)
