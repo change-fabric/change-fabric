@@ -86,10 +86,9 @@ class ChangeTagGuard
   end
 
   def base_policy(root, trunk)
-    _out, fetched = Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', trunk)
-    return :unreadable unless fetched.success?
+    ref = ChangePolicy.fetch_base(root, 'origin', trunk) or return :unreadable
 
-    ChangePolicy.for_ref(root, "origin/#{trunk}")
+    ChangePolicy.for_ref(root, ref)
   rescue ChangePolicy::Unreadable
     :unreadable
   end

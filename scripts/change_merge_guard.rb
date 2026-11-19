@@ -53,8 +53,8 @@ class ChangeMergeGuard
   def violation
     root = repo_root or return nil
     pr = pr_facts or return nil
-    base, sha = pr
-    policy = base_policy(root, base)
+    base, sha, repo = pr
+    policy = base_policy(root, base, repo)
     return unreadable_violation(root, base) if policy == :unreadable
     return nil if policy.nil?
     return nil unless policy.protects?(base)
@@ -69,11 +69,14 @@ class ChangeMergeGuard
   # Returns :unreadable rather than letting ChangePolicy::Unreadable escape,
   # so `violation` can decide fail-open-vs-fail-closed against the
   # working-tree CHANGE.md's mere presence.
-  def base_policy(root, base)
-    _out, fetched = Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', base)
-    return :unreadable unless fetched.success?
+  #
+  # The policy comes from the repository that owns the PR (`repo`, owner/name
+  # from the PR's URL), not blindly from `origin`: in a fork checkout gh's
+  # default repository can be the upstream while origin is the fork.
+  def base_policy(root, base, repo = nil)
+    ref = ChangePolicy.fetch_base(root, policy_remote(root, repo), base) or return :unreadable
 
-    ChangePolicy.for_ref(root, "origin/#{base}")
+    ChangePolicy.for_ref(root, ref)
   rescue ChangePolicy::Unreadable
     :unreadable
   end
@@ -178,14 +181,34 @@ class ChangeMergeGuard
     ref = merge_ref(command)
     args = [ 'gh', 'pr', 'view' ]
     args << ref if ref
-    args += [ '--json', 'baseRefName,headRefOid', '-q', '.baseRefName + "\t" + .headRefOid' ]
+    args += [ '--json', 'baseRefName,headRefOid,url', '-q', '.baseRefName + "\t" + .headRefOid + "\t" + .url' ]
     out, status = Open3.capture2e(*args)
     return nil unless status.success?
 
-    base, sha = out.strip.split("\t", 2)
-    base && sha ? [ base, sha ] : nil
+    base, sha, url = out.strip.split("\t", 3)
+    base && sha ? [ base, sha, self.class.repo_slug(url) ] : nil
   rescue StandardError
     nil
+  end
+
+  # owner/name from a PR URL like https://github.com/owner/name/pull/12.
+  def self.repo_slug(url)
+    url.to_s[%r{\Ahttps?://[^/]+/([^/]+/[^/]+)/pull/}, 1]
+  end
+
+  # The git remote to fetch the PR's base from: a configured remote whose URL
+  # names `repo`, else the repo's https URL. Falls back to origin only when
+  # the owning repo is unknown.
+  def policy_remote(root, repo)
+    return 'origin' unless repo
+
+    out, status = Open3.capture2e('git', '-C', root, 'remote', '-v')
+    match = status.success? && out.lines.find { |line| self.class.remote_names_repo?(line.split[1], repo) }
+    match ? match.split.first : "https://github.com/#{repo}.git"
+  end
+
+  def self.remote_names_repo?(url, repo)
+    url.to_s.sub(/\.git\z/, '').downcase.end_with?("/#{repo.downcase}", ":#{repo.downcase}")
   end
 
   # The first positional argument to `pr merge` (a number, URL, or branch), or

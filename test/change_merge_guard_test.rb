@@ -31,7 +31,7 @@ class StubMergeGuard < ChangeMergeGuard
   def repo_root = @root
   def pr_facts = @pr
 
-  def base_policy(root, _base)
+  def base_policy(root, _base, _repo = nil)
     @stub_base_policy == :same_as_root ? ChangePolicy.for_repo(root) : @stub_base_policy
   end
 end
@@ -324,5 +324,40 @@ class ChangeMergeGuardTest < Minitest::Test
     out = scoped_decision("gh pr merge 12 --squash", base: "production", require_on: "promotion")
     assert_equal "deny", out["permissionDecision"]
     assert_match(/gate\.require_on: promotion/, out["permissionDecisionReason"])
+  end
+  # --- owning repo of the PR, not origin (fork checkouts) ---------------------
+
+  def test_repo_slug_reads_owner_and_name_from_the_pr_url
+    assert_equal "up/proj", ChangeMergeGuard.repo_slug("https://github.com/up/proj/pull/12")
+    assert_nil ChangeMergeGuard.repo_slug(nil)
+  end
+
+  def test_base_policy_reads_the_owning_repo_not_a_fork_origin
+    Dir.mktmpdir do |dir|
+      upstream = make_policy_repo(File.join(dir, "up", "proj"), "staging: { require_change_pass: true }")
+      fork = make_policy_repo(File.join(dir, "fork", "proj"), "staging: { require_change_pass: false }")
+      clone = File.join(dir, "clone")
+      git_ok(dir, "clone", "-q", fork, clone)
+      git_ok(clone, "remote", "add", "upstream", upstream)
+
+      guard = ChangeMergeGuard.new({})
+      policy = guard.send(:base_policy, clone, "staging", "up/proj")
+      assert policy.require_change_pass?("staging")
+      refute guard.send(:base_policy, clone, "staging", nil).require_change_pass?("staging")
+    end
+  end
+
+  def git_ok(repo, *args)
+    out, status = Open3.capture2e("git", "-C", repo, *args)
+    raise out unless status.success?
+  end
+
+  def make_policy_repo(path, rule)
+    FileUtils.mkdir_p(path)
+    git_ok(path, "init", "-q", "-b", "staging")
+    File.write(File.join(path, "CHANGE.md"), "---\nchange_policy:\n  promotion:\n    #{rule}\n---\n")
+    git_ok(path, "add", "CHANGE.md")
+    git_ok(path, "-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "-m", "p")
+    path
   end
 end

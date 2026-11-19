@@ -336,4 +336,33 @@ class ChangePolicyTest < Minitest::Test
       assert_raises(ChangePolicy::Unreadable) { ChangePolicy.for_ref(root, "HEAD") }
     end
   end
+  def test_for_ref_returns_nil_when_change_md_exists_only_in_the_working_tree
+    ref_repo do |root|
+      File.write(File.join(root, "README.md"), "hi\n")
+      git(root, "add", "README.md")
+      git(root, "commit", "-q", "-m", "ungoverned base")
+      # An adoption PR: CHANGE.md on disk, absent from the base commit.
+      File.write(File.join(root, "CHANGE.md"), "---\nchange_policy: {}\n---\n")
+
+      assert_nil ChangePolicy.for_ref(root, "HEAD")
+    end
+  end
+
+  def test_fetch_base_reads_a_branch_a_single_branch_clone_does_not_track
+    ref_repo do |upstream|
+      commit_change_md(upstream, "change_policy: {}\n")
+      git(upstream, "branch", "-M", "main")
+      git(upstream, "checkout", "-q", "-b", "staging")
+      commit_change_md(upstream, "change_policy:\n  promotion:\n    staging: { require_change_pass: true }\n")
+      git(upstream, "checkout", "-q", "main")
+      Dir.mktmpdir do |dir|
+        clone = File.join(dir, "clone")
+        git(dir, "clone", "-q", "--single-branch", "--branch", "main", upstream, clone)
+
+        ref = ChangePolicy.fetch_base(clone, "origin", "staging")
+        refute_nil ref
+        assert ChangePolicy.for_ref(clone, ref).require_change_pass?("staging")
+      end
+    end
+  end
 end

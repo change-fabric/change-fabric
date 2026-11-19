@@ -71,11 +71,47 @@ class ChangePolicy
   # gate, and a caller is better served failing closed on it like any other
   # read it cannot trust.
   def self.for_ref(root, ref)
-    out, ok, err = git_show_change_md(root, ref)
+    commit = resolve_commit(root, ref)
+    return nil unless change_md_in_tree?(root, commit)
+
+    out, ok, err = git_show_change_md(root, commit)
     return parse_ref_policy(out, ref) if ok
-    return nil if err =~ /does not exist in/
 
     raise Unreadable, "cannot read CHANGE.md at #{ref} in #{root}: #{err.strip}"
+  end
+
+  # Fetches `branch` from `remote` (a remote name or URL) into a private,
+  # explicitly named ref and returns that ref, or nil when the fetch fails.
+  # An explicit destination refspec matters: a single-branch clone's fetch
+  # mapping would not update origin/<branch>, so reading the remote-tracking
+  # ref afterwards could see nothing, or a stale copy.
+  def self.fetch_base(root, remote, branch)
+    dest = "refs/cf/policy-base/#{branch}"
+    _out, status = Open3.capture2e('git', '-C', root.to_s, 'fetch', '--quiet', '--no-tags', remote,
+                                   "+refs/heads/#{branch}:#{dest}")
+    status.success? ? dest : nil
+  rescue StandardError
+    nil
+  end
+
+  # The commit sha `ref` names, or Unreadable when it does not resolve.
+  def self.resolve_commit(root, ref)
+    out, status = Open3.capture2e('git', '-C', root.to_s, 'rev-parse', '--verify', '--quiet', "#{ref}^{commit}")
+    raise Unreadable, "cannot resolve #{ref} in #{root}: #{out.strip}" unless status.success?
+
+    out.strip
+  rescue SystemCallError => e
+    raise Unreadable, "cannot resolve #{ref} in #{root}: #{e.message}"
+  end
+
+  # Tree membership, not a git diagnostic: whether CHANGE.md is absent from
+  # the commit says nothing about the working tree (a PR adding CHANGE.md to
+  # an ungoverned base must read as ungoverned).
+  def self.change_md_in_tree?(root, commit)
+    out, status = Open3.capture2e('git', '-C', root.to_s, 'ls-tree', '--name-only', commit, '--', 'CHANGE.md')
+    raise Unreadable, "cannot list the tree of #{commit} in #{root}: #{out.strip}" unless status.success?
+
+    out.lines.map(&:strip).include?('CHANGE.md')
   end
 
   # Any parse failure (Psych::DisallowedClass for an unquoted date,
