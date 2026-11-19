@@ -4,6 +4,8 @@
 require "minitest/autorun"
 require "open3"
 require "json"
+require_relative "support/rendered_workflow"
+require_relative "../scripts/model_roles"
 
 # Pins three cf:drive lane-prompt rules that a downstream quick run broke:
 # lanes take their task from the brief (not a relayed mode-toggle command),
@@ -16,13 +18,15 @@ class DriveLanePromptsTest < Minitest::Test
   HARNESS = File.join(__dir__, "support", "workflow_harness.mjs")
   FIXTURE = File.join(__dir__, "fixtures", "workflow_harness", "drive.json")
 
-  def prompts
+  def run_workflow
     skip "node not available" unless system("node", "--version", out: File::NULL, err: File::NULL)
-    return @prompts if @prompts
-    out, status = Open3.capture2("node", HARNESS, WORKFLOW, "--fixture", FIXTURE)
+    return @run if @run
+    out, status = Open3.capture2("node", HARNESS, RenderedWorkflow.path(WORKFLOW), "--fixture", FIXTURE)
     assert status.success?, out
-    @prompts = JSON.parse(out).fetch("prompts")
+    @run = JSON.parse(out)
   end
+
+  def prompts = run_workflow.fetch("prompts")
 
   def lane_prompts
     @lane_prompts ||= prompts.select { |key, _| key.match?(/\Aiteration \d+:cf:/) }
@@ -41,6 +45,16 @@ class DriveLanePromptsTest < Minitest::Test
       prompt = lane_prompts.find { |key, _| key.end_with?(":#{skill}#1") }&.last
       refute_nil prompt, skill
       assert_includes prompt, "target repo's own punctuation convention", skill
+    end
+  end
+
+  def test_code_review_lane_runs_on_critic_and_the_other_lanes_on_worker
+    roles = ModelRoles.table(host: "claude", env: {}, user_file: File::NULL)
+    models = run_workflow.fetch("models").select { |key, _| key.match?(/\Aiteration \d+:cf:/) }
+    refute_empty models
+    models.each do |key, model|
+      want = key.include?(":cf:code-review#") ? roles.fetch("critic") : roles.fetch("worker")
+      assert_equal want, model, key
     end
   end
 

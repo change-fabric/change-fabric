@@ -127,7 +127,7 @@ would-be-approved local state, and since nothing landed, also skips step
    <files>` here in SKILL.md (the sandboxed Workflow script cannot shell
    out) and capture its stdout as `routeOutput` to pass in as an arg.
 2. **(SKILL.md, PR scope only, hard floor, always runs regardless of
-   `--signoff` or Haiku relevance results)** Pre-loop thread sweep:
+   `--signoff` or classifier relevance results)** Pre-loop thread sweep:
    invoke `cf:resolve-threads` against the PR with the inline instruction
    `nested under cf:drive`: it runs straight through, replies and
    resolves what cites no commit, does not push (`cf:drive` owns the
@@ -159,7 +159,7 @@ would-be-approved local state, and since nothing landed, also skips step
 3-7. **(One `Workflow` call)** Read `reference/workflow.js` and pass its
    contents verbatim as `script`, with `args: { files, repoPath, headSha,
    routeOutput, isPR, cap: 4, ciFixContext: null }`. This call does
-   relevance detection (Haiku), the iterate-and-fix quality loop with a
+   relevance detection (classifier role), the iterate-and-fix quality loop with a
    would-approve recheck each iteration (cap default 4, within the
    requested 3-5 band), and local CI prediction. See
    `reference/workflow.js` for the phase breakdown. It returns `{
@@ -281,11 +281,11 @@ would-be-approved local state, and since nothing landed, also skips step
 - The approval API call fails: report that the PR was not approved [DR-3];
   never report success on the strength of having attempted the call.
 - `open` CLI missing: handled inline in step 12 above, never fails the run.
-- Haiku relevance call in the Workflow selects zero of the three gated skills
+- Classifier relevance call in the Workflow selects zero of the three gated skills
   (`cf:qa`, `cf:refactor`, `cf:change`): expected and fine for small/docs-only
   changes, and `cf:change` also self-skips in a repo with no `CHANGE.md`.
   `cf:code-review` and `cf:ai-slop` are floors and the two thread-sweep calls
-  are floors; all four still run regardless of the Haiku call's outcome.
+  are floors; all four still run regardless of the relevance call's outcome.
   Only `cf:qa`, `cf:refactor`, and `cf:change` are ever skipped.
 - User answers "no" at either checkpoint under `--signoff`: do
   not abort destructively, do not auto-revert. Leave all local
@@ -364,8 +364,8 @@ user only, a fenced handoff prompt for a fresh session.
    <area>]`, handle `area_exists` and `plan_dir_exists` as `cf:plan` steps 2
    and 3 do, then `plan_paths.rb mkdir`. The newest sibling plan.md with a
    `## Project profile` seeds the profile.
-4. **Scope.** Spawn background agents (`general-purpose`, `model: opus`,
-   `run_in_background: true`) from the research prompt's scope section: one
+4. **Scope.** Spawn background agents (`general-purpose`, model {{model:worker}},
+   `run_in_background: true`, description starting `[role:worker]`) from the research prompt's scope section: one
    for a PR, up to three for a release in one message (review units; QA and
    environment safety; deploy and data scripts). Each writes nothing and
    returns findings plus candidate questions; one that returns no questions
@@ -376,7 +376,7 @@ user only, a fenced handoff prompt for a fresh session.
 6. **Iterate.** `SendMessage` the scope agent the ledger and the narrow
    question the answers opened; interview again. At most three rounds; stop
    when a round changes nothing.
-7. **Write.** One writing agent (`model: opus`) from the research prompt's
+7. **Write.** One writing agent (model {{model:author}}, description starting `[role:author]`) from the research prompt's
    writing section, with the full ledger and every finding pasted verbatim.
    Never two writers.
    It ends plan.md with `## Visuals` per `cf:plan`'s scale rule

@@ -1,7 +1,7 @@
 ---
 name: cf:brainstorm
 group: workflow
-description: Divergent step that runs before cf:plan and feeds it. Frames the problem in at most five sentences, launches four background Opus agents in one message to generate options from three fixed lenses (user-value, simplest-thing, risk-and-ops) plus one topic lens chosen at framing, clusters the options into named concepts, culls a shortlist with one cf:roast doc round under a 0.5 USD cap, and lets the user pick with AskUserQuestion. Lands brainstorm.md in the plan dir and prints a paste-ready cf:plan line with --seed. It never writes plan.md, goal.md, or workflow.js and never invokes cf:plan itself.
+description: Divergent step that runs before cf:plan and feeds it. Frames the problem in at most five sentences, launches four background author-role agents in one message to generate options from three fixed lenses (user-value, simplest-thing, risk-and-ops) plus one topic lens chosen at framing, clusters the options into named concepts, culls a shortlist with one cf:roast doc round under a 0.5 USD cap, and lets the user pick with AskUserQuestion. Lands brainstorm.md in the plan dir and prints a paste-ready cf:plan line with --seed. It never writes plan.md, goal.md, or workflow.js and never invokes cf:plan itself.
 ---
 
 # CF Brainstorm
@@ -40,7 +40,7 @@ Question: before anyone plans, have several genuinely different directions been 
 
 2. **Frame.** Restate the problem in at most five sentences: who it is for, what hurts, what success looks like, and the hard constraints. Read `reference/lenses.md` and pick a topic lens. Ask one AskUserQuestion that confirms the framing and offers two or three topic lens candidates, the recommended one first. Use the answer; do not ask again.
 
-3. **Diverge.** Render `reference/lens-prompt.md` once per lens (`{{framing}}`, `{{lens_name}}`, `{{lens_brief}}`). Launch four background Opus agents with the Agent tool, all four in a single message so they run in parallel: user-value, simplest-thing, risk-and-ops, and the topic lens. They are read-only researchers: they may read the repo for grounding but write nothing. Never send them as separate messages.
+3. **Diverge.** Render `reference/lens-prompt.md` once per lens (`{{framing}}`, `{{lens_name}}`, `{{lens_brief}}`). Launch four background agents (model {{model:author}}, description starting `[role:author]`) with the Agent tool, all four in a single message so they run in parallel: user-value, simplest-thing, risk-and-ops, and the topic lens. They are read-only researchers: they may read the repo for grounding but write nothing. Never send them as separate messages.
 
 4. **Cluster.** When all four return, merge their options into three to six named concepts. Each concept records which lenses produced it; a concept several lenses reached independently is a signal worth saying out loud. Drop exact duplicates and keep a short "also considered" list for options that did not become concepts.
 
