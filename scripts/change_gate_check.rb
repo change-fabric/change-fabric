@@ -23,13 +23,14 @@ class ChangeGateCheck
   # `proof_level` is change_policy.require_approval_proof: 'local', 'remote',
   # or nil for the compatibility window (a missing proof only warns). An
   # invalid proof is refused at every level.
-  def initialize(sha:, profile:, apps: nil, root: nil, proof_level: nil, proof_store: nil)
+  def initialize(sha:, profile:, apps: nil, root: nil, proof_level: nil, proof_store: nil, proof_pins: nil)
     @sha = sha
     @profile = profile
     @apps = apps
     @root = root
     @proof_level = proof_level
     @proof_store = proof_store
+    @proof_pins = proof_pins
   end
 
   # True when a human-recorded override covers this (sha, profile), or a
@@ -128,7 +129,7 @@ class ChangeGateCheck
   end
 
   def proof_check
-    @proof_check ||= ApprovalConsole::ProofCheck.new(level: @proof_level, **({ store: @proof_store }.compact))
+    @proof_check ||= ApprovalConsole::ProofCheck.new(level: @proof_level, pins: @proof_pins, **({ store: @proof_store }.compact))
   end
 
   def repo_id = CfProjectIdentity.for(@root || Dir.pwd).id

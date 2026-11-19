@@ -323,6 +323,89 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     assert_match(/items do not match/, problem, "an entry riding on another approval's proof is refused")
   end
 
+  # ----- the passkey level (0.26.0) -------------------------------------
+
+  LONG_REASON = "hotfix for a broken release gate"
+
+  def authoritative_pins(rp_id: HOST, fingerprint: ApprovalConsole::LocalStore.key_fingerprint(@signer.public_pem))
+    { "receipt_key_fingerprint" => fingerprint, "rp_id" => rp_id }
+  end
+
+  def passkey_check(pins: authoritative_pins, at: @now + 60)
+    ApprovalConsole::ProofCheck.new(level: "passkey", store: @store, pins: pins, now: at)
+  end
+
+  def phone_override(reason: LONG_REASON)
+    result, = remote_approve(override_attrs(reason: reason))
+    assert_predicate result, :ok?, result.error
+    { "reason" => reason, "proof" => result.proof }
+  end
+
+  def override_problem(record, check = passkey_check)
+    check.override_problem(record, repo: repo_id, sha: SHA, profile: nil)
+  end
+
+  def test_passkey_accepts_a_phone_override
+    assert_nil override_problem(phone_override)
+  end
+
+  def test_passkey_accepts_a_phone_step_approval
+    result, = remote_approve(step_attrs)
+    ChangeApprovalStore.new(SHA).record(steps: [ [ "boot.up", Canonical.step_digest("run" => "echo hi") ] ], by: "t", proof: result.proof)
+    assert_nil passkey_check.approvals_problem(ChangeApprovalStore.new(SHA).entries, repo: repo_id, sha: SHA)
+  end
+
+  def test_passkey_refuses_a_terminal_minted_receipt
+    result = terminal(override_attrs(reason: LONG_REASON))
+    refute_nil result.proof["receipt"], "the console accepted the terminal code live"
+    assert_match(/not a phone passkey approval/, override_problem("reason" => LONG_REASON, "proof" => result.proof))
+  end
+
+  def test_passkey_refuses_proofless_overrides_and_step_approvals
+    assert_match(/no approval proof.*passkey/, override_problem("reason" => LONG_REASON))
+    entries = [ { "step" => "boot.up", "digest" => "a" * 64 } ]
+    assert_match(/no approval proof.*passkey/, passkey_check.approvals_problem(entries, repo: repo_id, sha: SHA))
+  end
+
+  def test_passkey_refuses_a_short_override_reason
+    assert_match(/under 20 characters/, override_problem(phone_override(reason: "hotfix")))
+  end
+
+  def test_passkey_refuses_an_override_24h_old_or_dated_in_the_future_at_use
+    record = phone_override
+    assert_nil override_problem(record, passkey_check(at: @now + 86_000))
+    assert_match(/24h old/, override_problem(record, passkey_check(at: @now + 86_400 + 10)))
+    assert_match(/24h old/, override_problem(record, passkey_check(at: @now - 600)))
+  end
+
+  def test_step_approvals_never_expire
+    result, = remote_approve(step_attrs)
+    ChangeApprovalStore.new(SHA).record(steps: [ [ "boot.up", Canonical.step_digest("run" => "echo hi") ] ], by: "t", proof: result.proof)
+    check = passkey_check(at: @now + (30 * 86_400))
+    assert_nil check.approvals_problem(ChangeApprovalStore.new(SHA).entries, repo: repo_id, sha: SHA)
+  end
+
+  def test_passkey_refuses_local_pins_that_differ_from_the_authoritative_pins
+    record = phone_override
+    assert_match(/rpId pin/, override_problem(record, passkey_check(pins: authoritative_pins(rp_id: "evil.example.com"))))
+    assert_match(/receipt key/, override_problem(record, passkey_check(pins: authoritative_pins(fingerprint: "sha256:#{'0' * 64}"))))
+    assert_match(/no approval_pins/, override_problem(record, passkey_check(pins: nil)))
+  end
+
+  def test_a_local_store_pin_mismatch_raises
+    assert_raises(ApprovalConsole::LocalStore::PinMismatch) { @store.pins(expect: authoritative_pins(rp_id: "x.example.com")) }
+    assert_equal HOST, @store.pins(expect: authoritative_pins)["rp_id"]
+  end
+
+  def test_the_gate_check_passes_pins_to_the_passkey_level
+    record = phone_override
+    ChangeOverrideStore.new(SHA).record(reason: record["reason"], recorded_by: "t", proof: record["proof"])
+    wrong = ChangeGateCheck.new(sha: SHA, profile: nil, root: @repo, proof_level: "passkey", proof_store: @store,
+                                proof_pins: authoritative_pins(rp_id: "evil.example.com"))
+    refute wrong.overridden?
+    assert_match(/rpId pin/, wrong.trust_clause)
+  end
+
   FakeStdin = Struct.new(:tty?)
 
   # ----- CLI verbs -------------------------------------------------------

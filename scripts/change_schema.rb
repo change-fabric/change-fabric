@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.25.0'
+  VERSION = '0.26.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -566,9 +566,19 @@ module ChangeSchema
     # proof, remote only one carrying a console receipt; unset, a record with
     # no proof still passes with a warning. An invalid proof always fails.
     'change_policy.require_approval_proof',
+    # approval_pins (0.26.0): the console receipt key fingerprint
+    # (sha256:<hex> of its SubjectPublicKeyInfo DER) and rpId the local pins
+    # must equal under require_approval_proof: passkey. Read from the base or
+    # default branch, never the working tree.
+    'change_policy.approval_pins.receipt_key_fingerprint',
+    'change_policy.approval_pins.rp_id',
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
     'change_policy.admin_bypass.conditions',
+    # admin_bypass.carve_out_paths (0.26.0): globs (File.fnmatch with
+    # FNM_PATHNAME, ** crossing directories) naming the files whose change
+    # makes a PR a carve-out, read from the PR base policy.
+    'change_policy.admin_bypass.carve_out_paths',
     # change_policy.trackers.<tracker> (0.19.0): the per-project tracker
     # workflow, validated by TrackerPolicy. Roles only, never a person.
     #   <event> a cf event (dispatch, agent_started, asked, pr_opened, merged,
@@ -701,13 +711,42 @@ module ChangeSchema
   GATE_SCOPES = %w[every_merge promotion].freeze
   GATE_KEYS = %w[require_on trunk require_change_pass].freeze
 
-  APPROVAL_PROOF_LEVELS = %w[local remote].freeze
+  APPROVAL_PROOF_LEVELS = %w[local remote passkey].freeze
+  RECEIPT_KEY_FINGERPRINT = /\Asha256:[0-9a-f]{64}\z/
 
   def self.approval_proof_errors(policy)
-    return [] unless policy.is_a?(Hash) && policy.key?('require_approval_proof')
-    return [] if APPROVAL_PROOF_LEVELS.include?(policy['require_approval_proof'])
+    return [] unless policy.is_a?(Hash)
 
-    [ "change_policy.require_approval_proof must be one of #{APPROVAL_PROOF_LEVELS.join(', ')}" ]
+    errors = []
+    if policy.key?('require_approval_proof') && !APPROVAL_PROOF_LEVELS.include?(policy['require_approval_proof'])
+      errors << "change_policy.require_approval_proof must be one of #{APPROVAL_PROOF_LEVELS.join(', ')}"
+    end
+    errors + approval_pins_errors(policy) + carve_out_paths_errors(policy)
+  end
+
+  # change_policy.approval_pins (0.26.0): required under passkey, and when
+  # present both fields must be well formed.
+  def self.approval_pins_errors(policy)
+    pins = policy['approval_pins']
+    if pins.nil?
+      return policy['require_approval_proof'] == 'passkey' ? [ 'change_policy.approval_pins is required by require_approval_proof: passkey' ] : []
+    end
+    return [ 'change_policy.approval_pins must be a mapping' ] unless pins.is_a?(Hash)
+
+    errors = []
+    errors << 'change_policy.approval_pins.receipt_key_fingerprint must be sha256:<64 hex>' unless pins['receipt_key_fingerprint'].to_s.match?(RECEIPT_KEY_FINGERPRINT)
+    errors << 'change_policy.approval_pins.rp_id must be a host name' unless pins['rp_id'].is_a?(String) && pins['rp_id'].match?(/\A[a-z0-9.-]+\z/)
+    errors
+  end
+
+  def self.carve_out_paths_errors(policy)
+    bypass = policy['admin_bypass']
+    return [] unless bypass.is_a?(Hash) && bypass.key?('carve_out_paths')
+
+    paths = bypass['carve_out_paths']
+    return [] if paths.is_a?(Array) && paths.all? { |path| path.is_a?(String) && !path.strip.empty? }
+
+    [ 'change_policy.admin_bypass.carve_out_paths must be a list of non-empty glob strings' ]
   end
 
   # Every problem with change_policy.gate.require_on / gate.trunk, as messages

@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require_relative "../scripts/approval_console/canonical"
 require_relative "../scripts/approval_console/verifier"
+require_relative "../scripts/approval_console/proof_check"
 require_relative "support/soft_authenticator"
 
 class ApprovalConsoleVerifierTest < Minitest::Test
@@ -373,5 +374,29 @@ class ApprovalConsoleVerifierTest < Minitest::Test
     signed = proof
     signed["body"] = "{\"repo\":\"\xff\"}".b
     assert_rejected verifier.verify(signed, expected: expected), /UTF-8|JSON/
+  end
+
+  # ----- freshness (0.26.0) ----------------------------------------------
+
+  def accepted(at) = { "receipt" => { "payload" => JSON.generate("accepted_at" => at) } }
+
+  def test_fresh_accepts_a_receipt_under_24h_old
+    now = Time.utc(2026, 11, 19, 12)
+    assert ApprovalConsole::ProofCheck.fresh?(accepted("2026-11-18T12:00:01Z"), at: now)
+    assert ApprovalConsole::ProofCheck.fresh?(accepted("2026-11-19T12:04:00Z"), at: now), "within the clock skew"
+  end
+
+  def test_fresh_rejects_stale_future_and_missing_accepted_at
+    now = Time.utc(2026, 11, 19, 12)
+    refute ApprovalConsole::ProofCheck.fresh?(accepted("2026-11-18T12:00:00Z"), at: now), "exactly 24h is stale"
+    refute ApprovalConsole::ProofCheck.fresh?(accepted("2026-11-19T12:06:00Z"), at: now), "more than 5 minutes ahead"
+    refute ApprovalConsole::ProofCheck.fresh?({ "receipt" => nil }, at: now)
+    refute ApprovalConsole::ProofCheck.fresh?(accepted("yesterday"), at: now)
+  end
+
+  def test_fresh_max_age_is_configurable_downward_only
+    now = Time.utc(2026, 11, 19, 12)
+    refute ApprovalConsole::ProofCheck.fresh?(accepted("2026-11-19T10:00:00Z"), at: now, max_age: 3600)
+    refute ApprovalConsole::ProofCheck.fresh?(accepted("2026-11-18T11:00:00Z"), at: now, max_age: 7 * 86_400)
   end
 end

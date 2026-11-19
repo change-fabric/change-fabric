@@ -190,6 +190,75 @@ class ChangeTrustTest < Minitest::Test
     assert_equal %w[local], ChangeTrust.profiles_by_app(@repo, sha)["api"]
   end
 
+  # ----- run-time proof verification (0.26.0) ---------------------------
+
+  PASSKEY_POLICY = <<~YAML
+    change_policy:
+      require_approval_proof: passkey
+      approval_pins:
+        receipt_key_fingerprint: "sha256:#{'a' * 64}"
+        rp_id: console.example.com
+  YAML
+
+  # An approved head whose boot.up differs from the base, policy at base.
+  def approved_head(policy: "")
+    base_sha = commit(change_md(up: "echo base", policy: policy))
+    point_origin("main", base_sha)
+    head_sha = commit(change_md(up: "echo head", policy: policy))
+    head_defs = ChangeTrust.snapshot_definitions(@repo, head_sha)
+    ChangeApprovalStore.new(head_sha).record(steps: [ [ "boot.up", ChangeTrust.digest(head_defs["boot.up"]) ] ], by: "t")
+    [ base_sha, head_sha, head_defs ]
+  end
+
+  def test_a_proofless_approval_still_trusts_without_a_proof_policy
+    base_sha, head_sha, head_defs = approved_head
+    verdict = ChangeTrust.evaluate(root: @repo, head_sha: head_sha, head_definitions: head_defs, fetch: false)
+    assert_equal :approved, verdict.sources["boot.up"]
+    assert_equal base_sha, verdict.policy_sha
+  end
+
+  def test_a_proofless_approval_is_refused_at_run_time_under_passkey
+    _base, head_sha, head_defs = approved_head(policy: PASSKEY_POLICY)
+    verdict = ChangeTrust.evaluate(root: @repo, head_sha: head_sha, head_definitions: head_defs, fetch: false)
+    assert_equal [ "boot.up" ], verdict.untrusted
+    assert_match(/no approval proof.*passkey.*no approval counts/, verdict.note)
+  end
+
+  def test_a_terminal_minted_approval_is_refused_at_run_time_under_passkey
+    _base, head_sha, head_defs = approved_head(policy: PASSKEY_POLICY)
+    digest = ChangeTrust.digest(head_defs["boot.up"])
+    proof = { "kind" => "totp-terminal", "body" => "{}", "totp_step" => 1, "receipt" => nil }
+    ChangeApprovalStore.new(head_sha).record(steps: [ [ "boot.up", digest ] ], by: "t", proof: proof)
+    verdict = ChangeTrust.evaluate(root: @repo, head_sha: head_sha, head_definitions: head_defs, fetch: false)
+    assert_equal [ "boot.up" ], verdict.untrusted
+    assert_match(/not a phone passkey approval/, verdict.note)
+  end
+
+  def test_the_working_tree_policy_never_relaxes_run_time_trust
+    _base, head_sha, head_defs = approved_head(policy: PASSKEY_POLICY)
+    File.write(File.join(@repo, "CHANGE.md"), change_md(up: "echo head"))
+    verdict = ChangeTrust.evaluate(root: @repo, head_sha: head_sha, head_definitions: head_defs, fetch: false)
+    assert_equal [ "boot.up" ], verdict.untrusted
+  end
+
+  def test_an_unreadable_policy_counts_no_approval
+    _base, head_sha, head_defs = approved_head
+    verdict = ChangeTrust.evaluate(root: @repo, head_sha: head_sha, head_definitions: head_defs, fetch: false,
+                                   authority: "cannot fetch main from origin")
+    assert_equal [ "boot.up" ], verdict.untrusted
+    assert_nil verdict.policy_sha
+    assert_match(/approval policy unreadable \(cannot fetch main/, verdict.note)
+  end
+
+  def test_a_fetching_run_reads_policy_through_the_authority_and_fails_closed
+    _base, head_sha, head_defs = approved_head
+    GitFixture.git(@repo, "remote", "add", "origin", File.join(@home, "no-such-origin"))
+    base = ChangeTrust::Base.new(ref: "origin/main", sha: GitFixture.git(@repo, "rev-parse", "origin/main").strip)
+    verdict = ChangeTrust.evaluate(root: @repo, head_sha: head_sha, head_definitions: head_defs, base: base)
+    assert_equal [ "boot.up" ], verdict.untrusted, "an origin with no repo identity counts no approval"
+    assert_match(/approval policy unreadable/, verdict.note)
+  end
+
   private
 
   def commit_monorepo(web_staging_up:, api_enabled: true)

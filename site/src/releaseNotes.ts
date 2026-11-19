@@ -28,6 +28,24 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.26.0": {
+    version: "0.26.0",
+    date: "2026-11-19",
+    headline: "Passkey approvals: only a phone passkey approval, checked against pinned keys, unlocks a gate.",
+    highlights: [
+      {
+        title: "require_approval_proof: passkey",
+        body:
+          "Accepts only a phone passkey approval with a console receipt. Overrides also need a 20-character reason and a receipt under 24h old when used. Run-time trust verifies proofs too.",
+      },
+      {
+        title: "change_policy.approval_pins and admin_bypass.carve_out_paths",
+        body:
+          "The receipt key fingerprint and rpId the local pins must match, and the carve-out glob list, all read from the default branch or PR base.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. passkey requires approval_pins; proofless and terminal-minted records stop counting.",
+  },
   "0.25.0": {
     version: "0.25.0",
     date: "2026-11-19",

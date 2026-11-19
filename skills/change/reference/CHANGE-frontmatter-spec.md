@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.25.0
+Schema version: 0.26.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -1052,10 +1052,13 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.promotion.<ref>.require_prior_tag` | string (glob) | no | (0.9.0) Tag rules only. A published tag matching this glob must already point at the same commit. |
 | `change_policy.promotion.<ref>.require_scheduled.<schedule>.max_age_days` | integer | no | (0.20.0) An opt-in freshness gate: the named `change_config.schedules` entry must have passed within this many days (1 to 90). Off unless a rule sets it; a PR merge into trunk never waits on it. `doctor` warns when a branch rule names a `runner: local` schedule, since the merge can be checked on another machine. |
 | `change_policy.promotion.<ref>.require_testcases` | boolean | no (default false) | (0.10.0) Additionally requires the recorded comprehensive pass for this ref to carry a passing `testcases` lane. Opt-in and stricter than `require_change_pass` alone, which asks only whether the run passed overall and is satisfied by a run that never ran the lane. Fails closed: a record with no entry for the lane is not a pass. |
-| `change_policy.require_approval_proof` | `local` or `remote` | no (default unset) | (0.25.0) What the merge and tag gates require of the approval records (`change_approve.rb`) and overrides (`change_override.rb`) for the commit. An invalid, tampered or sync-conflicted proof is refused at every setting. `local` also refuses a record with no proof and accepts any proof that verifies, terminal TOTP included. `remote` accepts only a proof carrying a signed approval console receipt: a phone passkey approval, or a terminal approval the console accepted live or on sync. Unset is the compatibility window: a record with no proof still passes, with a warning. Any other value is a schema error. |
+| `change_policy.require_approval_proof` | `local`, `remote` or `passkey` | no (default unset) | (0.25.0; `passkey` 0.26.0) What the merge and tag gates require of the approval records (`change_approve.rb`) and overrides (`change_override.rb`) for the commit. An invalid, tampered or sync-conflicted proof is refused at every setting. `local` also refuses a record with no proof and accepts any proof that verifies, terminal TOTP included. `remote` accepts only a proof carrying a signed approval console receipt: a phone passkey approval, or a terminal approval the console accepted live or on sync. `passkey` (0.26.0) accepts only a phone passkey approval (kind `webauthn+totp`, receipt channel `console`), checks the local pins against `approval_pins`, refuses an override whose reason is under 20 characters or whose receipt is 24h old or older when it is used, and is read from the default branch (or the PR base), never the working tree; step approvals never expire. Unset is the compatibility window: a record with no proof still passes, with a warning. Any other value is a schema error. |
+| `change_policy.approval_pins.receipt_key_fingerprint` | string | required by `passkey` | (0.26.0) `sha256:<64 hex>` of the approval console receipt public key's SubjectPublicKeyInfo DER. The machine's pinned receipt key must hash to it, or every proof is refused. |
+| `change_policy.approval_pins.rp_id` | string | required by `passkey` | (0.26.0) The approval console's WebAuthn rpId. The machine's pinned rpId must equal it, or every proof is refused. |
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
+| `change_policy.admin_bypass.carve_out_paths` | list of globs | no (default empty) | (0.26.0) Files whose change makes a PR a carve-out, matched with `File.fnmatch` (`FNM_PATHNAME`: `*` stays in one directory; a trailing `/**` covers everything below). Read from the PR base branch's policy. |
 
 ### change_policy.trackers (0.19.0): the tracker workflow
 
@@ -1896,3 +1899,8 @@ root `RELEASING.md`.
 - 0.25.0: additive. Adds `change_policy.require_approval_proof` (`local` or
   `remote`). The merge and tag gates verify every approval and override
   proof offline; unset, a record with no proof still passes with a warning.
+- 0.26.0: additive. Adds the `passkey` level to
+  `change_policy.require_approval_proof`, `change_policy.approval_pins`
+  (`receipt_key_fingerprint`, `rp_id`) and
+  `change_policy.admin_bypass.carve_out_paths`. Approval policy is read from
+  the default branch or PR base, and run-time trust verifies proofs.

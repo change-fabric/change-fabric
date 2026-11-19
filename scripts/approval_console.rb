@@ -15,6 +15,7 @@ require_relative 'approval_console/sync'
 require_relative 'approval_console/totp'
 require_relative 'change_approval_store'
 require_relative 'change_override_store'
+require_relative 'change_policy'
 require_relative 'cf_project_identity'
 
 # The approval console CLI.
@@ -206,8 +207,9 @@ module ApprovalConsoleCli
     entries = ChangeApprovalStore.new(sha).entries
     override = ChangeOverrideStore.new(sha, profile: profile).read
     failed = false
-    %w[remote local].each do |level|
-      check = ApprovalConsole::ProofCheck.new(level: level, store: ctx.store)
+    pins = ChangePolicy.for_repo(root)&.approval_pins
+    %w[passkey remote local].each do |level|
+      check = ApprovalConsole::ProofCheck.new(level: level, store: ctx.store, pins: pins)
       problems = [ entries.empty? ? nil : check.approvals_problem(entries, repo: repo, sha: sha),
                    override_report(check, override, repo: repo, sha: sha, profile: profile) ].compact
       ctx.stdout.puts "#{level}: #{problems.empty? ? 'pass' : problems.join('; ')}"

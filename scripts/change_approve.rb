@@ -141,8 +141,8 @@ module ChangeApprove
   # The recorded (step, digest) pairs whose proof passes this repo's
   # require_approval_proof. A refused one is offered for approval again.
   def standing_approvals(root, sha)
-    level = ChangePolicy.for_repo(root)&.require_approval_proof
-    check = ApprovalConsole::ProofCheck.new(level: level)
+    policy = ChangePolicy.for_repo(root)
+    check = ApprovalConsole::ProofCheck.new(level: policy&.require_approval_proof, pins: policy&.approval_pins)
     repo = CfProjectIdentity.for(root).id
     ChangeApprovalStore.new(sha).entries.group_by { |entry| entry['proof'].is_a?(Hash) ? entry['proof']['body'] : entry.object_id }
                        .values.select { |group| check.approvals_problem(group, repo: repo, sha: sha).nil? }

@@ -679,6 +679,7 @@ class ChangeRun
     verdict = ChangeTrust.evaluate(root: repo_root, head_sha: head_sha, profile: config.profile, apps: apps, base: base,
                                    head_definitions: ChangeTrust.step_definitions(config, prefix: prefix))
     log("[change] trust: #{verdict.note}") if verdict.note
+    log("[change] trust: approval policy #{verdict.policy_sha}") if verdict.policy_sha
     verdict
   end
 
