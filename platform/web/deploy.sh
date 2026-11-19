@@ -21,6 +21,8 @@
 # Every run after that is a single run.
 #
 # Run `npm run build` in platform/web first.
+#
+# APP_BASIC_AUTH=off skips step 1 (used by the production workflow).
 set -euo pipefail
 
 export AWS_PAGER=""
@@ -35,53 +37,59 @@ infra="$here/../infra"
 dist="$here/dist"
 template="$here/basic-auth.function.js"
 
-# ---------------------------------------------------------------------------
-# 1. Compile and publish the Basic Auth function.
-# ---------------------------------------------------------------------------
+# The production deploy has no Basic Auth gate and its role cannot read the
+# credential, so its workflow sets APP_BASIC_AUTH=off to skip step 1 entirely.
+if [ "${APP_BASIC_AUTH:-on}" != "off" ]; then
 
-# A temporary file, deleted on any exit path, because it is the one place the
-# compiled function (digest included) exists outside AWS.
-compiled="$(mktemp -t cf-app-basic-auth)"
-trap 'rm -f "$compiled"' EXIT
+  # ---------------------------------------------------------------------------
+  # 1. Compile and publish the Basic Auth function.
+  # ---------------------------------------------------------------------------
 
-credential="$(aws ssm get-parameter --region "$region" \
-  --name "$credential_parameter" --with-decryption \
-  --query 'Parameter.Value' --output text)"
+  # A temporary file, deleted on any exit path, because it is the one place the
+  # compiled function (digest included) exists outside AWS.
+  compiled="$(mktemp -t cf-app-basic-auth)"
+  trap 'rm -f "$compiled"' EXIT
 
-if [ -z "$credential" ]; then
-  echo "SSM parameter $credential_parameter is empty" >&2
-  exit 1
+  credential="$(aws ssm get-parameter --region "$region" \
+    --name "$credential_parameter" --with-decryption \
+    --query 'Parameter.Value' --output text)"
+
+  if [ -z "$credential" ]; then
+    echo "SSM parameter $credential_parameter is empty" >&2
+    exit 1
+  fi
+
+  # The digest covers the whole Authorization header value, matching the existing
+  # artifacts-host precedent. printf, not echo, so no trailing newline is hashed.
+  authorization="Basic $(printf '%s' "$credential" | base64)"
+  digest="$(printf '%s' "$authorization" | shasum -a 256 | cut -d' ' -f1)"
+  unset credential authorization
+
+  sed -e "s/__CREDENTIAL_SHA256__/$digest/" -e "s/__REALM__/$realm/" \
+    "$template" >"$compiled"
+
+  if aws cloudfront describe-function --region "$region" --name "$function_name" >/dev/null 2>&1; then
+    etag="$(aws cloudfront describe-function --region "$region" --name "$function_name" \
+      --query 'ETag' --output text)"
+    echo "updating CloudFront function $function_name"
+    etag="$(aws cloudfront update-function --region "$region" --name "$function_name" \
+      --if-match "$etag" \
+      --function-config "Comment=Staging Basic Auth gate for the change-fabric web app,Runtime=cloudfront-js-2.0" \
+      --function-code "fileb://$compiled" \
+      --query 'ETag' --output text)"
+  else
+    echo "creating CloudFront function $function_name"
+    etag="$(aws cloudfront create-function --region "$region" --name "$function_name" \
+      --function-config "Comment=Staging Basic Auth gate for the change-fabric web app,Runtime=cloudfront-js-2.0" \
+      --function-code "fileb://$compiled" \
+      --query 'ETag' --output text)"
+  fi
+
+  aws cloudfront publish-function --region "$region" --name "$function_name" \
+    --if-match "$etag" >/dev/null
+  echo "published CloudFront function $function_name"
+
 fi
-
-# The digest covers the whole Authorization header value, matching the existing
-# artifacts-host precedent. printf, not echo, so no trailing newline is hashed.
-authorization="Basic $(printf '%s' "$credential" | base64)"
-digest="$(printf '%s' "$authorization" | shasum -a 256 | cut -d' ' -f1)"
-unset credential authorization
-
-sed -e "s/__CREDENTIAL_SHA256__/$digest/" -e "s/__REALM__/$realm/" \
-  "$template" >"$compiled"
-
-if aws cloudfront describe-function --region "$region" --name "$function_name" >/dev/null 2>&1; then
-  etag="$(aws cloudfront describe-function --region "$region" --name "$function_name" \
-    --query 'ETag' --output text)"
-  echo "updating CloudFront function $function_name"
-  etag="$(aws cloudfront update-function --region "$region" --name "$function_name" \
-    --if-match "$etag" \
-    --function-config "Comment=Staging Basic Auth gate for the change-fabric web app,Runtime=cloudfront-js-2.0" \
-    --function-code "fileb://$compiled" \
-    --query 'ETag' --output text)"
-else
-  echo "creating CloudFront function $function_name"
-  etag="$(aws cloudfront create-function --region "$region" --name "$function_name" \
-    --function-config "Comment=Staging Basic Auth gate for the change-fabric web app,Runtime=cloudfront-js-2.0" \
-    --function-code "fileb://$compiled" \
-    --query 'ETag' --output text)"
-fi
-
-aws cloudfront publish-function --region "$region" --name "$function_name" \
-  --if-match "$etag" >/dev/null
-echo "published CloudFront function $function_name"
 
 # ---------------------------------------------------------------------------
 # 2 and 3. Sync and invalidate, once the infrastructure around the function
@@ -120,4 +128,8 @@ aws s3 cp "$dist/index.html" "s3://$bucket/index.html" \
 echo "invalidating CloudFront $distribution"
 aws cloudfront create-invalidation --distribution-id "$distribution" --paths "/*" >/dev/null
 
-echo "deployed https://app.staging.changefabric.org"
+if [ "${APP_BASIC_AUTH:-on}" = "off" ]; then
+  echo "deployed https://app.changefabric.org"
+else
+  echo "deployed https://app.staging.changefabric.org"
+fi
