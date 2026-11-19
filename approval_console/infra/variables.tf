@@ -63,8 +63,9 @@ variable "claim_default_branch" {
 }
 
 variable "claim_environment" {
-  description = "Required GitHub Environment the claiming job must run in; pinned into the exact OIDC subject."
+  description = "The dedicated GitHub Environment the claim job runs in (no required reviewers, deployment branch = default only); pinned into the exact OIDC subject. Must match the environment the generated cf-prod.yml claim job names."
   type        = string
+  default     = "cf-claim"
 
   validation {
     condition     = length(trimspace(var.claim_environment)) > 0
