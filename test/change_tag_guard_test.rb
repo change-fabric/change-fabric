@@ -12,14 +12,29 @@ require_relative "#{SKILL_SCRIPTS}/change_override_store"
 # ancestor/prior-tag checks) all run for real against the fixture repo built
 # in setup, exactly as they would in a live hook.
 class StubTagGuard < ChangeTagGuard
-  def initialize(event, root:)
+  # base_policy: :same_as_root (default) reads the trunk's policy for real
+  # (origin/<trunk>, fetched from the fixture's bare @origin), exercising the
+  # production base-read path. Pass an explicit ChangePolicy, nil, or
+  # :unreadable to force the #553 fail-closed/fail-open branches directly.
+  def initialize(event, root:, base_policy: :same_as_root)
     super(event)
     @root = root
+    @stub_base_policy = base_policy
   end
 
   private
 
   def repo_root = @root
+
+  def default_branch(_source)
+    "main"
+  end
+
+  def base_policy(source, trunk)
+    return super if @stub_base_policy == :same_as_root
+
+    @stub_base_policy
+  end
 end
 
 class ChangeTagGuardTest < Minitest::Test
@@ -31,7 +46,7 @@ class ChangeTagGuardTest < Minitest::Test
 
     @origin = Dir.mktmpdir
     @repo = Dir.mktmpdir
-    GitFixture.git_init(@origin, "--bare")
+    GitFixture.git_init(@origin, "--bare", "-b", "main")
     GitFixture.git_init(@repo, "-b", "main")
     git("config", "user.email", "test@example.com")
     git("config", "user.name", "Test")
@@ -53,8 +68,15 @@ class ChangeTagGuardTest < Minitest::Test
   def write_file(name, contents) = File.write(File.join(@repo, name), contents)
   def head_sha = git("rev-parse", "HEAD").strip
 
+  # Commits and pushes CHANGE.md to origin/main, the real base the guard now
+  # reads (#553), so the existing suite below continues to exercise genuine
+  # base-branch policy, not a working-tree copy the guard no longer trusts.
   def write_change_md(policy_yaml)
-    File.write(File.join(@repo, "CHANGE.md"), "---\n#{policy_yaml}---\n\nbody\n")
+    front = "change_config:\n  project: app\n  lanes:\n    k6: { enabled: true }\n#{policy_yaml}"
+    File.write(File.join(@repo, "CHANGE.md"), "---\n#{front}---\n\nbody\n")
+    git("add", "CHANGE.md")
+    git("commit", "-q", "-m", "change.md")
+    git("push", "-q", "origin", "HEAD:main")
   end
 
   def record_pass(sha: head_sha, profile: nil)
@@ -218,5 +240,167 @@ class ChangeTagGuardTest < Minitest::Test
 
     decision, = decision("git push origin staging/v1.0.0")
     assert_equal "deny", decision
+  end
+
+  # --- base-branch policy read (#553) --------------------------------------
+
+  def stubbed_decision(command, base_policy:)
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    StubTagGuard.new(event, root: @repo, base_policy: base_policy).emit(io)
+    return nil if io.string.empty?
+
+    JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecision")
+  end
+
+  def test_tag_push_is_gated_by_the_trunk_policy_even_when_the_pr_loosened_its_own
+    # Working tree's own CHANGE.md declares nothing (a PR that removed its
+    # tag rule entirely); the base/trunk still requires the gate, unsatisfied.
+    File.write(File.join(@repo, "CHANGE.md"), "---\nchange_policy: {}\n---\n\nbody\n")
+    git("tag", "staging/v1.0.0")
+    base = ChangePolicy.new(
+      { "promotion" => { "tag:staging/v*" => { "require_change_pass" => true, "profile" => "staging" } } }, "base"
+    )
+
+    assert_equal "deny", stubbed_decision("git push origin staging/v1.0.0", base_policy: base)
+  end
+
+  def test_unreadable_trunk_policy_denies_when_a_working_tree_change_md_exists
+    write_change_md(BASIC_POLICY)
+    git("tag", "staging/v1.0.0")
+
+    assert_equal "deny", stubbed_decision("git push origin staging/v1.0.0", base_policy: :unreadable)
+  end
+
+  def test_unreadable_trunk_policy_allows_when_the_repo_is_otherwise_ungoverned
+    File.write(File.join(@repo, "CHANGE.md"), "---\nchange_policy: {}\n---\n\nbody\n")
+    FileUtils.rm_f(File.join(@repo, "CHANGE.md"))
+    git("tag", "staging/v1.0.0")
+
+    assert_nil stubbed_decision("git push origin staging/v1.0.0", base_policy: :unreadable)
+  end
+
+  def test_trunk_without_a_change_md_at_all_pushes_tags_freely
+    write_change_md(BASIC_POLICY)
+    git("tag", "staging/v1.0.0")
+
+    assert_nil stubbed_decision("git push origin staging/v1.0.0", base_policy: nil)
+  end
+
+  def test_trunk_and_ancestor_rule_come_from_the_base_not_the_working_tree
+    write_change_md(ANCESTOR_POLICY)
+    git("tag", "production/v1.0.0")
+    record_pass
+    # Base requires an ancestor of main; the tagged commit is on main, so it
+    # allows. A working-tree CHANGE.md redirecting the trunk and dropping the
+    # ancestor rule must not change that, and must not make a non-ancestor pass.
+    File.write(File.join(@repo, "CHANGE.md"),
+               "---\nchange_policy:\n  gate: { trunk: other }\n  promotion: {}\n---\n\nbody\n")
+    assert_nil stubbed_decision("git push origin production/v1.0.0", base_policy: :same_as_root)
+
+    git("checkout", "-q", "-b", "feature")
+    write_file("f.txt", "x")
+    git("add", "f.txt")
+    git("commit", "-q", "-m", "off trunk")
+    git("tag", "production/v2.0.0")
+    record_pass
+    assert_equal "deny", stubbed_decision("git push origin production/v2.0.0", base_policy: :same_as_root)
+  end
+
+  def test_default_branch_is_asked_of_the_destination_repository
+    guard = ChangeTagGuard.new({})
+    assert_equal "main", guard.send(:default_branch, ChangePolicy::Source.for_destination(@repo, "origin"))
+  end
+
+  def test_unreadable_trunk_policy_still_allows_a_push_that_publishes_no_tag
+    write_change_md(BASIC_POLICY)
+
+    assert_nil stubbed_decision("git push origin feature", base_policy: :unreadable)
+  end
+
+  def test_a_failed_fetch_reads_as_unreadable_even_with_a_cached_trunk
+    git("fetch", "-q", "origin")
+    git("remote", "set-url", "origin", File.join(@repo, "no-such-remote"))
+    guard = ChangeTagGuard.new({})
+    source = ChangePolicy::Source.for_destination(@repo, "origin")
+    assert_equal :unreadable, guard.send(:base_policy, source, "main")
+  end
+  def test_a_remote_with_a_separate_pushurl_resolves_to_the_push_repository
+    push = Dir.mktmpdir
+    GitFixture.git_init(push, "--bare", "-b", "main")
+    git("remote", "set-url", "--push", "origin", push)
+    source = ChangePolicy::Source.for_destination(@repo, "origin")
+    assert_equal push, source.remote
+  ensure
+    FileUtils.remove_entry(push)
+  end
+
+  def test_release_without_repo_is_denied_when_gh_default_differs_from_push_remote
+    write_change_md(BASIC_POLICY)
+    git("remote", "add", "upstream", @origin)
+    git("config", "remote.upstream.gh-resolved", "base")
+
+    assert_equal "deny", stubbed_decision("gh release create staging/v1.0.0", base_policy: nil)
+  end
+
+  def test_release_without_repo_follows_the_push_remote_when_gh_default_matches
+    write_change_md(BASIC_POLICY)
+    git("config", "remote.origin.gh-resolved", "base")
+
+    assert_nil stubbed_decision("gh release create staging/v1.0.0", base_policy: nil)
+  end
+  def test_release_without_repo_is_denied_when_the_push_remote_has_a_separate_pushurl
+    write_change_md(BASIC_POLICY)
+    push = Dir.mktmpdir
+    git("remote", "set-url", "--push", "origin", push)
+
+    assert_equal "deny", stubbed_decision("gh release create staging/v1.0.0", base_policy: nil)
+  ensure
+    FileUtils.remove_entry(push)
+  end
+
+  def test_a_remote_with_several_push_urls_fails_closed
+    write_change_md(BASIC_POLICY)
+    git("tag", "staging/v1.0.0")
+    a = Dir.mktmpdir
+    b = Dir.mktmpdir
+    git("remote", "set-url", "--add", "--push", "origin", a)
+    git("remote", "set-url", "--add", "--push", "origin", b)
+
+    assert_nil ChangePolicy::Source.for_destination(@repo, "origin")
+    assert_equal "deny", decision("git push origin staging/v1.0.0")&.first
+  ensure
+    [ a, b ].compact.each { |d| FileUtils.remove_entry(d) }
+  end
+  PUSH_DESTINATIONS = {
+    "git push -o x upstream staging/v1" => "upstream",
+    "git push -o origin upstream staging/v1" => "upstream",
+    "git push --push-option=x upstream staging/v1" => "upstream",
+    "git push --repo upstream --tags" => "upstream",
+    "git push --repo=upstream --tags" => "upstream",
+    "git push --force-with-lease=main:abc upstream staging/v1" => "upstream",
+    "git push --frobnicate origin staging/v1" => :ambiguous,
+    "git push upstream staging/v1" => "upstream",
+    "git push upstream -o x staging/v1" => "upstream",
+    "git push --tags" => nil
+  }.freeze
+
+  def test_push_destination_table
+    PUSH_DESTINATIONS.each do |cmd, expected|
+      guard = ChangeTagGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => cmd } })
+      actual = guard.send(:push_destination)
+      expected.nil? ? assert_nil(actual, cmd) : assert_equal(expected, actual, cmd)
+    end
+  end
+
+  def test_unknown_push_option_before_the_remote_is_denied_when_governed
+    write_change_md(BASIC_POLICY)
+    git("tag", "staging/v1.0.0")
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "git push --frobnicate origin staging/v1.0.0" } }
+    io = StringIO.new
+    StubTagGuard.new(event, root: @repo, base_policy: nil).emit(io)
+    out = JSON.parse(io.string)
+    assert_equal "deny", out.dig("hookSpecificOutput", "permissionDecision")
+    assert_match(/Put the remote first/, out.dig("hookSpecificOutput", "permissionDecisionReason"))
   end
 end

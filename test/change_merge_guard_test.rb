@@ -14,16 +14,26 @@ require_relative "../scripts/change_override_store"
 # exercised without a real repo or gh. The CHANGE.md policy read and the gate
 # store read stay real (they read files under the stubbed root and HOME).
 class StubMergeGuard < ChangeMergeGuard
-  def initialize(event, root:, pr:)
+  # base_policy: :same_as_root (default) makes the base read behave as if
+  # the base branch's CHANGE.md were identical to the working tree's, so the
+  # large existing suite below keeps exercising the policy-interpretation
+  # logic unchanged. Pass an explicit ChangePolicy, nil, or :unreadable to
+  # exercise the #553 base-vs-working-tree read itself.
+  def initialize(event, root:, pr:, base_policy: :same_as_root)
     super(event)
     @root = root
     @pr = pr
+    @stub_base_policy = base_policy
   end
 
   private
 
   def repo_root = @root
   def pr_facts = @pr
+
+  def base_policy(root, _base, _repo = nil)
+    @stub_base_policy == :same_as_root ? ChangePolicy.for_repo(root) : @stub_base_policy
+  end
 end
 
 class ChangeMergeGuardTest < Minitest::Test
@@ -120,6 +130,47 @@ class ChangeMergeGuardTest < Minitest::Test
   def test_profile_scoped_promotion_passes_once_that_profile_recorded
     record_pass(profile: "staging")
     assert_nil decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
+  end
+
+  # --- base-branch policy read (#553) --------------------------------------
+
+  def base_decision(command, base_policy:)
+    write_change_md(admin_allowed: false)
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    StubMergeGuard.new(event, root: @root, pr: [ "staging", SHA ], base_policy: base_policy).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecision")
+  end
+
+  def test_pr_weakening_its_own_change_md_is_still_gated_by_the_base_policy
+    # Working tree declares no promotion rules at all (a PR that removed its
+    # own gate). Base still requires the gate for staging, and no pass is
+    # recorded, so this must deny: the base, not the PR's own copy, decides.
+    base = ChangePolicy.new({ "promotion" => { "staging" => { "require_change_pass" => true } } }, "base")
+    assert_equal "deny", base_decision("gh pr merge 12 --squash", base_policy: base)
+  end
+
+  def test_pr_weakening_its_own_change_md_still_allows_once_the_base_gate_is_satisfied
+    base = ChangePolicy.new({ "promotion" => { "staging" => { "require_change_pass" => true } } }, "base")
+    record_pass
+    assert_nil base_decision("gh pr merge 12 --squash", base_policy: base)
+  end
+
+  def test_unreadable_base_denies_when_a_working_tree_change_md_exists
+    assert_equal "deny", base_decision("gh pr merge 12 --squash", base_policy: :unreadable)
+  end
+
+  def test_unreadable_base_allows_when_no_change_md_exists_anywhere
+    FileUtils.rm_f(File.join(@root, "CHANGE.md"))
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "gh pr merge 12 --squash" } }
+    io = StringIO.new
+    StubMergeGuard.new(event, root: @root, pr: [ "staging", SHA ], base_policy: :unreadable).emit(io)
+    assert_empty io.string
+  end
+
+  def test_base_without_a_change_md_at_all_merges_freely
+    write_change_md(admin_allowed: false)
+    assert_nil base_decision("gh pr merge 12 --squash", base_policy: nil)
   end
 
   # The reachable substitute for CF_ALLOW_UNGATED_MERGE=1 (unreachable from
@@ -273,5 +324,36 @@ class ChangeMergeGuardTest < Minitest::Test
     out = scoped_decision("gh pr merge 12 --squash", base: "production", require_on: "promotion")
     assert_equal "deny", out["permissionDecision"]
     assert_match(/gate\.require_on: promotion/, out["permissionDecisionReason"])
+  end
+  # --- owning repo of the PR, not origin (fork checkouts) ---------------------
+
+  def test_base_policy_reads_the_owning_repo_not_a_fork_origin
+    Dir.mktmpdir do |dir|
+      upstream = make_policy_repo(File.join(dir, "up", "proj"), "staging: { require_change_pass: true }")
+      fork = make_policy_repo(File.join(dir, "fork", "proj"), "staging: { require_change_pass: false }")
+      clone = File.join(dir, "clone")
+      git_ok(dir, "clone", "-q", fork, clone)
+      git_ok(clone, "remote", "add", "upstream", "git@github.com:up/proj.git")
+      git_ok(clone, "config", "url.#{upstream}.insteadOf", "git@github.com:up/proj.git")
+
+      guard = ChangeMergeGuard.new({})
+      policy = guard.send(:base_policy, clone, "staging", "https://github.com/up/proj/pull/1")
+      assert policy.require_change_pass?("staging")
+      refute guard.send(:base_policy, clone, "staging", nil).require_change_pass?("staging")
+    end
+  end
+
+  def git_ok(repo, *args)
+    out, status = Open3.capture2e("git", "-C", repo, *args)
+    raise out unless status.success?
+  end
+
+  def make_policy_repo(path, rule)
+    FileUtils.mkdir_p(path)
+    git_ok(path, "init", "-q", "-b", "staging")
+    File.write(File.join(path, "CHANGE.md"), "---\nchange_policy:\n  promotion:\n    #{rule}\n---\n")
+    git_ok(path, "add", "CHANGE.md")
+    git_ok(path, "-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "-m", "p")
+    path
   end
 end

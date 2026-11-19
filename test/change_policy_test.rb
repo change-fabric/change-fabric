@@ -2,6 +2,8 @@
 
 require "minitest/autorun"
 require "tmpdir"
+require "fileutils"
+require "open3"
 require_relative "../scripts/change_policy"
 
 class ChangePolicyTest < Minitest::Test
@@ -258,6 +260,108 @@ class ChangePolicyTest < Minitest::Test
         assert_equal "main", p.trunk_branch, gate
         assert p.gate_required_for_pr_merge?("production"), gate
         assert p.require_change_pass?("production"), gate
+      end
+    end
+  end
+
+  # --- for_ref (#553: every gating decision must read CHANGE.md from a base
+  # ref, never the working tree) -------------------------------------------
+
+  def git(repo, *args)
+    out, status = Open3.capture2e("git", "-C", repo, *args)
+    raise "git #{args.join(' ')} failed: #{out}" unless status.success?
+
+    out
+  end
+
+  def ref_repo
+    Dir.mktmpdir do |root|
+      git(root, "init", "-q")
+      git(root, "config", "user.email", "t@t.test")
+      git(root, "config", "user.name", "t")
+      yield root
+    end
+  end
+
+  def commit_change_md(root, front)
+    File.write(File.join(root, "CHANGE.md"), "---\n#{front}---\n\nbody\n")
+    git(root, "add", "CHANGE.md")
+    git(root, "commit", "-q", "-m", "change.md")
+  end
+
+  def test_for_ref_reads_the_policy_as_it_stood_at_that_ref
+    ref_repo do |root|
+      commit_change_md(root, "change_policy:\n  promotion:\n    staging: { require_change_pass: true }\n")
+      base_sha = git(root, "rev-parse", "HEAD").strip
+
+      # The working tree then "weakens" its own policy, same file, uncommitted.
+      File.write(File.join(root, "CHANGE.md"), "---\nchange_policy:\n  promotion: {}\n---\n\nbody\n")
+
+      policy = ChangePolicy.for_ref(root, base_sha)
+      refute_nil policy
+      assert policy.protects?("staging")
+      assert policy.require_change_pass?("staging")
+    end
+  end
+
+  def test_for_ref_returns_nil_when_the_ref_has_no_change_md_at_all
+    ref_repo do |root|
+      File.write(File.join(root, "README.md"), "hi\n")
+      git(root, "add", "README.md")
+      git(root, "commit", "-q", "-m", "no change.md")
+      sha = git(root, "rev-parse", "HEAD").strip
+
+      assert_nil ChangePolicy.for_ref(root, sha)
+    end
+  end
+
+  def test_for_ref_raises_unreadable_for_an_unresolvable_ref
+    ref_repo do |root|
+      commit_change_md(root, "change_policy:\n  promotion:\n    staging: { require_change_pass: true }\n")
+
+      assert_raises(ChangePolicy::Unreadable) { ChangePolicy.for_ref(root, "origin/no-such-branch") }
+    end
+  end
+
+  def test_for_ref_raises_unreadable_when_git_cannot_run_at_all
+    Dir.mktmpdir do |not_a_repo|
+      assert_raises(ChangePolicy::Unreadable) { ChangePolicy.for_ref(not_a_repo, "HEAD") }
+    end
+  end
+
+  def test_for_ref_raises_unreadable_when_safe_load_rejects_the_yaml
+    ref_repo do |root|
+      commit_change_md(root, "date: 2026-11-19\nchange_policy:\n  promotion:\n    staging: { require_change_pass: true }\n")
+
+      assert_raises(ChangePolicy::Unreadable) { ChangePolicy.for_ref(root, "HEAD") }
+    end
+  end
+  def test_for_ref_returns_nil_when_change_md_exists_only_in_the_working_tree
+    ref_repo do |root|
+      File.write(File.join(root, "README.md"), "hi\n")
+      git(root, "add", "README.md")
+      git(root, "commit", "-q", "-m", "ungoverned base")
+      # An adoption PR: CHANGE.md on disk, absent from the base commit.
+      File.write(File.join(root, "CHANGE.md"), "---\nchange_policy: {}\n---\n")
+
+      assert_nil ChangePolicy.for_ref(root, "HEAD")
+    end
+  end
+
+  def test_source_fetch_reads_a_branch_a_single_branch_clone_does_not_track
+    ref_repo do |upstream|
+      commit_change_md(upstream, "change_policy: {}\n")
+      git(upstream, "branch", "-M", "main")
+      git(upstream, "checkout", "-q", "-b", "staging")
+      commit_change_md(upstream, "change_policy:\n  promotion:\n    staging: { require_change_pass: true }\n")
+      git(upstream, "checkout", "-q", "main")
+      Dir.mktmpdir do |dir|
+        clone = File.join(dir, "clone")
+        git(dir, "clone", "-q", "--single-branch", "--branch", "main", upstream, clone)
+
+        source = ChangePolicy::Source.for_destination(clone, "origin")
+        refute_nil source.fetch("staging")
+        assert source.policy("staging").require_change_pass?("staging")
       end
     end
   end

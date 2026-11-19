@@ -52,13 +52,45 @@ class ChangeMergeGuard
   # must not wedge a merge on an inability to check.
   def violation
     root = repo_root or return nil
-    policy = ChangePolicy.for_repo(root) or return nil
     pr = pr_facts or return nil
-    base, sha = pr
+    base, sha, url = pr
+    policy = base_policy(root, base, url)
+    return unreadable_violation(root, base) if policy == :unreadable
+    return nil if policy.nil?
     return nil unless policy.protects?(base)
     return nil if ChangeOverrideStore.new(sha, profile: policy.profile_for(base)).authorized?
 
     admin?(command) ? admin_violation(policy, base, sha) : normal_violation(policy, base, sha)
+  end
+
+  # The policy as CHANGE.md stands on the base branch, never the PR's own
+  # working tree (#553): a PR cannot loosen the rule it is judged by. Fetches
+  # the base first so a stale local remote-tracking ref never reads as fresh.
+  # Returns :unreadable rather than letting ChangePolicy::Unreadable escape,
+  # so `violation` can decide fail-open-vs-fail-closed against the
+  # working-tree CHANGE.md's mere presence.
+  #
+  # The policy comes from the repository that owns the PR (host/owner/repo
+  # from the PR's URL, resolved by ChangePolicy::Source), not blindly from
+  # `origin`: in a fork checkout gh's default repository can be the upstream
+  # while origin is the fork, and a GitHub Enterprise PR must never be judged
+  # by a github.com remote sharing its owner/repo.
+  def base_policy(root, base, url = nil)
+    ChangePolicy::Source.for_pr_url(root, url).policy(base)
+  rescue ChangePolicy::Unreadable
+    :unreadable
+  end
+
+  # Fail-closed only when this repo is otherwise governed at all (a
+  # working-tree CHANGE.md exists); an unrelated repo that never opted into
+  # change-fabric must still merge freely even if, say, the base ref cannot be
+  # fetched for some unrelated network reason.
+  def unreadable_violation(root, base)
+    return nil unless File.exist?(File.join(root, 'CHANGE.md'))
+
+    "merge into '#{base}' is gated: the base branch's CHANGE.md could not be read " \
+      "(fetch or git show failed), so this guard fails closed rather than judge the merge " \
+      "by the PR's own copy. #{escape_note}"
   end
 
   # An admin-bypass merge (`--admin`): first the repo must permit the practice at
@@ -149,12 +181,12 @@ class ChangeMergeGuard
     ref = merge_ref(command)
     args = [ 'gh', 'pr', 'view' ]
     args << ref if ref
-    args += [ '--json', 'baseRefName,headRefOid', '-q', '.baseRefName + "\t" + .headRefOid' ]
+    args += [ '--json', 'baseRefName,headRefOid,url', '-q', '.baseRefName + "\t" + .headRefOid + "\t" + .url' ]
     out, status = Open3.capture2e(*args)
     return nil unless status.success?
 
-    base, sha = out.strip.split("\t", 2)
-    base && sha ? [ base, sha ] : nil
+    base, sha, url = out.strip.split("\t", 3)
+    base && sha ? [ base, sha, url ] : nil
   rescue StandardError
     nil
   end

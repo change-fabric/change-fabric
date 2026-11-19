@@ -55,14 +55,137 @@ class ChangeTagGuard
   # check.
   def violation
     root = repo_root or return nil
-    policy = ChangePolicy.for_repo(root) or return nil
-    return nil if policy.protected_tag_patterns.empty?
-
     refs = ChangeTagRefs.for_command(command, root)
     return nil if refs.empty?
 
+    source = policy_source(root)
+    return ambiguous_violation(root) if source == :ambiguous
+
+    trunk = source && default_branch(source)
+    policy = trunk ? base_policy(source, trunk) : :unreadable
+    return unreadable_violation(root, trunk) if policy == :unreadable
+    return nil if policy.nil?
+    return nil if policy.protected_tag_patterns.empty?
+
+    @source = source
     reasons = refs.flat_map { |tag, sha| tag_violations(policy, tag, sha, root) }
     reasons.empty? ? nil : reasons.join(' ')
+  end
+
+  # The repository this command publishes the tag to, resolved by
+  # ChangePolicy::Source alone (#553): the `git push <repository>` argument
+  # (a remote name or URL; the branch's push remote, else origin, when
+  # absent), or `gh release create`'s --repo/-R (else the default push
+  # remote). nil when the destination names no remote or URL, so a governed
+  # repo fails closed on it.
+  def policy_source(root)
+    return release_source(root) if GuardedCommand.release_create?(command)
+
+    destination = push_destination
+    return :ambiguous if destination == :ambiguous
+
+    ChangePolicy::Source.for_destination(root, destination)
+  end
+
+  PUSH_FLAGS = %w[
+    -v --verbose -q --quiet --all --branches --mirror -d --delete --tags -n --dry-run --porcelain
+    -f --force --force-if-includes --no-force-if-includes --atomic --no-atomic --signed --no-signed
+    --verify --no-verify --follow-tags --no-follow-tags --thin --no-thin -u --set-upstream --prune
+    --no-recurse-submodules --force-with-lease --no-force-with-lease -4 -6 --ipv4 --ipv6
+    --progress --no-progress
+  ].freeze
+  PUSH_VALUE_OPTIONS = %w[-o --push-option --repo --receive-pack --exec].freeze
+  PUSH_EQUALS_OPTIONS = %w[
+    --push-option --repo --receive-pack --exec --signed --force-with-lease --recurse-submodules
+  ].freeze
+
+  # The `git push` <repository>: --repo's value, else the first positional,
+  # else nil (git's default push remote). Option values are skipped, never
+  # read as the destination. :ambiguous when an option before the first
+  # positional is not one this parser knows, so a governed repo denies.
+  def push_destination
+    toks = GuardedCommand.tokens(command)
+    rest = toks[(toks.index('push') + 1)..] || []
+    repo = nil
+    until rest.empty?
+      tok = rest.shift
+      return repo || rest.first if tok == '--'
+      return repo || tok unless tok.start_with?('-')
+
+      name, value = tok.split('=', 2)
+      if value && PUSH_EQUALS_OPTIONS.include?(name)
+        repo = value if name == '--repo'
+      elsif PUSH_VALUE_OPTIONS.include?(tok)
+        value = rest.shift
+        repo = value if tok == '--repo'
+      elsif !PUSH_FLAGS.include?(tok)
+        return :ambiguous
+      end
+    end
+    repo
+  end
+
+  def release_source(root)
+    toks = GuardedCommand.tokens(command)
+    idx = toks.index { |t| %w[-R --repo].include?(t) }
+    value = idx ? toks[idx + 1] : toks.find { |t| t.start_with?('--repo=') }&.delete_prefix('--repo=')
+    return default_release_source(root) unless value
+
+    parts = value.sub(%r{\Ahttps?://}, '').split('/')
+    parts.unshift('github.com') if parts.size == 2
+    parts.size == 3 ? ChangePolicy::Source.for_identity(root, parts.map(&:downcase)) : nil
+  end
+
+  # Without --repo, gh releases to its own default repository. When
+  # `gh repo set-default` names a remote other than the push remote, the
+  # destination is ambiguous: :ambiguous, so a governed repo denies and asks
+  # for --repo rather than guess (full gh default resolution is follow-up work).
+  def default_release_source(root)
+    gh_remote = ChangePolicy::Source.gh_default_remote(root)
+    push_remote = ChangePolicy::Source.default_push_remote(root)
+    return :ambiguous if gh_remote && gh_remote != push_remote
+    # gh releases to a remote's repository, not its pushurl; when they differ,
+    # the git push destination is not gh's.
+    return :ambiguous if ChangePolicy::Source.split_push?(root, push_remote)
+
+    ChangePolicy::Source.for_destination(root, nil)
+  end
+
+  def ambiguous_violation(root)
+    return nil unless File.exist?(File.join(root, 'CHANGE.md'))
+
+    "publishing this tag is gated and its destination repository is ambiguous. #{ambiguous_hint} " \
+      "#{ChangeGateCheck.escape_note}"
+  end
+
+  def ambiguous_hint
+    if GuardedCommand.release_create?(command)
+      '`gh release create` has no --repo and `gh repo set-default` names a different remote than the push ' \
+        'remote (or that remote has a separate pushurl). Pass --repo OWNER/REPO.'
+    else
+      '`git push` has an option this guard does not recognize before the remote. Put the remote first: ' \
+        '`git push <remote> [options] <tag>`.'
+    end
+  end
+
+  # The gating policy as CHANGE.md stands on the destination repository's
+  # default branch, never the working tree (#553). The branch name is asked
+  # of that repository itself, not of origin or CHANGE.md, so neither a fork
+  # origin nor a PR's own copy can redirect the guard.
+  def default_branch(source) = source.default_branch
+
+  def base_policy(source, trunk)
+    source.policy(trunk)
+  rescue ChangePolicy::Unreadable
+    :unreadable
+  end
+
+  def unreadable_violation(root, trunk)
+    return nil unless File.exist?(File.join(root, 'CHANGE.md'))
+
+    "publishing this tag is gated: the default branch's ('#{trunk || 'unresolved'}') CHANGE.md could not be read " \
+      "(fetch or git show failed), so this guard fails closed rather than judge the tag " \
+      "by the working tree's own copy. #{ChangeGateCheck.escape_note}"
   end
 
   # Every tag rule matching this tag must independently be satisfied (the
@@ -110,8 +233,8 @@ class ChangeTagGuard
 
   # `require_trunk_ancestor: main` (0.9.0): the tagged commit must be
   # an ancestor of (or equal to) the named branch, checked against the
-  # remote-tracking ref when one exists (a fresher signal than a possibly
-  # stale local branch). Fails open (nil) whenever the branch cannot be
+  # destination repository's copy when it can be fetched (a fresher signal
+  # than a possibly stale local branch). Fails open (nil) whenever the branch cannot be
   # resolved at all, rather than deny on a fact the guard could not establish.
   def ancestor_violation(policy, tag, rule, sha, root)
     branch = policy.require_trunk_ancestor_for_rule(rule)
@@ -136,9 +259,11 @@ class ChangeTagGuard
     nil
   end
 
+  # The branch as the destination repository has it (fetched through the
+  # same ChangePolicy::Source as the policy), else the local branch.
   def resolve_branch_ref(branch, root)
-    remote_ref = "origin/#{branch}"
-    return remote_ref if ref_exists?(remote_ref, root)
+    fetched = @source&.fetch(branch)
+    return fetched if fetched
     return branch if ref_exists?(branch, root)
 
     nil
