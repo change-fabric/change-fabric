@@ -372,10 +372,35 @@ class ChangeTagGuardTest < Minitest::Test
   ensure
     [ a, b ].compact.each { |d| FileUtils.remove_entry(d) }
   end
-  def test_push_repo_option_selects_the_destination
-    guard = ChangeTagGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => "git push --repo=upstream --tags" } })
-    assert_equal "upstream", guard.send(:push_destination)
-    guard = ChangeTagGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => "git push --tags --repo upstream" } })
-    assert_equal "upstream", guard.send(:push_destination)
+  PUSH_DESTINATIONS = {
+    "git push -o x upstream staging/v1" => "upstream",
+    "git push -o origin upstream staging/v1" => "upstream",
+    "git push --push-option=x upstream staging/v1" => "upstream",
+    "git push --repo upstream --tags" => "upstream",
+    "git push --repo=upstream --tags" => "upstream",
+    "git push --force-with-lease=main:abc upstream staging/v1" => "upstream",
+    "git push --frobnicate origin staging/v1" => :ambiguous,
+    "git push upstream staging/v1" => "upstream",
+    "git push upstream -o x staging/v1" => "upstream",
+    "git push --tags" => nil
+  }.freeze
+
+  def test_push_destination_table
+    PUSH_DESTINATIONS.each do |cmd, expected|
+      guard = ChangeTagGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => cmd } })
+      actual = guard.send(:push_destination)
+      expected.nil? ? assert_nil(actual, cmd) : assert_equal(expected, actual, cmd)
+    end
+  end
+
+  def test_unknown_push_option_before_the_remote_is_denied_when_governed
+    write_change_md(BASIC_POLICY)
+    git("tag", "staging/v1.0.0")
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "git push --frobnicate origin staging/v1.0.0" } }
+    io = StringIO.new
+    StubTagGuard.new(event, root: @repo, base_policy: nil).emit(io)
+    out = JSON.parse(io.string)
+    assert_equal "deny", out.dig("hookSpecificOutput", "permissionDecision")
+    assert_match(/Put the remote first/, out.dig("hookSpecificOutput", "permissionDecisionReason"))
   end
 end

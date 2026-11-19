@@ -81,19 +81,48 @@ class ChangeTagGuard
   def policy_source(root)
     return release_source(root) if GuardedCommand.release_create?(command)
 
-    ChangePolicy::Source.for_destination(root, push_destination)
+    destination = push_destination
+    return :ambiguous if destination == :ambiguous
+
+    ChangePolicy::Source.for_destination(root, destination)
   end
 
+  PUSH_FLAGS = %w[
+    -v --verbose -q --quiet --all --branches --mirror -d --delete --tags -n --dry-run --porcelain
+    -f --force --force-if-includes --no-force-if-includes --atomic --no-atomic --signed --no-signed
+    --verify --no-verify --follow-tags --no-follow-tags --thin --no-thin -u --set-upstream --prune
+    --no-recurse-submodules --force-with-lease --no-force-with-lease -4 -6 --ipv4 --ipv6
+    --progress --no-progress
+  ].freeze
+  PUSH_VALUE_OPTIONS = %w[-o --push-option --repo --receive-pack --exec].freeze
+  PUSH_EQUALS_OPTIONS = %w[
+    --push-option --repo --receive-pack --exec --signed --force-with-lease --recurse-submodules
+  ].freeze
+
+  # The `git push` <repository>: --repo's value, else the first positional,
+  # else nil (git's default push remote). Option values are skipped, never
+  # read as the destination. :ambiguous when an option before the first
+  # positional is not one this parser knows, so a governed repo denies.
   def push_destination
     toks = GuardedCommand.tokens(command)
     rest = toks[(toks.index('push') + 1)..] || []
-    idx = rest.index('--repo')
-    return rest[idx + 1] if idx
+    repo = nil
+    until rest.empty?
+      tok = rest.shift
+      return repo || rest.first if tok == '--'
+      return repo || tok unless tok.start_with?('-')
 
-    flag = rest.find { |token| token.start_with?('--repo=') }
-    return flag.delete_prefix('--repo=') if flag
-
-    rest.find { |token| !token.start_with?('-') }
+      name, value = tok.split('=', 2)
+      if value && PUSH_EQUALS_OPTIONS.include?(name)
+        repo = value if name == '--repo'
+      elsif PUSH_VALUE_OPTIONS.include?(tok)
+        value = rest.shift
+        repo = value if tok == '--repo'
+      elsif !PUSH_FLAGS.include?(tok)
+        return :ambiguous
+      end
+    end
+    repo
   end
 
   def release_source(root)
@@ -125,10 +154,18 @@ class ChangeTagGuard
   def ambiguous_violation(root)
     return nil unless File.exist?(File.join(root, 'CHANGE.md'))
 
-    "publishing this release is gated: `gh release create` has no --repo and `gh repo set-default` names a " \
-      "different remote than the push remote (or that remote has a separate pushurl), so the destination " \
-      "repository is ambiguous. Pass --repo OWNER/REPO. " \
+    "publishing this tag is gated and its destination repository is ambiguous. #{ambiguous_hint} " \
       "#{ChangeGateCheck.escape_note}"
+  end
+
+  def ambiguous_hint
+    if GuardedCommand.release_create?(command)
+      '`gh release create` has no --repo and `gh repo set-default` names a different remote than the push ' \
+        'remote (or that remote has a separate pushurl). Pass --repo OWNER/REPO.'
+    else
+      '`git push` has an option this guard does not recognize before the remote. Put the remote first: ' \
+        '`git push <remote> [options] <tag>`.'
+    end
   end
 
   # The gating policy as CHANGE.md stands on the destination repository's
