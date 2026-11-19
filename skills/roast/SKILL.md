@@ -2,7 +2,7 @@
 name: cf:roast
 group: workflow
 providers: [openai]
-description: Multi-round roast of a UX, writing, a production architecture, a git diff, or Terraform or AWS infra, optionally through cf rubric lenses, a sub-skill of cf:design. An OpenAI vision model (the critic) reads screenshots plus the earlier rounds and returns a harsh, specific roast as JSON (score out of 10, P0/P1/P2 issues with where, problem, fix, and an estimated saving, and a purpose-test verdict per stated outcome); Claude accepts or rebuts each issue, applies the accepted fixes, re-captures, and starts the next round. Stops at a target score (default 9), a round cap (default 4), or a round with no P0 or P1. Each round is logged to a roast/ directory beside the artifact. Paid, so it runs only when invoked by name or loaded by cf:design, cf:walkthrough, cf:prototype, cf:plan, or cf:drive thorough, never auto-applied or chosen on a model guess. Usable alone on any set of screenshots or on a text (email, doc, PR description, post, diff, .tf file, architecture doc).
+description: Multi-round roast of a UX, writing, a production architecture, a git diff, or Terraform or AWS infra, optionally through cf rubric lenses, a sub-skill of cf:design. An OpenAI vision model (the critic) reads screenshots plus the earlier rounds and returns a harsh, specific roast as JSON (score out of 10, P0/P1/P2 issues with where, problem, fix, and an estimated saving, and a purpose-test verdict per stated outcome); Claude accepts or rebuts each issue, applies the accepted fixes, re-captures, and starts the next round. Stops at a target score (default 8), a round cap (default 5). Open P1s become local follow-ups, not paid rounds. Each round is logged to a roast/ directory beside the artifact. Paid, so it runs only when invoked by name or loaded by cf:design, cf:walkthrough, cf:prototype, cf:plan, or cf:drive thorough, never auto-applied or chosen on a model guess. Usable alone on any set of screenshots or on a text (email, doc, PR description, post, diff, .tf file, architecture doc).
 ---
 
 # CF roast
@@ -13,7 +13,7 @@ A thin command over `ruby ~/.claude/cf/bin/roast.rb`, which makes one critic cal
 
 ## When
 
-Optional, after screens exist: cf:design may roast a draft's mock screens, cf:prototype and cf:walkthrough may roast the stills before recording motion. cf:walkthrough runs this loop by default on every draft render, before any human sees it: one round per draft over keyframes of the draft MP4 plus the narration transcript and captions, a walkthrough rubric, a stop rule of score 8.5 or more with no P0 or P1, 4 rounds, or its run spend cap (`--roast-max-usd`, across rounds, logged in `roast/spend.json`), and changed-scene-only re-renders between rounds. Its `--final` refuses with no roast on record, an open P0 or P1, or an unfinished loop unless `--allow-roast-findings` is passed. The response, fix, and next-draft loop below is the same. It runs on screenshots or on any text file, including a diff (`git diff > change.diff`), a `.tf` file, or an architecture doc. Never without the user knowing it spends money.
+Optional, after screens exist: cf:design may roast a draft's mock screens, cf:prototype and cf:walkthrough may roast the stills before recording motion. cf:walkthrough runs this loop by default on every draft render, before any human sees it: one round per draft over keyframes of the draft MP4 plus the narration transcript and captions, a walkthrough rubric, a stop rule of score 8.5 or more with no P0 or P1, 5 rounds, or its run spend cap (`--roast-max-usd`, across rounds, logged in `roast/spend.json`), and changed-scene-only re-renders between rounds. Its `--final` refuses with no roast on record, an open P0 or P1, or an unfinished loop unless `--allow-roast-findings` is passed. The response, fix, and next-draft loop below is the same. It runs on screenshots or on any text file, including a diff (`git diff > change.diff`), a `.tf` file, or an architecture doc. Never without the user knowing it spends money.
 
 ## Inputs
 
@@ -34,7 +34,7 @@ Optional, after screens exist: cf:design may roast a draft's mock screens, cf:pr
 - `--cache <dir>` (default `~/.claude/cf/roasts/<dashed repo path>/`, outside the repo, shared with `--video`; critics an older run cached under `<repo>/.cache/roasts/` move there on the next run, same keys), `--estimate-only`, `--model <name>`, `--effort <level>`. The model resolves through one chain: `--model`, then `CF_ROAST_MODEL`, then the repo config `model`, then the per-kind default (`gpt-6.1-terra` for the text kinds `email`, `doc`, `pr`, `post`, `diff`, `code`, `arch`, `infra`; `gpt-6.1-sol` for screenshots, the walkthrough kinds `explainer`, `promo`, `demo`, and video). Each step accepts the aliases `terra` (`gpt-6.1-terra`) and `sol` (`gpt-6.1-sol`); any other name passes through as a full model ID. Any `--shot` defaults the model to Sol unless `--model`, env or config overrides it. The estimate prices the model that runs; a model with no known price is estimated at Sol rates with a warning line, so it is never underpriced.
 - `--effort none|low|medium|high|xhigh|max` (default `medium`) is always sent as `reasoning.effort`. `none` on a Sol model is refused (exit 2). The cache key gains an effort field only when the effort is not `medium`, so rounds cached before this flag existed still hit.
 
-`roast.rb decide --out-dir roast [--target 9] [--cap 4]` prints `roast decision: stop|continue: <reason>` from the latest logged round, so the stop rule is not re-derived by hand.
+`roast.rb decide --out-dir roast [--target 8] [--cap 5]` prints `roast decision: stop|continue: <reason>` from the latest logged round, so the stop rule is not re-derived by hand.
 
 Settings from CHANGE.md: when the repo's root `CHANGE.md` sets `change_config.design.roast`, its keys fill in for absent flags: `target` and `rounds` for `decide` (`--target`, `--cap`), `max_usd` for the ceiling (`--max-usd`), `model` for the critic (an alias or full ID; `--model` and `CF_ROAST_MODEL` both win over it), `kind` and `audience` as review defaults. A flag given always wins; a key left unset keeps this script's default. `--repo <dir>` names the repo (default the working directory). `roast.rb settings [--repo <dir>]` prints the resolved `auto`, `target`, `rounds`, `max_usd`, and `model`; a loading skill (cf:design, cf:prototype, cf:walkthrough) skips the roast when `auto` is false, the same as `--no-roast`. A malformed block is a named failure (exit 1).
 
@@ -52,7 +52,7 @@ Privacy: before any call, the brief, `--text` files, the transcript, and prior r
 
 ## Fidelity roasts
 
-`--kind fidelity` with `--pair proto.png=ref.png` (repeatable; a pair implies the kind) compares a prototype still with a still of the production app it extends, for a monorepo design target (spec 0.18.0). Each pair sends the prototype then the reference, and the brief lists the pairing. The critic judges design-system fidelity only: type, spacing and layout, components, color, and the app shell. It ignores data content, copy, and masked regions. Audience and purpose default to the app's own team and "each prototype still reads as a screen of the production app"; flags still win. CLI-only: CHANGE.md `roast.kind` does not accept it. The sensitive-terms scan and the printed estimate run before the call as usual; reference stills come from `prototype_reference.rb` into the ignored `.cache/reference/<target>/` and are never published. In cf:prototype the loop logs to `roast/fidelity/`, stops at score 9 (advisory) or round cap 4, and its stop is the stills sign-off.
+`--kind fidelity` with `--pair proto.png=ref.png` (repeatable; a pair implies the kind) compares a prototype still with a still of the production app it extends, for a monorepo design target (spec 0.18.0). Each pair sends the prototype then the reference, and the brief lists the pairing. The critic judges design-system fidelity only: type, spacing and layout, components, color, and the app shell. It ignores data content, copy, and masked regions. Audience and purpose default to the app's own team and "each prototype still reads as a screen of the production app"; flags still win. CLI-only: CHANGE.md `roast.kind` does not accept it. The sensitive-terms scan and the printed estimate run before the call as usual; reference stills come from `prototype_reference.rb` into the ignored `.cache/reference/<target>/` and are never published. In cf:prototype the loop logs to `roast/fidelity/`, stops at score 8 (advisory) or round cap 5 under the same stop rule below, and its stop is the stills sign-off.
 
 `/cf:roast --brief brief.md --pair .cache/stills/analytics/000001.png=.cache/reference/portal/admin-analytics.png --out-dir roast/fidelity`
 
@@ -87,11 +87,31 @@ It reads the same history (stills rounds and earlier video rounds with their res
 
    Accept what is right even when it stings. Rebut only with a reason grounded in the brief, DESIGN.md, or the user's stated constraints; a rebuttal with no such ground is an accept. The next round's critic sees these and may hold the line.
 4. Apply the accepted fixes to the artifact (screens, DESIGN.md, tokens), keeping to the tokens and the cf:usability, cf:fractal, and cf:prototyping rules (load cf:fractal by name before applying a layout or spacing fix, so a fix reuses an existing module instead of inventing one). Do not touch what the roast did not raise.
-5. Re-capture the screenshots, then run `roast.rb decide`. On `continue`, go to step 2 for the next round; on `stop`, finish.
+5. Re-capture the screenshots, then run `roast.rb decide`. On `continue`, go to step 2 for the next round; on `stop`, finish. When the stop is blocking, report the open P0 as blocking and do not present the run as done. When it printed `followups:`, see Open P1s at the stop.
 
 ## Stop rule
 
-First match on the latest round wins: score at or above the target (default 9), no P0 or P1 issue, or the round cap (default 4). The user may override target and cap. Past the cap, report the open issues instead of running another paid round.
+`roast.rb decide`, the fidelity loop, and `PRINCIPLES.md` share one table. First matching row on the latest round wins, with target T (default 8) and cap C (default 5):
+
+| Row | Condition | Result | Reason text |
+| --- | --- | --- | --- |
+| 1 | P0 open, round below cap | continue | `N P0 issue(s) open, score S` |
+| 2 | P0 open, round at cap | stop, blocking | `round cap C reached with N P0 open (blocking)` |
+| 3 | no P0, score at or above T | stop | `score S at or above target T`, with followups for open P1s |
+| 4 | otherwise, below cap | continue | `score S below target T` |
+| 5 | otherwise, at cap | stop | `round cap C reached, score S`, with followups for open P1s |
+
+The user may override target and cap. Row 2 is not success: report the P0 as blocking. A P1 alone never causes `continue`, and past the cap no further paid round runs.
+
+## Open P1s at the stop
+
+On rows 3 and 5, `decide` prints a `followups:` block, one line per open P1 with its id, and upserts them into the top-level `followups` array of `roast/round-N.response.json`, next to `responses`. The mitigation pass belongs to the caller and runs locally with no further paid round.
+
+- Id: `r<round>-i<index>-<hash>`, stable across reruns (index is the issue's 0-based position, hash the first 8 hex of SHA-256 over `where`, a newline, `problem`).
+- Fields: `id`, `priority` (always `P1`), `where`, `problem`, `fix`, `outcome` (`pending`, `mitigated`, `unresolved`, `escalated`, `declined_by_human`), `judge_verdict` (`null`, `resolved`, `unresolved`), `attempts` (0 to 2), `escalation_reason`, `note`.
+- `scripts/roast_followups.rb` (`RoastFollowups.upsert`) keys by id: a rerun of `decide` appends new ids and never resets an entry whose outcome is not `pending`.
+- Every `unresolved` and `escalated` follow-up is listed in the caller's final report, never only recorded in the json.
+- cf:walkthrough `--final` refuses a fidelity follow-up still `pending` or `unresolved`.
 
 ## Judgment the user keeps
 
@@ -109,4 +129,4 @@ Answer failures are named. An answer cut off at the output cap prints `truncated
 
 - Every paid round was preceded by a shown estimate and stayed under the ceiling.
 - `roast/` holds round-N.json, round-N.md, and round-N.response.json for each round run.
-- The report to the user gives the score per round, the stop reason, what was fixed, what was rebutted and why, and any open P0 or P1.
+- The report to the user gives the score per round, the stop reason, what was fixed, what was rebutted and why, and any open P0, and every P1 follow-up with its outcome.

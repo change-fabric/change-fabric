@@ -20,7 +20,7 @@ module WalkthroughRoast
   # reference): roast/fidelity/ beside the draft roast, with its own rounds,
   # open blockers, and stop verdict.
   FIDELITY_DIR = File.join(DIR, 'fidelity')
-  FIDELITY_TARGET = 9.0
+  FIDELITY_TARGET = 8.0
   SIGNOFF = 'signoff.json'
   LEDGER = 'spend.json'
   TARGET = 8.5
@@ -160,12 +160,12 @@ module WalkthroughRoast
   end
 
   # The latest round's P0 and P1 issues not rebutted in its response file.
-  def open_blockers(history)
+  def open_blockers(history, priorities: Roast::BLOCKING)
     return [] unless (last = history.last)
 
     responses = Array(last.dig(:response, 'responses'))
     last[:critic]['issues'].reject.with_index do |issue, i|
-      !Roast::BLOCKING.include?(issue['priority']) || rebutted?(issue, responses, i)
+      !priorities.include?(issue['priority']) || rebutted?(issue, responses, i)
     end
   end
 
@@ -382,14 +382,30 @@ module WalkthroughRoast
 
   # -- fidelity loop ------------------------------------------------------
 
-  # The fidelity loop's stop verdict over `dir` (roast/fidelity/): Roast.decide
-  # with the 9 target as an advisory stop, round cap 4. A stop is the stills
-  # sign-off and is recorded in signoff.json.
+  # The fidelity loop's stop verdict over `dir` (roast/fidelity/): the same
+  # single stop rule as Roast.decide, with the 8.0 target and the round cap. A
+  # stop is the stills sign-off and is recorded in signoff.json. A stop with
+  # open P1s records them as follow-ups in the latest round's response file;
+  # they are mitigated locally, never by another paid round.
   def fidelity_verdict(dir, target: FIDELITY_TARGET, rounds: ROUND_CAP)
     history = Roast.load_history(dir)
-    return { stop: false, reason: 'no fidelity round yet' } if history.empty?
+    return { stop: false, reason: 'no fidelity round yet', blocking: false, followups: [] } if history.empty?
 
-    Roast.decide(history, target: target, cap: rounds)
+    verdict = Roast.decide(history, target: target, cap: rounds)
+    verdict[:followups] = record_fidelity_followups(dir, history) if verdict[:stop] && !verdict[:blocking]
+    verdict
+  end
+
+  # The latest round's open (not rebutted) P1s, recorded as pending follow-ups
+  # in its response file; a rerun keeps outcomes already recorded. The gate
+  # records them even before the loop stops, so a P1 never slips past --final.
+  def record_fidelity_followups(dir, history)
+    last = history.last
+    open_p1 = open_blockers([ last ], priorities: %w[P1])
+    rebutted = last[:critic]['issues'].select { |i| i['priority'] == 'P1' && open_p1.none? { |o| o.equal?(i) } }
+    entries = RoastFollowups.from_critic(last[:round], last[:critic], skip: rebutted)
+    RoastFollowups.upsert(File.join(dir, "round-#{last[:round]}.response.json"), entries) unless entries.empty?
+    entries
   end
 
   def record_signoff(dir, verdict)
@@ -403,9 +419,11 @@ module WalkthroughRoast
     path
   end
 
-  # --final with a reference target blocks only on open fidelity P0/P1; the
-  # score target is advisory. No fidelity round on record also blocks, since
-  # an unrun comparison has no findings to clear.
+  # --final with a reference target refuses on an open fidelity P0, on no
+  # fidelity round on record (an unrun comparison has no findings to clear),
+  # or on a fidelity follow-up still `pending` or `unresolved`: the local P1
+  # pass must have run and its result must be surfaced. A P1 alone never
+  # blocks, and the score target is advisory.
   def fidelity_gate!(dir, allow: false)
     return if allow
 
@@ -414,8 +432,16 @@ module WalkthroughRoast
       raise OpenFindingsError, 'no fidelity roast on record for this reference target; compare the prototype stills with ' \
                                'the reference first (pass --allow-fidelity-findings to override)'
     end
-    blockers = open_blockers(history)
+    blockers = open_blockers(history, priorities: %w[P0])
     raise_open_blockers(blockers, label: 'fidelity', flag: '--allow-fidelity-findings') unless blockers.empty?
+    record_fidelity_followups(dir, history)
+    unsettled = RoastFollowups.followups(File.join(dir, "round-#{history.last[:round]}.response.json"))
+                              .select { |f| RoastFollowups::UNSETTLED.include?(f['outcome']) }
+    return if unsettled.empty?
+
+    lines = unsettled.map { |f| "#{f['id']} (#{f['outcome']}): #{f['problem']}" }
+    raise OpenFindingsError, "#{unsettled.size} fidelity P1 follow-up(s) not settled by the local pass block --final " \
+                             "(pass --allow-fidelity-findings to override):\n#{lines.join("\n")}"
   end
   private_class_method :raise_open_blockers
 

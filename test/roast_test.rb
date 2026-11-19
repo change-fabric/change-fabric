@@ -413,19 +413,78 @@ class RoastTest < Minitest::Test
     { round: round, critic: { "score" => score, "issues" => issues }, response: nil }
   end
 
-  def test_decide_stops_at_target_then_no_blockers_then_cap
-    assert Roast.decide([ hist(1, 9, [ "P0" ]) ])[:stop]
-    assert_match(/no P0 or P1/, Roast.decide([ hist(1, 6, [ "P2" ]) ])[:reason])
-    assert_match(/cap #{Roast::DEFAULT_CAP}/, Roast.decide([ hist(4, 6, [ "P1" ]) ])[:reason])
-    refute Roast.decide([ hist(2, 6, [ "P1" ]) ])[:stop]
+  def test_decide_defaults_are_eight_and_five
+    assert_equal 8, Roast::DEFAULT_TARGET
+    assert_equal 5, Roast::DEFAULT_CAP
+  end
+
+  # One case per row of the stop-rule table in PRINCIPLES.md.
+  def test_decide_row1_p0_below_cap_continues_even_above_target
+    d = Roast.decide([ hist(1, 9, [ "P0" ]) ])
+    refute d[:stop]
+    refute d[:blocking]
+    assert_equal "1 P0 issue(s) open, score 9", d[:reason]
+  end
+
+  def test_decide_row2_p0_at_cap_stops_blocking
+    d = Roast.decide([ hist(Roast::DEFAULT_CAP, 9, [ "P0" ]) ])
+    assert d[:stop]
+    assert d[:blocking]
+    assert_equal "round cap #{Roast::DEFAULT_CAP} reached with 1 P0 open (blocking)", d[:reason]
+    assert_empty d[:followups]
+  end
+
+  def test_decide_row3_score_eight_with_a_p1_stops_with_a_followup
+    d = Roast.decide([ hist(1, 8, [ "P1", "P2" ]) ])
+    assert d[:stop]
+    refute d[:blocking]
+    assert_equal "score 8 at or above target 8", d[:reason]
+    assert_equal 1, d[:followups].size
+    assert_equal "P1", d[:followups].first["priority"]
+    assert_equal "pending", d[:followups].first["outcome"]
+  end
+
+  def test_decide_row4_score_seven_without_p0_below_cap_continues
+    d = Roast.decide([ hist(2, 7, [ "P2" ]) ])
+    refute d[:stop]
+    assert_equal "score 7 below target 8", d[:reason]
+  end
+
+  def test_decide_row5_score_seven_at_cap_stops_with_followups
+    d = Roast.decide([ hist(Roast::DEFAULT_CAP, 7, [ "P1" ]) ])
+    assert d[:stop]
+    refute d[:blocking]
+    assert_equal "round cap #{Roast::DEFAULT_CAP} reached, score 7", d[:reason]
+    assert_equal 1, d[:followups].size
+  end
+
+  def test_a_p1_alone_at_target_never_continues
+    (8..10).each { |score| assert Roast.decide([ hist(1, score, [ "P1", "P1" ]) ])[:stop] }
     refute Roast.decide([])[:stop]
+  end
+
+  def test_decide_cli_prints_and_upserts_followups_and_a_rerun_keeps_outcomes
+    FileUtils.mkdir_p(@roast)
+    critic = CRITIC.merge("score" => 8)
+    Roast.write_round(@roast, 1, critic)
+    out = StringIO.new
+    assert_equal 0, Roast::Cli.run([ "decide", "--out-dir", @roast ], out: out)
+    assert_includes out.string, "roast decision: stop: score 8 at or above target 8"
+    assert_includes out.string, "followups:\n- r1-i0-"
+    path = File.join(@roast, "round-1.response.json")
+    entry = RoastFollowups.followups(path).first
+    assert_equal "pending", entry["outcome"]
+    RoastFollowups.upsert(path, [ entry.merge("outcome" => "mitigated", "judge_verdict" => "resolved", "attempts" => 1) ])
+    assert_equal 0, Roast::Cli.run([ "decide", "--out-dir", @roast ], out: StringIO.new)
+    stored = RoastFollowups.followups(path)
+    assert_equal [ "mitigated" ], stored.map { |f| f["outcome"] }
   end
 
   def test_decide_subcommand_reads_the_log
     run_cli
     out = StringIO.new
     assert_equal 0, Roast::Cli.run([ "decide", "--out-dir", @roast, "--target", "5" ], out: out)
-    assert_includes out.string, "roast decision: stop: score 6 reached target 5"
+    assert_includes out.string, "roast decision: stop: score 6 at or above target 5"
   end
 
   def write_change(roast)
@@ -471,7 +530,7 @@ class RoastTest < Minitest::Test
     write_change({ "target" => 5, "auto" => false })
     out = StringIO.new
     assert_equal 0, Roast::Cli.run([ "decide", "--repo", @dir, "--out-dir", @roast ], out: out)
-    assert_includes out.string, "reached target 5"
+    assert_includes out.string, "at or above target 5"
     out = StringIO.new
     Roast::Cli.run([ "decide", "--repo", @dir, "--out-dir", @roast, "--target", "9.5" ], out: out)
     assert_includes out.string, "continue"

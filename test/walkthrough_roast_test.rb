@@ -157,10 +157,73 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  def fidelity_issue(priority) = issue(priority, "foreign type scale")
+
+  def test_fidelity_at_target_with_a_p1_stops_with_a_followup_and_no_further_round
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P1") ], score: 8)
+      verdict = WalkthroughRoast.fidelity_verdict(dir)
+      assert verdict[:stop]
+      assert_equal 8.0, WalkthroughRoast::FIDELITY_TARGET
+      assert_equal 1, verdict[:followups].size
+      stored = RoastFollowups.followups(File.join(dir, "round-1.response.json"))
+      assert_equal [ verdict[:followups].first["id"] ], stored.map { |f| f["id"] }
+    end
+  end
+
+  def test_fidelity_p0_continues_below_cap_and_stops_blocking_at_cap
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P0") ], score: 9)
+      refute WalkthroughRoast.fidelity_verdict(dir)[:stop]
+      round(dir, Roast::DEFAULT_CAP, [ fidelity_issue("P0") ], score: 9)
+      verdict = WalkthroughRoast.fidelity_verdict(dir)
+      assert verdict[:stop]
+      assert verdict[:blocking]
+    end
+  end
+
+  def test_fidelity_gate_refuses_on_an_unresolved_followup_and_passes_once_mitigated
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P1") ], score: 8)
+      err = assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.fidelity_gate!(dir) }
+      assert_includes err.message, "(pending)"
+      path = File.join(dir, "round-1.response.json")
+      entry = RoastFollowups.followups(path).first
+      RoastFollowups.upsert(path, [ entry.merge("outcome" => "unresolved", "attempts" => 2, "judge_verdict" => "unresolved") ])
+      assert_includes assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.fidelity_gate!(dir) }.message, "(unresolved)"
+      RoastFollowups.upsert(path, [ entry.merge("outcome" => "mitigated", "attempts" => 1, "judge_verdict" => "resolved") ])
+      assert_nil WalkthroughRoast.fidelity_gate!(dir)
+      assert_nil WalkthroughRoast.fidelity_gate!(dir, allow: true)
+    end
+  end
+
+  def test_fidelity_gate_records_a_p1_before_the_loop_stops
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P1") ], score: 7)
+      refute WalkthroughRoast.fidelity_verdict(dir)[:stop]
+      assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.fidelity_gate!(dir) }
+    end
+  end
+
+  def test_fidelity_followups_skip_a_rebutted_p1
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P1") ], [ { "verdict" => "rebut", "screen" => "s", "problem" => "foreign type scale" } ], score: 8)
+      assert_empty WalkthroughRoast.fidelity_verdict(dir)[:followups]
+      assert_nil WalkthroughRoast.fidelity_gate!(dir)
+    end
+  end
+
+  def test_fidelity_gate_refuses_on_an_open_p0
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ fidelity_issue("P0") ], score: 9)
+      assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.fidelity_gate!(dir) }
+    end
+  end
+
   def test_decide_stops_at_the_round_cap
     Dir.mktmpdir do |dir|
-      round(dir, 4, [ issue("P1") ])
-      assert_includes WalkthroughRoast.decide(dir, cap_usd: 99)[:reason], "round cap 4"
+      round(dir, Roast::DEFAULT_CAP, [ issue("P1") ])
+      assert_includes WalkthroughRoast.decide(dir, cap_usd: 99)[:reason], "round cap #{Roast::DEFAULT_CAP}"
     end
   end
 
@@ -183,12 +246,12 @@ class WalkthroughRoastTest < Minitest::Test
     Dir.mktmpdir do |dir|
       film = { "a" => "k1", "b" => "k2", "c" => "k3" }
       WalkthroughRoast.record_scenes(dir, film)
-      round(dir, 4, [ issue("P1") ], score: 7)
-      assert_includes WalkthroughRoast.decide(dir, cap_usd: 99)[:reason], "round cap 4"
+      round(dir, Roast::DEFAULT_CAP, [ issue("P1") ], score: 7)
+      assert_includes WalkthroughRoast.decide(dir, cap_usd: 99)[:reason], "round cap #{Roast::DEFAULT_CAP}"
       assert_nil WalkthroughRoast.rescope!(dir, film.merge("a" => "k1-fixed"))
-      assert_includes WalkthroughRoast.decide(dir, cap_usd: 99)[:reason], "round cap 4"
+      assert_includes WalkthroughRoast.decide(dir, cap_usd: 99)[:reason], "round cap #{Roast::DEFAULT_CAP}"
       archive = WalkthroughRoast.rescope!(dir, { "a" => "n1", "b" => "n2", "c" => "k3" })
-      assert File.file?(File.join(archive, "round-4.json"))
+      assert File.file?(File.join(archive, "round-#{Roast::DEFAULT_CAP}.json"))
       verdict = WalkthroughRoast.decide(dir, cap_usd: 99)
       refute verdict[:stop]
       assert_equal "no roast round yet", verdict[:reason]
