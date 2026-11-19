@@ -61,7 +61,7 @@ module Roast
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb --audio CLIP.mp3 [--audio CLIP2.mp3]... --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
   # arch, code and infra are CLI-only: CHANGE.md still validates against
@@ -620,6 +620,10 @@ module Roast
       if args.include?('--video')
         require_relative 'roast_video'
         return RoastVideo::Cli.run(args, out: out, http: http)
+      end
+      if args.include?('--audio')
+        require_relative 'roast_audio'
+        return RoastAudio::Cli.run(args, out: out)
       end
       if args.first == 'decide'
         args.shift

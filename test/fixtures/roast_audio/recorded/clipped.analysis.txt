@@ -1,0 +1,9 @@
+[Parsed_astats_0 @ 0x7fffdc003100] DC offset: -0.000052
+[Parsed_astats_0 @ 0x7fffdc003100] Peak level dB: -0.053261
+[Parsed_astats_0 @ 0x7fffdc003100] Peak count: 2.000000
+[Parsed_astats_0 @ 0x7fffdc003100] Number of samples: 88200
+[Parsed_ebur128_2 @ 0x7fffdc003600] Summary:
+  Integrated loudness:
+    I:          -1.8 LUFS
+  True peak:
+    Peak:       -0.0 dBFS
