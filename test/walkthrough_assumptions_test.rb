@@ -99,4 +99,14 @@ class WalkthroughAssumptionsTest < Minitest::Test
     assert_includes WalkthroughAssumptions.render(board), "## Generated footage\n\nNone."
     refute_match(/[\u2014\u2022\u2026\u201c\u201d]/, md)
   end
+
+  def test_story_section_lists_each_drafted_pointer_with_its_value
+    b = board.merge("story" => { "hero" => "an admin", "length_s" => 90, "before" => { "state" => "waits" },
+                                 "assumptions" => [ "/story/hero", "/story/length_s", "/story/before/state" ] })
+    md = WalkthroughAssumptions.render(b)
+    assert_includes md, "## Story\n\n- /story/hero: drafted, not confirmed by the user: an admin"
+    assert_includes md, "- /story/length_s: drafted, not confirmed by the user: 90"
+    assert_includes md, "- /story/before/state: drafted, not confirmed by the user: waits"
+    assert_includes WalkthroughAssumptions.render(board), "## Story\n\nNone recorded."
+  end
 end

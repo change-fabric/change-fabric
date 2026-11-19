@@ -54,7 +54,9 @@ module WalkthroughAssumptions
       out.concat(items.empty? ? [ 'None recorded.' ] : items.map { |e| "- #{e['id']}: #{e['text']} (scenes: #{e['scenes'].join(', ')})" })
       out << ''
     end
-    out << '## Generated footage' << ''
+    out << '## Story' << ''
+    out.concat(story_lines(board))
+    out << '' << '## Generated footage' << ''
     out.concat(generated_footage(board))
     out.concat([ '', '## Simulated UI', '' ] + simulated_ui(board)) unless simulated_ui(board).empty?
     out << '' << '## Fictional data' << ''
@@ -62,6 +64,23 @@ module WalkthroughAssumptions
     out << '' << '## Brand logos' << ''
     out.concat(logos.empty? ? [ 'None used.' ] : logos.map { |logo| logo_line(logo) })
     "#{out.join("\n").rstrip}\n"
+  end
+
+  # One line per story.assumptions pointer: a story field the agent drafted
+  # rather than heard from the user, with its value.
+  def story_lines(board)
+    story = board['story']
+    pointers = story.is_a?(Hash) ? Array(story['assumptions']) : []
+    return [ 'None recorded.' ] if pointers.empty?
+
+    pointers.map { |ptr| "- #{ptr}: drafted, not confirmed by the user: #{story_value(story, ptr)}" }
+  end
+
+  def story_value(story, pointer)
+    node = pointer.delete_prefix('/story/').split('/').reduce(story) do |n, seg|
+      n.is_a?(Array) ? n[seg.to_i] : (n.is_a?(Hash) ? n[seg] : nil)
+    end
+    node.is_a?(String) ? node : JSON.generate(node)
   end
 
   # Every compose, message, and environment scene is simulated UI that never

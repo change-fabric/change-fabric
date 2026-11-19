@@ -317,6 +317,10 @@ class ElevenLabsTest < Minitest::Test
     File.write(path, JSON.generate(
                        "voice" => { "voice_id" => "board-voice", "model" => "eleven_flash_v2_5", "output_format" => "mp3_44100_64" },
                        "music" => { "model" => "music_v1", "prompt" => "calm piano" },
+                       "story" => { "hero" => "an engineer", "audience" => "engineers",
+                                    "before" => { "state" => "slow", "scenes" => [ "b" ] },
+                                    "turn" => { "moment" => "a switch", "scenes" => [ "a" ] },
+                                    "after" => { "outcomes" => [ "fast" ], "scenes" => [ "c" ] } },
                        "scenes" => [ scene.call("b", 2, "Second."), scene.call("a", 1, "First."), scene.call("c", 3, "") ]
                      ))
     path

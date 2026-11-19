@@ -21,6 +21,7 @@
   "look": { "grain": 6, "vignette": true },
   "hypotheses": [{ "id": "H-01", "text": "string", "dimension": "role|look_and_feel" }],
   "review": { "kind": "explainer|promo|demo", "audience": "string", "purpose": ["outcome a viewer must be able to state afterward"] },
+  "story": { "hero": "string", "audience": "string", "before": {}, "turn": {}, "after": {} },
   "scenes": []
 }
 ```
@@ -472,3 +473,65 @@ All keys are sha256 hex over canonical JSON (sorted keys, no whitespace).
 - `broll_key` (ai-broll): source image digest, prompt, seconds, model id, resolution, and aspect ratio. An ai-broll scene's `frames_key` hashes the clip key (or, for a fallback, the source image digest and mode), the viewport, fps, frame count, and the FFmpeg image digest.
 - `music_key`: the music block and the total timeline duration.
 - `manifest_hash`: sha256 of manifest.json in canonical form, excluding the hash itself.
+
+## Story block
+
+Top-level `story` in storyboard.json (and, without any scene ids, a plan dir's `story.json`). Every walkthrough has one: a hero the audience recognizes as themselves, and a before, turn and after spine anchored to scenes. `validate` warns on a missing or broken block; the render and `elevenlabs.rb narrate|music --storyboard` refuse it with exit 2 before the first paid call (`WalkthroughStory.preflight!`), and `--estimate-only` only warns. The arc shapes narration and scene order; arc labels never appear on screen.
+
+```json
+"story": {
+  "hero": "the client's platform admin",
+  "guide": "change-fabric",
+  "perspective": "third",
+  "audience": "client platform team",
+  "before": { "state": "deploys wait on a ticket queue", "scenes": ["s01"] },
+  "turn":   { "moment": "the admin opens the self-serve console", "scenes": ["s03"] },
+  "after":  { "outcomes": ["ships a service in ten minutes"], "scenes": ["s06"] },
+  "beats": [ { "label": "first try", "scenes": ["s02"] } ],
+  "length_s": 90,
+  "highlights": { "ui_before_after": false, "scope": "built_only", "secondary_artifacts": [], "requests": [] },
+  "assumptions": ["/story/beats", "/story/length_s"]
+}
+```
+
+The product or our team is normally the guide, not the hero. A first-person viewer script declares `perspective: first`, and "we" in narration is then the viewer's own team. The validator checks the hero for presence only; the roast judges whether the hero is the viewer's counterpart.
+
+"Empty" is a missing key, null, a blank string or an empty array. Story-only mode covers story.json (scene arrays must be absent); storyboard mode covers validate and render.
+
+| Field | Type | Rule |
+|---|---|---|
+| hero | string | required, non-empty |
+| guide | string or null | optional; null means no guide |
+| perspective | string | optional: first, second or third |
+| audience | string | required; copied to `review.audience` |
+| before.state, turn.moment | string | required |
+| after.outcomes | array of string | required, at least one non-empty; the first derives `review.purpose` |
+| before, turn, after `.scenes` | array of scene ids | storyboard: required, non-empty, ids exist, max(before) < min(turn) and max(turn) < min(after) by scene index; story-only: absent |
+| beats | array of object | optional; each needs a `label`; `scenes` ids exist |
+| length_s | integer | optional, 15 to 600 |
+| highlights.ui_before_after | boolean | optional; true needs a pair in storyboard mode |
+| highlights.scope | string | optional: `built_only` or `wider` |
+| highlights.secondary_artifacts, highlights.requests | array of string | optional |
+| assumptions | array of string | optional; each a JSON pointer under /story that resolves |
+
+UI before/after: when `highlights.ui_before_after` is true, one scene has `"footage": "before"` and a later scene `"footage": "after"` with the same `"pair": "<id>"` (both are new optional scene keys). Defaults are never stored: an absent key means unanswered, and readers apply `ui_before_after` false, `scope` `built_only` and empty lists in code.
+
+Provenance: `story.assumptions` lists the pointers of fields the agent drafted rather than heard from the user; `walkthrough_assumptions.rb` writes one ASSUMPTIONS.md line each. Seeding (`walkthrough_story.rb seed <story.json> <storyboard.json>`) copies story.json whole into a storyboard with no story, otherwise fills only absent or empty keys, never overwrites, never seeds scene arrays, and carries a pointer only for a field it copied.
+
+Question table (`WalkthroughStory::QUESTIONS`; `walkthrough_story.rb unanswered <file> [--away]` lists the open keys, counting an assumed field as open unless `--away`). Ask in order, up to four per AskUserQuestion call:
+
+| Key | Question | Field | Required | Answered when |
+|---|---|---|---|---|
+| audience | Who watches this? | audience | yes | non-empty |
+| hero | Who is the hero, as a role the viewer sees themselves in? | hero | yes | non-empty |
+| guide | Who guides the hero (usually the product or our team)? | guide | no | key present; null means no guide |
+| perspective | Whose voice tells it: first, second or third person? | perspective | no | key present |
+| before | What is the hero's problem state before? | before.state | yes | non-empty |
+| turn | What moment turns it? | turn.moment | yes | non-empty |
+| after | What outcomes does the hero have after? | after.outcomes | yes | at least one non-empty |
+| beats | Any beats in between? | beats | no | key present; [] counts |
+| length | Target length in seconds? | length_s | no | key present |
+| ui_before_after | Show real old-UI versus new-UI footage? | highlights.ui_before_after | no | key present |
+| scope | Only what we built, or wider? | highlights.scope | no | key present |
+| secondary | Any secondary artifact to feature? | highlights.secondary_artifacts | no | key present; [] counts |
+| requests | Other special highlight requests? | highlights.requests | no | key present; [] counts |

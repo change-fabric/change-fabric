@@ -47,9 +47,9 @@ class WalkthroughStoryboardTest < Minitest::Test
     b = board.merge("review" => { "kind" => "demo", "audience" => "Ops", "purpose" => [ "Ship" ] })
     b["scenes"] = [ { "id" => "s1", "camera" => { "zoom" => 1.5 } }, { "id" => "s2", "camera" => { "zoom" => 0.8 } } ]
     b["viewport"] = { "w" => 1920, "h" => 1080, "dpr" => 1 }
-    assert_equal [ "s1" ], WalkthroughStoryboard.warnings(b).map { |w| w[/scene (\S+):/, 1] }
+    assert_equal [ "s1" ], WalkthroughStoryboard.warnings(b).grep(/\Ascene /).map { |w| w[/scene (\S+):/, 1] }
     b["viewport"] = { "w" => 1920, "h" => 1080 }
-    assert_empty WalkthroughStoryboard.warnings(b)
+    assert_empty WalkthroughStoryboard.warnings(b).grep(/\Ascene /)
   end
 
   def test_logo_only_opening_scene_warns

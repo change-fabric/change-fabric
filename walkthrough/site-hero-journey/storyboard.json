@@ -147,6 +147,49 @@
       "How to start: brew tap, brew install change-fabric and change-fabric-install, open your agent, watch a rubric apply, then Start Building"
     ]
   },
+  "story": {
+    "hero": "a newcomer to engineering who already asks an agent to write code",
+    "guide": "Change Fabric",
+    "perspective": "second",
+    "audience": "Newcomers moving into engineering who already use AI tools for code, for example from marketing technology, deciding from the homepage whether the toolkit is for them",
+    "before": {
+      "state": "the agent writes code faster than they can judge it, and they cannot yet tell whether it is good or safe to ship",
+      "scenes": [
+        "problem"
+      ]
+    },
+    "turn": {
+      "moment": "Change Fabric extends the agent they already use with rubrics, commands and hooks",
+      "scenes": [
+        "for-me",
+        "layers"
+      ]
+    },
+    "after": {
+      "outcomes": [
+        "one CHANGE.md adds a gate where five checks run and any failure blocks the merge",
+        "they start with three commands and watch the first rubric apply"
+      ],
+      "scenes": [
+        "gate",
+        "not-day-one",
+        "start"
+      ]
+    },
+    "beats": [],
+    "length_s": 60,
+    "highlights": {
+      "ui_before_after": false,
+      "scope": "built_only",
+      "secondary_artifacts": [],
+      "requests": []
+    },
+    "assumptions": [
+      "/story/hero",
+      "/story/perspective",
+      "/story/length_s"
+    ]
+  },
   "scenes": [
     {
       "id": "logo-open",

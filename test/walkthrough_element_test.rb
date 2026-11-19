@@ -43,7 +43,8 @@ class WalkthroughElementTest < Minitest::Test
   def test_example_board_validates_and_defaults_to_60_fps
     b = board
     assert_empty WalkthroughStoryboard.validate(b, root: File.dirname(EXAMPLE))
-    assert_empty WalkthroughStoryboard.warnings(b)
+    # The two-scene motion sample has no room for a before, turn and after spine.
+    assert_empty WalkthroughStoryboard.warnings(b).grep_v(/\Astory:/)
     assert_equal 60, PrototypeCapture.board_fps(b)
     assert_includes WalkthroughStoryboard::SCENE_KINDS, "element"
   end

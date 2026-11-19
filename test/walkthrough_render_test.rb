@@ -48,6 +48,10 @@ class WalkthroughRenderTest < Minitest::Test
   def board
     { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
       "review" => { "kind" => "explainer", "audience" => "Engineers", "purpose" => [ "State what the demo shows" ] },
+      "story" => { "hero" => "an engineer", "audience" => "Engineers",
+                   "before" => { "state" => "slow", "scenes" => [ "list" ] },
+                   "turn" => { "moment" => "opens the detail", "scenes" => [ "detail" ] },
+                   "after" => { "outcomes" => [ "sees the hero" ], "scenes" => [ "hero" ] } },
       "viewport" => { "w" => 640, "h" => 360, "dpr" => 1 },
       "voice" => { "voice_id" => "v1", "model" => "eleven_multilingual_v2", "output_format" => "mp3_44100_128" },
       "music" => { "model" => "music_v1", "prompt" => "calm", "gain_db" => -18 },

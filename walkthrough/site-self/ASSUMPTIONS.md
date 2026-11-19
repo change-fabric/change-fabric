@@ -18,6 +18,12 @@ None recorded.
 
 None recorded.
 
+## Story
+
+- /story/hero: drafted, not confirmed by the user: an engineer whose agents write code faster than they can review it
+- /story/perspective: drafted, not confirmed by the user: second
+- /story/length_s: drafted, not confirmed by the user: 45
+
 ## Generated footage
 
 None.
