@@ -261,8 +261,8 @@ module ChangeFlagsProtocol
 
   def retry_delay(attempts) = [ 2**attempts, 15 ].min
 
-  def base_request(op, flag, env, key, attempt, revision, token)
-    { 'protocol' => PROTOCOL, 'request_id' => "#{key}-#{attempt}", 'idempotency_key' => key, 'op' => op, 'flag' => flag, 'env' => env,
+  def base_request(op, flag, env, key, _attempt, revision, token)
+    { 'protocol' => PROTOCOL, 'request_id' => key, 'idempotency_key' => key, 'op' => op, 'flag' => flag, 'env' => env,
       'expected_revision' => revision }.tap { |request| request['fencing_token'] = token if token }
   end
 

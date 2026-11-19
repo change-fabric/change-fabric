@@ -183,6 +183,24 @@ class ChangeFlagsProtocolTest < Minitest::Test
     assert_operator result[:attempts], :>, 1
   end
 
+  def test_disable_retries_keep_one_request_id
+    seen = []
+    calls = 0
+    state = P.initial_state.merge("enabled" => true)
+    flaky = lambda do |req|
+      seen << req if req["op"] == "disable"
+      calls += 1
+      raise "boom" if calls <= 2
+
+      reply, state = P.apply(state, req)
+      reply
+    end
+    P.disable_confirmed(flaky, flag: "f", env: "staging", incident_key: "i3", pause: ->(_) { })
+    assert_operator seen.size, :>, 1
+    assert_equal [ seen.first["request_id"] ], seen.map { |r| r["request_id"] }.uniq
+    assert_equal seen.first["idempotency_key"], seen.first["request_id"]
+  end
+
   def test_disable_unconfirmed_after_the_retry_window_pages
     now = 0.0
     down = ->(_req) { raise "adapter down" }
