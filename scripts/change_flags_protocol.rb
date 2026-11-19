@@ -124,7 +124,8 @@ module ChangeFlagsProtocol
     return [ reply_for(state, request, error: error('unavailable', 'adapter is unavailable')), state ] if state['outage']
 
     reply = request['op'] == 'get' ? reply_for(state, request) : apply_write(state, request)
-    state['replies'][request['idempotency_key']] = reply unless reply.dig('error', 'code') == 'unavailable'
+    # Only writes are remembered: a read replayed from cache would hide a later state change.
+    state['replies'][request['idempotency_key']] = reply if request['op'] != 'get' && reply.dig('error', 'code') != 'unavailable'
     [ reply, state ]
   end
 
@@ -174,6 +175,7 @@ module ChangeFlagsProtocol
       state['enabled'] = true if recovered
       state['cohorts'] = (state['cohorts'] + [ request['cohort'] ]).uniq
     end
+    state['cohorts'] = [ RECOVERY_COHORT ] if recovered
     state['flag_state_version'] += 1
   end
 
@@ -240,7 +242,7 @@ module ChangeFlagsProtocol
       attempts += 1
       applied = safe_call(call, base_request('disable', flag, env, "disable-#{incident_key}", attempts, expected_revision, fencing_token))
       if applied&.fetch('ok', false)
-        confirmed = safe_call(call, base_request('get', flag, env, "confirm-#{incident_key}", attempts, expected_revision, nil))
+        confirmed = safe_call(call, base_request('get', flag, env, "confirm-#{incident_key}-#{attempts}", attempts, expected_revision, nil))
         return { status: :confirmed, reply: confirmed, attempts: attempts } if confirmed && confirmed['ok'] && confirmed.dig('state', 'enabled') == false
       end
       return { status: :disable_unconfirmed, reply: applied, attempts: attempts } if clock.call - started >= window

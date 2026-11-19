@@ -104,4 +104,15 @@ class ChangeDeliveryTest < Minitest::Test
     assert_equal 2, cli("conformance").first
     assert_equal 2, cli.first
   end
+
+  def test_a_hung_command_adapter_is_killed_at_its_timeout
+    Dir.mktmpdir do |dir|
+      config = write_change(dir, "{ kind: command, argv: [ruby, -e, 'sleep 30'], timeout_s: 1 }")
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      code, out, = cli("flags", "new-checkout", "get", "--config", config)
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 10
+      assert_equal 1, code
+      assert_equal "unavailable", JSON.parse(out).dig("error", "code")
+    end
+  end
 end

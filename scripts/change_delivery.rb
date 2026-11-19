@@ -119,10 +119,44 @@ module ChangeDelivery
   # failure is an `unavailable` reply, never an exception.
   def command_adapter(spec, root, request)
     cwd = spec['cwd'] == 'repo' || spec['cwd'].nil? ? root : File.expand_path(spec['cwd'], root)
-    out, status = Timeout.timeout(spec.fetch('timeout_s', 30)) { Open3.capture2(*spec.fetch('argv'), stdin_data: JSON.generate(request), chdir: cwd) }
+    out, status = run_with_timeout(spec.fetch('argv'), JSON.generate(request), cwd, spec.fetch('timeout_s', 30))
     status.success? ? JSON.parse(out) : unavailable(request, "adapter exited #{status.exitstatus}")
   rescue Timeout::Error, JSON::ParserError, SystemCallError => e
     unavailable(request, "#{e.class}: #{e.message}")
+  end
+
+  # Runs argv with stdin_data, returning [stdout, status]. On timeout the whole
+  # process group is killed and reaped before Timeout::Error is raised;
+  # Timeout.timeout around Open3.capture2 would wait out a hung child.
+  def run_with_timeout(argv, stdin_data, chdir, timeout_s)
+    options = { pgroup: true }
+    options[:chdir] = chdir if chdir
+    Open3.popen2(*argv, **options) do |stdin, stdout, wait|
+      writer = Thread.new { write_all(stdin, stdin_data) }
+      reader = Thread.new { stdout.read }
+      return [ reader.value, wait.value ] if wait.join(timeout_s)
+
+      kill_group(wait.pid)
+      wait.join
+      raise Timeout::Error, "no exit within #{timeout_s}s"
+    ensure
+      writer&.kill
+      reader&.kill
+    end
+  end
+
+  def write_all(io, data)
+    io.write(data)
+  rescue Errno::EPIPE
+    nil
+  ensure
+    io.close
+  end
+
+  def kill_group(pid)
+    Process.kill('KILL', -pid)
+  rescue Errno::ESRCH, Errno::EPERM
+    nil
   end
 
   def unavailable(request, message)
@@ -151,7 +185,7 @@ module ChangeDelivery
   # Returns nil on a match, else a one-line description of the first mismatch.
   def replay(file, controller)
     trace = JSON.parse(File.read(file))
-    out, status = Timeout.timeout(60) { Open3.capture2(*controller, stdin_data: JSON.generate(trace.reject { |k, _| k == 'expect' })) }
+    out, status = run_with_timeout(controller, JSON.generate(trace.reject { |k, _| k == 'expect' }), nil, 60)
     name = File.basename(file)
     return "#{name}: controller exited #{status.exitstatus}" unless status.success?
 

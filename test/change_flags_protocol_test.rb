@@ -196,4 +196,38 @@ class ChangeFlagsProtocolTest < Minitest::Test
     result = P.disable_confirmed(lying, flag: "f", env: "staging", incident_key: "i4", clock: -> { now }, pause: ->(s) { now += s + 30 })
     assert_equal :disable_unconfirmed, result[:status]
   end
+
+  def test_recovery_resets_cohorts_to_internal_only
+    %w[set_cohort enable].each do |op|
+      _, state = step(P.initial_state, "set_cohort", cohort: "everyone")
+      _, state = step(state, "disable", revision: 1)
+      assert_equal [ "everyone" ], state["cohorts"], "disable preserves the cohorts"
+      reply, = step(state, op, revision: 2, cohort: "internal", fencing_token: 5, recovery_auth: auth("inc-1"))
+      assert reply["ok"], op
+      assert_equal [ "internal" ], reply.dig("state", "cohorts"), op
+    end
+  end
+
+  def test_a_get_is_never_replayed_from_the_idempotency_cache
+    _, state = step(P.initial_state, "enable", key: "w")
+    first, state = step(state, "get", key: "same-read")
+    _, state = step(state, "disable", revision: 1)
+    again, = step(state, "get", key: "same-read")
+    assert first.dig("state", "enabled")
+    refute again.dig("state", "enabled")
+  end
+
+  def test_confirmation_sees_a_flag_that_turns_off_after_provider_lag
+    now = 0.0
+    state = P.initial_state.merge("enabled" => true)
+    reads = 0
+    laggy = lambda do |req|
+      reads += 1 if req["op"] == "get"
+      reply, state = P.apply(state, req)
+      reply = reply.merge("state" => reply["state"].merge("enabled" => true)) if req["op"] == "get" && reads < 3
+      reply
+    end
+    result = P.disable_confirmed(laggy, flag: "f", env: "staging", incident_key: "i5", clock: -> { now }, pause: ->(s) { now += s })
+    assert_equal :confirmed, result[:status]
+  end
 end
