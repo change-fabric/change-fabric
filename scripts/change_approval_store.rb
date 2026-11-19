@@ -34,15 +34,19 @@ class ChangeApprovalStore
   def approved?(step, digest) = approvals.include?([ step.to_s, digest.to_s ])
 
   # `steps` is [[step, digest], ...]. Merges into what is already on record for
-  # this sha, so approving a second profile's steps keeps the first.
-  def record(steps:, by:)
+  # this sha, so approving a second profile's steps keeps the first. An
+  # optional `proof` (see scripts/approval_console) rides on each added entry;
+  # nothing reads or enforces it yet.
+  def record(steps:, by:, proof: nil)
     return if @sha.empty?
 
     now = Time.now.utc.iso8601
     existing = Array(read&.fetch('approved', nil))
     known = existing.map { |entry| [ entry['step'], normalize(entry['digest']) ] }
     added = steps.reject { |step, digest| known.include?([ step, normalize(digest) ]) }.map do |step, digest|
-      { 'step' => step, 'digest' => digest, 'at' => now, 'by' => by.to_s }
+      entry = { 'step' => step, 'digest' => digest, 'at' => now, 'by' => by.to_s }
+      entry['proof'] = proof if proof
+      entry
     end
     write('sha' => @sha, 'approved' => existing + added)
   end
