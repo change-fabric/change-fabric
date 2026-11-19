@@ -347,7 +347,8 @@ class ChangeProdGateTest < Minitest::Test
     item = claims.items.fetch("CLAIM##{@id}")
     assert_equal [ @envelope["digest"], "7", "1" ], item.values_at("digest", "run_id", "run_attempt").map { |value| value["S"] }
     assert_equal "2026-11-18T12:10:00Z", item["claimed_at"]["S"]
-    assert_equal (NOW.to_i + 7200).to_s, item["expires_at"]["N"]
+    assert_equal (NOW.to_i + 30 * 24 * 3600).to_s, item["expires_at"]["N"]
+    assert_equal %w[PK claimed_at digest expires_at run_attempt run_id], item.keys.sort
     again = Gate.claim(claim_store: claims, envelope: @envelope, run_id: 8, attempt: 1, now: NOW)
     assert_refused again, /already consumed/
     assert_equal "7", claims.items.fetch("CLAIM##{@id}")["run_id"]["S"]

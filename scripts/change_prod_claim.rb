@@ -12,7 +12,7 @@ require 'time'
 #
 # The item shape is provisional until the console's phase 4 lands: PK
 # `CLAIM#<request_id>` plus digest, run_id, run_attempt, claimed_at and
-# expires_at (epoch seconds, the table's TTL attribute). Match that PR, then
+# expires_at (epoch seconds, claimed_at plus 30 days, the table's TTL attribute). Match that PR, then
 # drop this note. `DynamoStore` shells out to the aws CLI with an argv array
 # (never a shell string); tests inject `runner` or use a fake store.
 module ChangeProdClaim
@@ -22,7 +22,7 @@ module ChangeProdClaim
   TABLE = /\A[A-Za-z0-9_.-]{3,255}\z/
   ROLE = %r{\Aarn:aws:iam::\d{12}:role/[A-Za-z0-9+=,.@_/-]{1,128}\z}
   REGION = /\A[a-z]{2}(-[a-z]+)+-\d\z/
-  RETENTION = 7200 # seconds; outlives the longest approval lifetime plus skew
+  RETENTION = 30 * 24 * 3600 # seconds; the table's TTL deletes on expires_at, so the one-use record outlives any approval TTL and doubles as an audit trail
 
   module_function
 
