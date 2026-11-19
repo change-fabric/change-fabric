@@ -264,4 +264,32 @@ class WalkthroughStoryTest < Minitest::Test
     assert_includes WalkthroughStoryboard.story_warnings(board.except("story")).first, "story: story is missing"
     assert_includes WalkthroughStoryboard.warnings(board.except("story")).join("\n"), "story is missing"
   end
+
+  def test_unanswered_counts_nested_and_parent_assumption_pointers
+    s = story_only
+    s["assumptions"] = [ "/story/after/outcomes/0" ]
+    assert_equal %w[after], S.unanswered(s)
+    s["assumptions"] = [ "/story/highlights" ]
+    assert_equal %w[ui_before_after scope secondary requests], S.unanswered(s)
+    assert_empty S.unanswered(s, assumed: false)
+  end
+
+  def test_chronology_uses_rendered_order_not_array_position
+    b = board
+    b["scenes"].each_with_index { |sc, i| sc["order"] = i + 1 }
+    b["scenes"].reverse!
+    assert_empty S.errors(b["story"], mode: :storyboard, board: b)
+    b["scenes"].each { |sc| sc["order"] = 6 - sc["order"] }
+    assert_error S.errors(b["story"], mode: :storyboard, board: b), "before story.turn"
+  end
+
+  def test_footage_pair_uses_rendered_order
+    b = board
+    b["story"]["highlights"]["ui_before_after"] = true
+    b["scenes"].each_with_index { |sc, i| sc["order"] = i + 1 }
+    b["scenes"][3].merge!("footage" => "before", "pair" => "p")
+    b["scenes"][0].merge!("footage" => "after", "pair" => "p")
+    b["scenes"].reverse!
+    assert_error S.errors(b["story"], mode: :storyboard, board: b), "no pair exists"
+  end
 end

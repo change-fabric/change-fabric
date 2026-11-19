@@ -75,11 +75,15 @@ module WalkthroughStory
     out
   end
 
-  def scene_ids(board)
+  # Scenes in rendered order: the renderer sorts by `order`, so chronology
+  # checks use the same sequence rather than raw array positions.
+  def ordered_scenes(board)
     return [] unless board.is_a?(Hash) && board['scenes'].is_a?(Array)
 
-    board['scenes'].map { |s| s.is_a?(Hash) ? s['id'] : nil }
+    board['scenes'].grep(Hash).sort_by { |s| s['order'].to_i }
   end
+
+  def scene_ids(board) = ordered_scenes(board).map { |s| s['id'] }
 
   def text_errors(story)
     out = []
@@ -211,7 +215,7 @@ module WalkthroughStory
   # Storyboard only: a before scene and an after scene share a pair id, the
   # before scene earlier in the scenes array.
   def pair_errors(board)
-    scenes = board.is_a?(Hash) && board['scenes'].is_a?(Array) ? board['scenes'].grep(Hash) : []
+    scenes = ordered_scenes(board)
     pairs = scenes.each_with_index.select { |s, _| s['pair'] }.group_by { |s, _| s['pair'] }
     ok = pairs.any? do |_id, rows|
       b = rows.find { |s, _| s['footage'] == 'before' }
