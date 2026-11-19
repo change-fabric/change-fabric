@@ -2,25 +2,19 @@
 
 require "minitest/autorun"
 
-# The cf-prod-claim trust must equal the sub GitHub issues for a repo with
-# immutable subjects and the custom template (repo, context, job_workflow_ref):
-# ids in the repo segment, names in job_workflow_ref.
+# The cf-prod-claim trust must equal the default immutable sub GitHub issues to
+# a job in the cf-claim environment: ids in the repo segment, no customization.
 class ApprovalConsoleClaimTrustTest < Minitest::Test
   INFRA = File.expand_path("../approval_console/infra", __dir__)
   PREFIX = "change-fabric@311455213/change-fabric@1180238677"
-  SUB = "repo:#{PREFIX}:environment:cf-claim:job_workflow_ref:" \
-        "change-fabric/change-fabric/.github/workflows/cf-prod.yml@refs/heads/main"
+  SUB = "repo:#{PREFIX}:environment:cf-claim"
 
   def claim_tf = File.read(File.join(INFRA, "claim.tf"))
 
   def test_sub_template_renders_the_immutable_subject
-    template = claim_tf[/^\s*"(repo:\$\{repo\}:environment:.*)"$/, 1]
+    template = claim_tf[/"(repo:\$\{repo\}:environment:[^"]*)"/, 1]
     refute_nil template
-    rendered = template
-               .gsub("${repo}", PREFIX)
-               .gsub('${replace(repo, "/@[0-9]+/", "")}', PREFIX.gsub(/@[0-9]+/, ""))
-               .gsub("${var.claim_environment}", "cf-claim")
-               .gsub("${var.claim_default_branch}", "main")
+    rendered = template.gsub("${repo}", PREFIX).gsub("${var.claim_environment}", "cf-claim")
     assert_equal SUB, rendered
   end
 
