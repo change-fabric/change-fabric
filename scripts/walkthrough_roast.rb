@@ -88,9 +88,25 @@ module WalkthroughRoast
     entries.flat_map do |e|
       n = e['frames'].to_i
       local = { 'start' => 0, 'middle' => n / 2, 'end' => n - 1 }
-      (overlays[e['id']] || {}).each { |key, f| local[overlay_label(key)] ||= f.to_i }
+      overlay_holds(overlays[e['id']] || {}, n).each { |key, f| local[overlay_label(key)] ||= f }
       local.select { |_, f| f.between?(0, n - 1) }.map { |label, f| { scene: e['id'], label: label, frame: e['start_frame'].to_i + f } }
     end.uniq { |k| k[:frame] }.sort_by { |k| k[:frame] }
+  end
+
+  # Frames after first sight to sample an overlay: past the fade-in, short
+  # enough to land inside a brief toast (only the first sight is recorded).
+  OVERLAY_SETTLE_FRAMES = 24
+
+  # Each overlay's settled frame, local to its scene: the settle offset after
+  # it first shows (mid-fade, so a bad sample), but no later than halfway to
+  # the next overlay or the scene's last frame. { key => local frame }.
+  def overlay_holds(overlays, frames)
+    starts = overlays.transform_values(&:to_i).select { |_, f| f.between?(0, frames - 1) }
+    ordered = starts.values.sort
+    starts.transform_values do |f|
+      stop = ordered.find { |o| o > f } || (frames - 1)
+      f + [ (stop - f) / 2, OVERLAY_SETTLE_FRAMES ].min
+    end
   end
 
   def overlay_label(key) = "overlay-#{key.gsub(/[^a-z0-9]+/i, '-').delete_prefix('-')}"
@@ -249,10 +265,54 @@ module WalkthroughRoast
       return nil
     end
 
+    carried = carry_history(dir, was, scenes)
     archive = File.join(dir, SUPERSEDED, (Dir.glob(File.join(dir, SUPERSEDED, '*')).size + 1).to_s)
     FileUtils.mkdir_p(archive)
-    Dir.glob(File.join(dir, 'round-*')).push(File.join(dir, LEDGER), File.join(dir, 'keyframes')).each { |f| FileUtils.mv(f, archive) if File.exist?(f) }
+    Dir.glob(File.join(dir, 'round-*')).push(File.join(dir, LEDGER), File.join(dir, 'keyframes'), File.join(dir, CARRIED)).each { |f| FileUtils.mv(f, archive) if File.exist?(f) }
+    File.write(File.join(dir, CARRIED), JSON.pretty_generate(carried)) unless carried.empty?
     archive
+  end
+
+  # The file in the roast dir holding the history a reset carried over.
+  CARRIED = 'carried-history.json'
+
+  # The critic's history: what earlier loops carried over, then this loop's
+  # rounds. Round numbers restart on a reset; carried entries keep theirs.
+  def history(dir)
+    carried = File.file?(File.join(dir, CARRIED)) ? JSON.parse(File.read(File.join(dir, CARRIED))) : []
+    carried.map { |h| { round: h['round'], critic: h['critic'], response: h['response'] } } + Roast.load_history(dir)
+  rescue JSON::ParserError
+    Roast.load_history(dir)
+  end
+
+  # Earlier rounds (and the history already carried) for the scenes that
+  # survive the reset, matched by scene id, so a re-key does not forget which
+  # issues were accepted or rebutted. An issue naming only a dropped scene is
+  # left behind; one naming no scene at all is film-wide and stays.
+  def carry_history(dir, was, scenes)
+    gone = (was || {}).keys - scenes.keys
+    named = ->(item) { scene_named?(Roast.location(item), scenes.keys + gone) }
+    keep = lambda do |item|
+      loc = Roast.location(item)
+      !named.call(item) || scene_named?(loc, scenes.keys)
+    end
+    history(dir).filter_map do |h|
+      issues = Array(h[:critic]['issues']).select(&keep)
+      responses = Array(h.dig(:response, 'responses')).select(&keep)
+      next if issues.empty? && responses.empty?
+
+      { 'round' => "#{h[:round]}, before a re-key", 'critic' => h[:critic].merge('issues' => issues),
+        'response' => h[:response] && h[:response].merge('responses' => responses) }
+    end
+  end
+
+  # A scene id as a bare word, or inside a generated keyframe file name such as
+  # 003-intro-middle.jpg (the rubric has the critic cite those).
+  def scene_named?(location, ids)
+    ids.any? do |id|
+      esc = Regexp.escape(id)
+      location.match?(/(?<![\w-])#{esc}(?![\w-])/) || location.match?(/\d{3}-#{esc}-(?:start|middle|end|overlay-[\w-]+)\.jpg/)
+    end
   end
 
   # A round skipped because it would pass the run cap: the loop is over.

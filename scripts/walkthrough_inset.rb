@@ -17,7 +17,9 @@ require_relative 'walkthrough_browser_frame'
 # geometry and one filter chain here; FFmpeg runs in the scene
 # composite (walkthrough_live.rb).
 module WalkthroughInset
-  KEYS = %w[selector at_ms duration_ms scale position].freeze
+  KEYS = %w[selector at_ms duration_ms scale position margin_px].freeze
+  # Edge margin override in canvas px; unset keeps MARGIN of the canvas height.
+  MARGIN_PX = (0..240)
   POSITIONS = %w[top-right top-left bottom-right bottom-left].freeze
   SCALE = (1.25..4.0)
   DURATION_MS = (600..15_000)
@@ -64,6 +66,7 @@ module WalkthroughInset
     errs << 'inset.at_ms must be a non-negative integer' unless inset['at_ms'].is_a?(Integer) && !inset['at_ms'].negative?
     errs << "inset.duration_ms must be an integer in #{DURATION_MS.min}..#{DURATION_MS.max}" unless inset['duration_ms'].is_a?(Integer) && DURATION_MS.cover?(inset['duration_ms'])
     errs << "inset.scale must be a number in #{SCALE.min}..#{SCALE.max}" if inset.key?('scale') && !(inset['scale'].is_a?(Numeric) && SCALE.cover?(inset['scale']))
+    errs << "inset.margin_px must be an integer in #{MARGIN_PX.min}..#{MARGIN_PX.max}" if inset.key?('margin_px') && !(inset['margin_px'].is_a?(Integer) && MARGIN_PX.cover?(inset['margin_px']))
     errs << "inset.position must be one of #{POSITIONS.join(', ')}" if inset.key?('position') && !POSITIONS.include?(inset['position'])
     errs
   end
@@ -109,7 +112,7 @@ module WalkthroughInset
     crop_y = even(rect.y + (y0 * k))
     crop_w = [ even((x1 - x0) * k), 2 ].max
     crop_h = [ even((y1 - y0) * k), 2 ].max
-    margin = even(lay.canvas_h * MARGIN)
+    margin = even(sp['margin_px'] || (lay.canvas_h * MARGIN))
     room_w = lay.canvas_w - (2 * margin) - (2 * BORDER)
     room_h = band_top(lay.canvas_h) - (2 * margin) - (2 * BORDER)
     scale = [ sp['scale'].to_f, room_w.to_f / crop_w, room_h.to_f / crop_h ].min

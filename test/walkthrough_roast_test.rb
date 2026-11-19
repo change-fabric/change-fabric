@@ -9,9 +9,30 @@ class WalkthroughRoastTest < Minitest::Test
   def test_keyframes_take_start_middle_end_and_first_overlay_frames
     entries = [ { "id" => "a", "frames" => 30, "start_frame" => 0 }, { "id" => "b", "frames" => 10, "start_frame" => 30 } ]
     keys = WalkthroughRoast.keyframes(entries, { "a" => { "#toast" => 20, "#late" => 99 } })
-    assert_equal [ [ "a", "start", 0 ], [ "a", "middle", 15 ], [ "a", "overlay-toast", 20 ], [ "a", "end", 29 ],
+    assert_equal [ [ "a", "start", 0 ], [ "a", "middle", 15 ], [ "a", "overlay-toast", 24 ], [ "a", "end", 29 ],
                    [ "b", "start", 30 ], [ "b", "middle", 35 ], [ "b", "end", 39 ] ], keys.map { |k| [ k[:scene], k[:label], k[:frame] ] }
     assert_equal "003-a-overlay-toast.jpg", WalkthroughRoast.keyframe_name(2, keys[2])
+  end
+
+  def test_overlay_keyframes_sample_the_hold_midpoint_not_the_fade_in
+    entries = [ { "id" => "a", "frames" => 100, "start_frame" => 200 } ]
+    keys = WalkthroughRoast.keyframes(entries, { "a" => { "#one" => 10, "#two" => 50 } })
+    frames = keys.to_h { |k| [ k[:label], k[:frame] - 200 ] }
+    assert_equal 30, frames["overlay-one"]
+    assert_equal 74, frames["overlay-two"]
+  end
+
+  # A toast visible for frames 30 to 90 of a long scene is still sampled while it shows.
+  def test_overlay_sample_stays_near_first_sight_in_a_long_scene
+    keys = WalkthroughRoast.keyframes([ { "id" => "a", "frames" => 300, "start_frame" => 0 } ], { "a" => { "#toast" => 30 } })
+    assert_equal 54, keys.find { |k| k[:label] == "overlay-toast" }[:frame]
+  end
+
+  def test_scene_ids_inside_keyframe_file_names_are_recognized
+    assert WalkthroughRoast.scene_named?("003-intro-middle.jpg", %w[intro])
+    assert WalkthroughRoast.scene_named?("007-intro-overlay-toast.jpg", %w[intro])
+    refute WalkthroughRoast.scene_named?("003-intro-2-middle.jpg", %w[intro])
+    assert WalkthroughRoast.scene_named?("003-intro-2-middle.jpg", %w[intro-2])
   end
 
   def test_extract_args_select_each_frame
@@ -159,6 +180,25 @@ class WalkthroughRoastTest < Minitest::Test
       assert_nil WalkthroughRoast.gate!(dir, require_roast: false)
       WalkthroughRoast.record_scenes(dir, { "x" => "1" })
       assert_equal "2", File.basename(WalkthroughRoast.rescope!(dir, { "y" => "1" }))
+    end
+  end
+
+  # Re-keyed scenes keep their ids, so earlier issues and rebuttals still reach the critic.
+  def test_a_reset_carries_rebuttals_for_surviving_scenes
+    Dir.mktmpdir do |dir|
+      WalkthroughRoast.record_scenes(dir, { "a" => "k1", "b" => "k2", "c" => "k3" })
+      kept = { "priority" => "P1", "screen" => "a", "problem" => "Toast hides CTA", "fix" => "f" }
+      gone = { "priority" => "P1", "screen" => "c", "problem" => "Old nitpick", "fix" => "f" }
+      round(dir, 2, [ kept, gone ], [ { "screen" => "a", "problem" => "Toast hides CTA", "verdict" => "rebut" }, { "screen" => "c", "problem" => "Old nitpick", "verdict" => "rebut" } ])
+      assert WalkthroughRoast.rescope!(dir, { "a" => "n1", "b" => "n2" })
+      assert_empty Roast.load_history(dir)
+      carried = WalkthroughRoast.history(dir)
+      assert_equal 1, carried.size
+      assert_equal [ "Toast hides CTA" ], carried.first[:critic]["issues"].map { |i| i["problem"] }
+      assert_equal "rebut", carried.first[:response]["responses"].first["verdict"]
+      round(dir, 1, [ issue("P2") ])
+      assert_equal 2, WalkthroughRoast.history(dir).size
+      assert_equal 2, Roast.next_round(dir)
     end
   end
 

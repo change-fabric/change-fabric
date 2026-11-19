@@ -1036,7 +1036,7 @@ module WalkthroughRender
 
     def roast_inputs(manifest, mp4, reports)
       { brief: WalkthroughRoast.brief(@board), shots: extract_keyframes(manifest, mp4, reports),
-        history: Roast.load_history(roast_dir), round: Roast.next_round(roast_dir),
+        history: WalkthroughRoast.history(roast_dir), round: Roast.next_round(roast_dir),
         transcript: roast_transcript(manifest, mp4), review: WalkthroughRoast.review(@board, @gates[:roast_review] || {}) }.merge({ model: @gates[:roast_model] }.compact)
     end
 
