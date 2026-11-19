@@ -44,9 +44,12 @@ module ApprovalConsole
 
     # `expected` holds the gate's own context: type, machine_id, repo, sha,
     # profile, and either items ([{step:, digest:}]) or reason, plus the
-    # summary and argv or pr_url for the other types. Every key given must
-    # match the body. `require_receipt` is the `remote` enforcement level.
+    # summary and argv or pr_url for the other types. Every key the type needs
+    # must be present and match the body; a missing key is a rejection. `require_receipt` is the `remote` enforcement level.
     def verify(proof, expected:, require_receipt: false)
+      raise Reject, 'proof is not an object' unless proof.is_a?(Hash)
+      raise Reject, 'expected context is not an object' unless expected.is_a?(Hash)
+
       proof = stringify(proof)
       kind = proof['kind']
       raise Reject, "unknown proof kind #{kind.inspect}" unless KINDS.include?(kind)
@@ -83,15 +86,37 @@ module ApprovalConsole
     end
 
     def match_context(body, expected)
-      %w[type machine_id repo sha profile reason summary pr_url argv].each do |key|
-        next unless expected.key?(key)
+      raise Reject, 'expected context is missing type' unless expected.key?('type')
+      raise Reject, 'type does not match the expected context' unless body['type'] == expected['type']
+
+      required = required_keys(expected)
+      missing = required.reject { |key| expected.key?(key) }
+      raise Reject, "expected context is missing #{missing.join(', ')}" unless missing.empty?
+
+      (required - [ 'items' ]).each do |key|
         raise Reject, "#{key} does not match the expected context" unless body[key] == expected[key]
       end
-      return unless expected.key?('items')
+      match_items(body, expected['items']) if required.include?('items')
+    end
 
-      signed = Array(body['items']).map { |item| [ item['step'], item['digest'] ] }.sort
-      wanted = Array(expected['items']).map { |item| [ item['step'], item['digest'] ] }.sort
+    def required_keys(expected)
+      extra = Canonical::PER_TYPE[expected['type']]
+      raise Reject, "expected context has an unknown type #{expected['type'].inspect}" unless extra
+
+      %w[type machine_id repo sha profile] + extra
+    end
+
+    def match_items(body, wanted_items)
+      wanted = item_pairs(wanted_items, 'expected items')
+      signed = item_pairs(body['items'], 'signed items')
       raise Reject, 'items do not match the expected context' unless signed == wanted && !signed.empty?
+    end
+
+    def item_pairs(items, label)
+      ok = items.is_a?(Array) && items.all? { |item| item.is_a?(Hash) && item['step'].is_a?(String) && item['digest'].is_a?(String) }
+      raise Reject, "#{label} are malformed" unless ok
+
+      items.map { |item| [ item['step'], item['digest'] ] }.sort
     end
 
     def check_assertion(proof, raw)

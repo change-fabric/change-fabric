@@ -298,4 +298,60 @@ class ApprovalConsoleVerifierTest < Minitest::Test
   def test_a_terminal_proof_still_checks_the_context
     assert_rejected verifier.verify(terminal_proof, expected: expected(sha: "c" * 40)), /sha/
   end
+
+  # Required context and malformed input
+
+  def test_rejects_an_empty_expected_context
+    assert_rejected verifier.verify(proof, expected: {}), /missing/
+  end
+
+  def test_rejects_each_required_key_dropped_from_expected
+    %i[type machine_id repo sha profile items].each do |key|
+      assert_rejected verifier.verify(proof, expected: expected.reject { |name, _| name == key }), /missing|unknown type/
+    end
+  end
+
+  def test_rejects_each_required_payload_key_dropped_for_other_types
+    cases = {
+      "override" => [ { reason: "CI is down" }, %i[reason] ],
+      "prod-op" => [ { summary: "rotate", argv: [ "ruby", "r.rb" ] }, %i[summary argv] ],
+      "carve-out" => [ { summary: "merge", pr_url: "https://github.com/a/b/pull/1" }, %i[summary pr_url] ]
+    }
+    cases.each do |type, (payload, keys)|
+      body = Canonical.build(body_attrs(type: type).reject { |key, _| key == :items }.merge(payload))
+      signed = { "kind" => "webauthn+totp", "body" => body, "totp_step" => STEP }.merge(@passkey.assert(body, rp_id: RP_ID))
+      full = expected(type: type).reject { |key, _| key == :items }.merge(payload)
+      assert_predicate verifier.verify(signed, expected: full), :ok?, type
+      keys.each do |key|
+        assert_rejected verifier.verify(signed, expected: full.reject { |name, _| name == key }), /missing/
+      end
+    end
+  end
+
+  def test_rejects_an_unknown_expected_type
+    assert_rejected verifier.verify(proof, expected: expected(type: "bogus")), /unknown type/
+  end
+
+  def test_rejects_a_non_object_proof_or_expected
+    [ nil, [], "proof", 7 ].each do |bad|
+      assert_rejected verifier.verify(bad, expected: expected), /not an object/
+    end
+    [ nil, [], "x" ].each do |bad|
+      assert_rejected verifier.verify(proof, expected: bad), /not an object/
+    end
+  end
+
+  def test_rejects_a_proof_missing_fields
+    %w[kind body totp_step authenticator_data client_data_json signature credential_id].each do |key|
+      result = verifier.verify(proof.reject { |name, _| name == key }, expected: expected)
+      refute_predicate result, :ok?, key
+    end
+    refute_predicate verifier.verify({}, expected: expected), :ok?
+  end
+
+  def test_rejects_malformed_item_shapes
+    [ nil, "x", [], [ nil ], [ "x" ], [ {} ], [ { step: 1, digest: "a" } ], [ { step: "boot.up" } ] ].each do |items|
+      refute_predicate verifier.verify(proof, expected: expected(items: items)), :ok?, items.inspect
+    end
+  end
 end
