@@ -75,6 +75,7 @@ module WalkthroughRoast
       rounds: given.fetch(:rounds, cfg.rounds || ROUND_CAP).to_i,
       model: Roast.model_for(kind: cfg.kind, flag: given[:model], config: cfg.model),
       backend: Roast.backend_for(flag: given[:backend]),
+      model_pinned: [ given[:model], ENV.fetch('CF_ROAST_MODEL', nil), cfg.model ].any? { |v| !v.to_s.strip.empty? },
       review: { kind: cfg.kind, audience: cfg.audience }.compact }
   end
 

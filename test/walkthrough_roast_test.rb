@@ -258,6 +258,15 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  def test_settings_record_whether_the_model_was_chosen
+    Dir.mktmpdir do |dir|
+      refute WalkthroughRoast.settings(dir)[:model_pinned] if ENV["CF_ROAST_MODEL"].to_s.empty?
+      assert WalkthroughRoast.settings(dir, model: "sol")[:model_pinned]
+      write_change(dir, { "model" => "m-cfg" })
+      assert WalkthroughRoast.settings(dir)[:model_pinned]
+    end
+  end
+
   def test_settings_carry_the_backend_with_auto_default
     Dir.mktmpdir do |dir|
       assert_equal "auto", WalkthroughRoast.settings(dir)[:backend] if ENV["CF_ROAST_BACKEND"].to_s.empty?
@@ -298,7 +307,7 @@ class WalkthroughRoastTest < Minitest::Test
   def test_settings_default_with_no_change_md
     Dir.mktmpdir do |dir|
       s = WalkthroughRoast.settings(dir)
-      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: "gpt-6.1-sol", review: {} }, s.except(:backend))
+      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: "gpt-6.1-sol", review: {} }, s.except(:backend, :model_pinned))
     end
   end
 
@@ -306,9 +315,9 @@ class WalkthroughRoastTest < Minitest::Test
     Dir.mktmpdir do |dir|
       write_change(dir, { "auto" => false, "target" => 7, "rounds" => 2, "max_usd" => 1.25, "model" => "m-cfg" })
       s = WalkthroughRoast.settings(dir)
-      assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg", review: {} }, s.except(:backend))
+      assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg", review: {} }, s.except(:backend, :model_pinned))
       s = WalkthroughRoast.settings(dir, roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag")
-      assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag", review: {} }, s.except(:backend))
+      assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag", review: {} }, s.except(:backend, :model_pinned))
       assert_equal "gpt-6.1-terra", WalkthroughRoast.settings(dir, model: "terra")[:model]
       s = WalkthroughRoast.settings(dir, roast: nil, max_usd: nil)
       assert_equal 1.25, s[:max_usd]

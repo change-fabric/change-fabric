@@ -814,6 +814,31 @@ class WalkthroughRenderTest < Minitest::Test
     end
   end
 
+  def test_a_pinned_model_is_not_replaced_by_the_tier_table
+    models = []
+    runner = codex_runner
+    spy = lambda do |argv, **kw|
+      models << argv[argv.index("-m") + 1] if argv.include?("exec")
+      runner.call(argv, **kw)
+    end
+    with_enrolled do
+      WalkthroughRender::Run.new(@root, providers: codex_providers(spy), out: StringIO.new,
+                                        gates: { roast: true, roast_backend: "auto", roast_model: "gpt-6.1-sol", roast_model_pinned: true }).call
+    end
+    assert_equal [ "gpt-6.1-sol" ], models
+  end
+
+  def test_the_api_fallback_is_bounded_by_what_the_render_left_of_max_usd
+    seen = []
+    capture = ->(**kw) { seen << kw[:max_usd]; @critic }
+    with_enrolled do
+      WalkthroughRender::Run.new(@root, providers: providers.merge(codex_runner: codex_runner, roast: capture), out: StringIO.new,
+                                        max_usd: 0.5, gates: { roast: true, roast_backend: "auto", roast_max_usd: 2.0 }).call
+    end
+    assert_equal 1, seen.size
+    assert_operator seen.first, :<=, 0.5
+  end
+
   def test_auto_fallback_with_no_enrolled_key_still_needs_enrollment
     with_enrolled do
       runner = codex_runner(login: "login_status_logged_out.txt")

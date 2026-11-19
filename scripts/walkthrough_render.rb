@@ -1010,7 +1010,7 @@ module WalkthroughRender
 
       inputs = roast_inputs(manifest, mp4, reports)
       requested = @gates[:roast_backend] || 'api'
-      effective = Roast.route(requested, inputs: inputs, cache_root: @cache, runner: @p[:codex_runner], out: @out)
+      effective = Roast.route(requested, inputs: inputs, cache_root: @cache, pin: roast_pin, runner: @p[:codex_runner], out: @out)
       api_usd = Roast.round_usd(@cache, **inputs)
       usd = effective == 'codex' ? 0.0 : api_usd
       return roast_capped unless say_roast_estimate(inputs, usd, effective)
@@ -1018,7 +1018,8 @@ module WalkthroughRender
 
       info = {}
       critic = @p[:roast].call(**inputs, cache_root: @cache, allow_sensitive: @gates[:allow_sensitive], backend: effective == 'codex' ? requested : 'api',
-                                         probed: true, info: info, out: @out, codex_runner: @p[:codex_runner], max_usd: (roast_left if effective == 'codex'))
+                                         probed: true, info: info, out: @out, codex_runner: @p[:codex_runner], pin: roast_pin,
+                                         max_usd: (roast_fallback_usd if effective == 'codex'))
       Roast.write_round(roast_dir, inputs[:round], critic)
       WalkthroughRoast.record_spend(roast_dir, inputs[:round], info[:backend] == 'codex' ? 0.0 : api_usd, backend: info[:backend], subscription_tokens: info[:subscription_tokens])
       WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
@@ -1062,6 +1063,18 @@ module WalkthroughRender
     end
 
     def roast_left = [ roast_cap - WalkthroughRoast.spent(roast_dir), 0 ].max
+
+    # What an API fallback may spend: what the roast cap has left, and under an
+    # explicit --max-usd, what the render's own estimate left of it.
+    def roast_fallback_usd
+      return roast_left if @max_usd.nil?
+
+      [ roast_left, [ @max_usd - @estimated_usd.to_f, 0 ].max ].min
+    end
+
+    # Whether the user chose the model (flag, CF_ROAST_MODEL, CHANGE.md), so the
+    # codex tier table never replaces it.
+    def roast_pin = { model: @gates[:roast_model_pinned] == true }
 
     # An explicit --max-usd also bounds the roast round: what the render's
     # paid estimate left of it must cover the round.
@@ -1434,7 +1447,7 @@ if __FILE__ == $PROGRAM_NAME
   end
   gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'), allow_sensitive: ARGV.include?('--allow-sensitive'),
             roast: roast[:roast], roast_max_usd: roast[:max_usd], roast_target: roast[:target],
-            roast_rounds: roast[:rounds], roast_model: roast[:model], roast_backend: roast[:backend], roast_review: roast[:review],
+            roast_rounds: roast[:rounds], roast_model: roast[:model], roast_backend: roast[:backend], roast_model_pinned: roast[:model_pinned], roast_review: roast[:review],
             allow_fidelity: ARGV.include?('--allow-fidelity-findings'), fidelity_targets: fidelity_targets }
   begin
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
