@@ -41,7 +41,7 @@ Wired by `install.rb` per lifecycle event (Claude Code names shown):
 | Event | Scripts |
 | --- | --- |
 | SessionStart | `skill_detect.rb`, `ctx_session_start.rb`, `doctrine_digest.rb`, `secret_alert_poll.rb` |
-| PreToolUse | `secrets_read_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `presence_probe.rb`, `prod_approval_guard.rb` |
+| PreToolUse | `secrets_read_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `presence_probe.rb`, `prod_approval_guard.rb`, `model_role_guard.rb` |
 | PostToolUse | `skill_inject.rb`, `secret_ack.rb`, `change_post_merge_check.rb` |
 | UserPromptSubmit | `key_paste_guard.rb`, `prune_remind.rb`, `inbox_prompt_hook.rb` |
 | SessionEnd | `telemetry_emit.rb`, `inbox_session_end.rb` |
@@ -81,6 +81,25 @@ invocation syntax, so Codex users type `$cf-roast`, not `/cf:roast`.
 versions with tested evidence; unknown versions stay unverified.
 `cf doctor --host HOST` reports installed files and adapter config without
 running a model. Guards are advisory policy, not a sandbox.
+
+#### Model roles
+
+Skills name a role, never a tier. `config/model_roles.yml` maps each role
+(orchestrator, worker, author, critic, classifier) to a model per host, and
+`scripts/model_roles.rb` resolves it once at install time (env `CF_MODEL_<ROLE>`,
+then the user file, then the repo map). `install.rb` renders `{{model:<role>}}`
+in skill prose and `model: {{model-js:<role>}}` in Workflow JS through
+`scripts/skill_compiler.rb`, then writes the resolved snapshot last. The
+advisory hook `scripts/model_role_guard.rb` and the acceptance grader read
+that snapshot only, so they agree with the skills as installed; `cf doctor`
+and `install.rb` print drift. The hook warns, never blocks, when a spawn
+tagged `[role:<role>]` has a different model or none, and covers only Agent
+spawns written as skill prose. Workflow `agent()` calls are not reachable by
+that hook (the runtime makes them, not an Agent tool call), so
+`test/model_roles_lint_test.rb` lints them statically. The grader adds
+`--model` for the critic to its default `claude -p` command only, never to a
+`CF_ACCEPTANCE_GRADER` override. `scripts/roast.rb` and `scripts/roast_codex.rb`
+stay outside the map; they choose an OpenAI model themselves.
 
 ### cf:change
 

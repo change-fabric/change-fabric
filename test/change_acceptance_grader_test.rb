@@ -2,6 +2,8 @@
 
 require "minitest/autorun"
 require "json"
+require "tmpdir"
+require "fileutils"
 require_relative "../scripts/change_acceptance_grader"
 
 # The acceptance grader: what it hands the model, what it does with the answer,
@@ -113,6 +115,68 @@ class ChangeAcceptanceGraderTest < Minitest::Test
   def test_a_configured_command_is_used_as_configured
     assert_equal %w[my-grader --json],
                  ChangeAcceptanceGrader.new(env: { "CF_ACCEPTANCE_GRADER" => "my-grader --json" }).command
+  end
+
+  def with_snapshot(roles)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "snap.json")
+      ModelRoles.write_snapshot(host: "claude", roles: roles, sources: {}, path: path) if roles
+      yield path
+    end
+  end
+
+  def default_grader(path, env: {})
+    bin = File.join(File.dirname(path), "bin")
+    FileUtils.mkdir_p(bin)
+    File.write(File.join(bin, "claude"), "#!/bin/sh\n")
+    File.chmod(0o755, File.join(bin, "claude"))
+    ChangeAcceptanceGrader.new(env: { "PATH" => bin }.merge(env), snapshot_path: path)
+  end
+
+  def test_the_default_command_carries_the_snapshot_critic_model
+    with_snapshot({ "critic" => "opus-x" }) do |path|
+      assert_equal %w[claude -p --model opus-x], default_grader(path).command
+      assert_equal "opus-x", default_grader(path).reported_model
+    end
+  end
+
+  def test_a_missing_snapshot_falls_back_to_the_repo_map_critic
+    with_snapshot(nil) do |path|
+      repo = ModelRoles.table(host: "claude", env: {}, user_file: nil)["critic"]
+      assert_equal [ "claude", "-p", "--model", repo ], default_grader(path).command
+    end
+  end
+
+  def test_a_snapshot_without_a_critic_entry_omits_the_flag_when_the_repo_has_none
+    with_snapshot({ "worker" => "sonnet" }) do |path|
+      assert_equal %w[claude -p], default_grader(path).command
+    end
+  end
+
+  def test_a_configured_command_never_gets_model_and_reports_none
+    with_snapshot({ "critic" => "opus-x" }) do |path|
+      configured = ChangeAcceptanceGrader.new(env: { "CF_ACCEPTANCE_GRADER" => "my-grader --json" }, snapshot_path: path)
+      assert_equal %w[my-grader --json], configured.command
+      assert_nil configured.reported_model
+    end
+  end
+
+  def test_the_argv_reaches_the_process
+    with_snapshot({ "critic" => "opus-x" }) do |path|
+      log = File.join(File.dirname(path), "argv.txt")
+      bin = File.join(File.dirname(path), "bin")
+      FileUtils.mkdir_p(bin)
+      File.write(File.join(bin, "claude"), "#!/bin/sh\necho \"$@\" > #{log}\necho '[]'\n")
+      File.chmod(0o755, File.join(bin, "claude"))
+      original = ENV["PATH"]
+      ENV["PATH"] = bin # Open3 resolves `claude` from the process PATH
+      begin
+        ChangeAcceptanceGrader.new(env: { "PATH" => bin }, snapshot_path: path).grade([ OBSERVATION ])
+      ensure
+        ENV["PATH"] = original
+      end
+      assert_equal "-p --model opus-x", File.read(log).strip
+    end
   end
 
   def test_no_reachable_grader_reports_itself_rather_than_raising

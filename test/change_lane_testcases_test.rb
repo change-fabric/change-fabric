@@ -38,6 +38,13 @@ class ChangeLaneTestcasesTest < Minitest::Test
 
     def unavailable_reason = @reason
 
+    def reported_model = @model
+
+    def with_model(model)
+      @model = model
+      self
+    end
+
     def grade(observations)
       @observations = observations
       observations.map do |observation|
@@ -485,6 +492,24 @@ class ChangeLaneTestcasesTest < Minitest::Test
       softened = findings.find { |finding| finding.check == "checkout/empty-cart acceptance" }
       assert_equal "warn", softened.status
       assert_includes softened.detail, "not gated"
+    end
+  end
+
+  def test_the_report_names_the_model_that_graded
+    with_suite do |dir|
+      lane_under_test = lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: FakeGrader.new.with_model("opus-x"))
+      lane_under_test.run
+
+      assert_includes lane_under_test.acceptance_section, "Acceptance criteria graded by model: opus-x."
+    end
+  end
+
+  def test_the_report_omits_the_model_line_when_no_model_is_known
+    with_suite do |dir|
+      lane_under_test = lane(dir, {}, session: FakeSession.new(ok_result(2)))
+      lane_under_test.run
+
+      refute_includes lane_under_test.acceptance_section, "graded by model"
     end
   end
 

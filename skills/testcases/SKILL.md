@@ -247,7 +247,8 @@ Under away mode the default applies: the command is reported, never run,
 because `change_override.rb` refuses without a real terminal.
 
 Grading is the one part of this lane that is not deterministic, and it is kept
-in one named place for that reason. It uses the `claude` CLI by default,
+in one named place for that reason. It uses the `claude` CLI by default (with `--model` set to the critic
+role's model; a `CF_ACCEPTANCE_GRADER` command gets none),
 `CF_ACCEPTANCE_GRADER` to point at something else, and `CF_SKIP_ACCEPTANCE_GRADING=1`
 to turn it off. With no grader reachable, the lane reports one finding naming
 what did not run, never a pass: unjudged prose is never laundered into a

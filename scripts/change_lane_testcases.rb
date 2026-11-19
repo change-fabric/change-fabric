@@ -197,9 +197,19 @@ class ChangeLaneTestcases < ChangeLane
   def acceptance_footnotes
     return [ '', grading_note ] if grading_note
 
-    return [] if @results.none? { |result| result[:verdict]&.fail? }
+    lines = grader_model_lines
+    return lines if @results.none? { |result| result[:verdict]&.fail? }
 
-    [ '', ChangeAcceptanceGrader.override_guidance(interactive: interactive?) ]
+    [ *lines, '', ChangeAcceptanceGrader.override_guidance(interactive: interactive?) ]
+  end
+
+  # One line naming the model that graded, so a verdict that differs between a
+  # local override and CI is visible rather than silent.
+  def grader_model_lines
+    model = @grader.respond_to?(:reported_model) ? @grader.reported_model : nil
+    return [] unless model && @results.any? { |result| result[:verdict] }
+
+    [ '', "Acceptance criteria graded by model: #{model}." ]
   end
 
   # The quarantine, rendered inline beside the case it shields rather than
