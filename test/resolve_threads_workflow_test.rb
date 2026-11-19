@@ -6,6 +6,7 @@ require "open3"
 require "json"
 require_relative "../scripts/plan_check"
 require_relative "../scripts/thread_history"
+require_relative "support/rendered_workflow"
 
 # Guards the cf:resolve-threads Workflow against losing the root-cause pass.
 # Fixing only the reported line is how a PR ends up with four review rounds;
@@ -32,7 +33,7 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     "unaccounted candidates join a generic plan cluster" => "unidentified root cause"
   }.freeze
 
-  def workflow = File.read(WORKFLOW)
+  def workflow = File.read(RenderedWorkflow.path(WORKFLOW))
 
   def skill_md = File.read(File.join(SKILL, "SKILL.md"))
 

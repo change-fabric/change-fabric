@@ -117,6 +117,37 @@ class WorkflowNullHarnessTest < Minitest::Test
     end
   end
 
+  def test_review_skill_agents_all_carry_an_explicit_model
+    %w[code-review resolve-threads sweep].each do |skill|
+      models = run_harness(skill).fetch("models")
+      refute_empty models, "#{skill}: no agent calls ran"
+      missing = models.select { |_, model| model.nil? || model.empty? }.keys
+      assert_empty missing, "#{skill}: agent calls with no model"
+    end
+  end
+
+  def test_resolve_threads_failed_apply_retries_once_on_author
+    result = run_harness("resolve-threads", null: "missing-null-check#2")
+    models = result.fetch("models")
+    assert_includes result.fetch("calls"), "missing-null-check:author#1"
+    refute_equal models.fetch("missing-null-check#2"), models.fetch("missing-null-check:author#1")
+    assert_equal "sonnet", models.fetch("missing-null-check#2")
+    assert_equal "opus", models.fetch("missing-null-check:author#1")
+    assert_includes result.fetch("prompts").fetch("missing-null-check:author#1"), "SECOND ATTEMPT"
+    refute_includes result.fetch("prompts").fetch("missing-null-check#2"), "SECOND ATTEMPT"
+  end
+
+  def test_resolve_threads_clean_apply_does_not_retry
+    calls = run_harness("resolve-threads").fetch("calls")
+    assert_empty calls.grep(/:author#/)
+  end
+
+  def test_sweep_infra_critic_rederives_the_gathered_infra_fields
+    prompt = run_harness("sweep").fetch("prompts").fetch("Infra#1")
+    assert_includes prompt, "Re-derive"
+    assert_includes prompt, "infraShared and migrationCompatibility"
+  end
+
   def test_drive_fails_closed_on_any_null_input
     happy_keys("drive").each do |key|
       result = run_harness("drive", null: key).fetch("result")

@@ -95,7 +95,8 @@ run reports that it assumed the default.
    pick is recorded as wontFix and replied to and resolved with the other
    wontFix threads in the reply step, after any `--signoff` approval
    [RT-3]; a fix pick gets one small apply pass (a
-   background agent in the thread's worktree that runs the thread's tests,
+   background agent, model {{model:worker}}, description starting `[role:worker]`,
+   in the thread's worktree that runs the thread's tests,
    then commits on `repoPath`; on red it reverts and the thread stays
    needs_human) and is resolved under [RT-6]. Each counts as `tiebroken` and
    leaves `needsHuman`. On roast.rb exit 4 (no key), load the installed
