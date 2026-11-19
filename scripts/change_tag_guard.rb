@@ -107,7 +107,11 @@ class ChangeTagGuard
   # for --repo rather than guess (full gh default resolution is follow-up work).
   def default_release_source(root)
     gh_remote = ChangePolicy::Source.gh_default_remote(root)
-    return :ambiguous if gh_remote && gh_remote != ChangePolicy::Source.default_push_remote(root)
+    push_remote = ChangePolicy::Source.default_push_remote(root)
+    return :ambiguous if gh_remote && gh_remote != push_remote
+    # gh releases to a remote's repository, not its pushurl; when they differ,
+    # the git push destination is not gh's.
+    return :ambiguous if ChangePolicy::Source.split_push?(root, push_remote)
 
     ChangePolicy::Source.for_destination(root, nil)
   end
@@ -116,7 +120,8 @@ class ChangeTagGuard
     return nil unless File.exist?(File.join(root, 'CHANGE.md'))
 
     "publishing this release is gated: `gh release create` has no --repo and `gh repo set-default` names a " \
-      "different remote than the push remote, so the destination repository is ambiguous. Pass --repo OWNER/REPO. " \
+      "different remote than the push remote (or that remote has a separate pushurl), so the destination " \
+      "repository is ambiguous. Pass --repo OWNER/REPO. " \
       "#{ChangeGateCheck.escape_note}"
   end
 

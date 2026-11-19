@@ -349,4 +349,27 @@ class ChangeTagGuardTest < Minitest::Test
 
     assert_nil stubbed_decision("gh release create staging/v1.0.0", base_policy: nil)
   end
+  def test_release_without_repo_is_denied_when_the_push_remote_has_a_separate_pushurl
+    write_change_md(BASIC_POLICY)
+    push = Dir.mktmpdir
+    git("remote", "set-url", "--push", "origin", push)
+
+    assert_equal "deny", stubbed_decision("gh release create staging/v1.0.0", base_policy: nil)
+  ensure
+    FileUtils.remove_entry(push)
+  end
+
+  def test_a_remote_with_several_push_urls_fails_closed
+    write_change_md(BASIC_POLICY)
+    git("tag", "staging/v1.0.0")
+    a = Dir.mktmpdir
+    b = Dir.mktmpdir
+    git("remote", "set-url", "--add", "--push", "origin", a)
+    git("remote", "set-url", "--add", "--push", "origin", b)
+
+    assert_nil ChangePolicy::Source.for_destination(@repo, "origin")
+    assert_equal "deny", decision("git push origin staging/v1.0.0")&.first
+  ensure
+    [ a, b ].compact.each { |d| FileUtils.remove_entry(d) }
+  end
 end

@@ -437,12 +437,23 @@ class ChangePolicy
     # differs from its fetch URL when a pushurl is set. Keep the remote name
     # (and its fetch identity) when they agree; otherwise read the policy from
     # the push repository, identified by the pushurl as written.
+    # Several push URLs publish to several repositories; this resolver reads
+    # one policy, so it returns nil and a governed caller fails closed.
     def self.push_source(root, name, url)
-      push = git(root, 'remote', 'get-url', '--push', name)
-      return new(root, name, parse_url(url)) if push.nil? || push == git(root, 'remote', 'get-url', name)
+      pushes = git(root, 'remote', 'get-url', '--push', '--all', name).to_s.lines.map(&:strip).uniq
+      return nil if pushes.size > 1
+
+      push = pushes.first
+      return new(root, name, parse_url(url)) unless split_push?(root, name)
 
       written = git(root, 'config', '--get', "remote.#{name}.pushurl") || push
       new(root, written, parse_url(written))
+    end
+
+    # True when the remote's push URL differs from its fetch URL.
+    def self.split_push?(root, name)
+      push = git(root, 'remote', 'get-url', '--push', name)
+      !push.nil? && push != git(root, 'remote', 'get-url', name)
     end
 
     # for_destination, raising Unreadable instead of returning nil.
