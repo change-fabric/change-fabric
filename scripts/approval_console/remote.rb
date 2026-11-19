@@ -71,6 +71,7 @@ module ApprovalConsole
       body, url = submit(attrs, store: store, client: client, now: clock.call, ttl: ttl)
       out.puts "Approve on your phone: #{url}"
       out.puts "(if this process dies, resume with: approval_console.rb record #{Canonical.parse(body)['request_id']})"
+      out.flush # a piped or backgrounded agent must see the link before the poll
       out.puts '(review every field, enter the code from your TOTP app, then approve with your passkey)'
       wait(body, expected: expected(attrs, store.machine_id), store: store, client: client, sleeper: sleeper, clock: clock)
     rescue Client::Unreachable => e

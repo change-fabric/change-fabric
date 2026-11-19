@@ -95,6 +95,26 @@ class ApprovalConsoleRecorderTest < Minitest::Test
     assert_nil ChangeReleaseStore.new.lookup(repo: REPO, tag: "v1", sha: SHA)
   end
 
+  # Records what was flushed before the first poll, as a pipe reader sees it.
+  class PipeOut < StringIO
+    attr_reader :seen
+
+    def flush = (@seen = string.dup) && self
+  end
+
+  def test_the_link_is_flushed_before_the_first_poll
+    out = PipeOut.new
+    seen_at_poll = nil
+    sleeper = lambda do |_s|
+      seen_at_poll ||= out.seen.to_s
+      phone_approve(pending_request_body)
+      @now += 3
+    end
+    @now += 30
+    ApprovalConsole::Remote.approve(override_attrs, store: @store, client: client, out: out, sleeper: sleeper, clock: -> { @now })
+    assert_match(/Approve on your phone: https:.*record [0-9a-f-]{36}/m, seen_at_poll)
+  end
+
   def test_a_stale_or_future_receipt_is_refused_and_nothing_is_written
     proof = phone_proof(override_attrs)
     assert_match(/24h old/, record(override_attrs, proof: proof, at: @now + 86_400).error)
