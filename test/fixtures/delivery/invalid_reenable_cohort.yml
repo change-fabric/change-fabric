@@ -1,0 +1,4 @@
+# Re-enable names only the first stage cohort.
+expect: "reenable.cohort must be the first stage"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { reenable: { cohort: pilot } } } } } } }

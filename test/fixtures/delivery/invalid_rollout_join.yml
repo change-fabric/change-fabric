@@ -1,0 +1,4 @@
+# Every policy rollout exists in config, and the reverse.
+expect: "has no change_config.delivery.rollouts.orphan"
+patch:
+  change_policy: { delivery: { rollouts: { orphan: { guards: { new_5xx_on_flagged_spans: { max: 0 } } } } } }

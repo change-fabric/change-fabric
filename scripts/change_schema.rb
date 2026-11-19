@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.23.0'
+  VERSION = '0.24.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -50,6 +50,8 @@ module ChangeSchema
   #   <app>     any name under change_config.apps (an app in a monorepo, 0.4.0)
   #   <schedule> any name under change_config.schedules (0.20.0)
   #   <persona> any name under change_config.lanes.testcases.personas (0.22.0)
+  #   <flags>, <metrics>, <cohort>, <rollout>, <verdict_source> (0.24.0): any
+  #             name under that change_config.delivery map
   #   []        a field on each item of a list
   FIELDS = [
     # The one field outside both change_config: and change_policy: (0.3.0):
@@ -340,6 +342,55 @@ module ChangeSchema
     'change_config.trackers.<tracker>.site',
     'change_config.trackers.<tracker>.provider',
     'change_config.trackers.<tracker>.project',
+    # change_config.delivery (0.24.0): progressive-delivery wiring, the flag
+    # adapters, metric sources, cohorts, verdict sources and rollouts a
+    # consumer's own controller reads. Validated by ChangeDeliverySchema.
+    'change_config.delivery.flags.<flags>.kind',
+    'change_config.delivery.flags.<flags>.argv',
+    'change_config.delivery.flags.<flags>.cwd',
+    'change_config.delivery.flags.<flags>.timeout_s',
+    'change_config.delivery.flags.<flags>.environments.<profile>',
+    'change_config.delivery.flags.<flags>.path',
+    'change_config.delivery.flags.<flags>.intents.kind',
+    'change_config.delivery.flags.<flags>.intents.path',
+    'change_config.delivery.flags.<flags>.intents.argv',
+    'change_config.delivery.flags.<flags>.intents.cwd',
+    'change_config.delivery.flags.<flags>.intents.timeout_s',
+    'change_config.delivery.flags.<flags>.discover.argv',
+    'change_config.delivery.flags.<flags>.discover.cwd',
+    'change_config.delivery.flags.<flags>.discover.timeout_s',
+    'change_config.delivery.metrics.<metrics>.kind',
+    'change_config.delivery.metrics.<metrics>.url',
+    'change_config.delivery.metrics.<metrics>.provider',
+    'change_config.delivery.metrics.<metrics>.service',
+    'change_config.delivery.metrics.<metrics>.flag_attribute',
+    'change_config.delivery.metrics.<metrics>.cohort_attribute',
+    'change_config.delivery.metrics.<metrics>.error_source',
+    'change_config.delivery.metrics.<metrics>.argv',
+    'change_config.delivery.metrics.<metrics>.cwd',
+    'change_config.delivery.metrics.<metrics>.timeout_s',
+    'change_config.delivery.metrics.<metrics>.path',
+    'change_config.delivery.cohorts.<cohort>.kind',
+    'change_config.delivery.cohorts.<cohort>.ids',
+    'change_config.delivery.cohorts.<cohort>.segment',
+    'change_config.delivery.cohorts.<cohort>.percent',
+    'change_config.delivery.cohorts.<cohort>.hash_key',
+    'change_config.delivery.verdict_sources.<verdict_source>.kind',
+    'change_config.delivery.verdict_sources.<verdict_source>.path',
+    'change_config.delivery.verdict_sources.<verdict_source>.argv',
+    'change_config.delivery.verdict_sources.<verdict_source>.cwd',
+    'change_config.delivery.verdict_sources.<verdict_source>.timeout_s',
+    'change_config.delivery.rollouts.<rollout>.owner',
+    'change_config.delivery.rollouts.<rollout>.flag',
+    'change_config.delivery.rollouts.<rollout>.flags',
+    'change_config.delivery.rollouts.<rollout>.metrics',
+    'change_config.delivery.rollouts.<rollout>.profile',
+    'change_config.delivery.rollouts.<rollout>.source',
+    'change_config.delivery.rollouts.<rollout>.revision',
+    'change_config.delivery.rollouts.<rollout>.stages[].cohort',
+    'change_config.delivery.rollouts.<rollout>.stages[].dwell_minutes',
+    'change_config.delivery.rollouts.<rollout>.stages[].min_requests',
+    'change_config.delivery.rollouts.<rollout>.stages[].advance',
     # change_config.profiles (0.2.0): named deploy-target overrides sharing one
     # audit surface. A profile may only set project, boot.*, and a lane's
     # enabled/base_url, never its routes/thresholds/viewports, so one CHANGE.md
@@ -534,6 +585,34 @@ module ChangeSchema
     'change_policy.trackers.<tracker>.locks.estimates',
     'change_policy.trackers.<tracker>.locks.move_between_boards',
     'change_policy.trackers.<tracker>.locks.rename',
+    # change_policy.delivery (0.24.0): the governance joined to each
+    # change_config.delivery rollout by name: guards, pacing, checkpoints
+    # and the breach response, with floors ChangeDeliverySchema enforces.
+    'change_policy.delivery.require_rollout',
+    'change_policy.delivery.verdicts.max_telemetry_age_s',
+    'change_policy.delivery.verdicts.heartbeat_max_gap_minutes',
+    'change_policy.delivery.notify.dm',
+    'change_policy.delivery.notify.page',
+    'change_policy.delivery.one_way_door_paths',
+    'change_policy.delivery.rollouts.<rollout>.guards.new_5xx_on_flagged_spans.max',
+    'change_policy.delivery.rollouts.<rollout>.guards.new_exceptions_on_flagged_spans.max',
+    'change_policy.delivery.rollouts.<rollout>.guards.p95_ms_vs_baseline.max_ratio',
+    'change_policy.delivery.rollouts.<rollout>.guards.p95_ms_vs_baseline.baseline',
+    'change_policy.delivery.rollouts.<rollout>.pacing.advance',
+    'change_policy.delivery.rollouts.<rollout>.pacing.money_affecting',
+    'change_policy.delivery.rollouts.<rollout>.human_checkpoints',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.immediate',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.then',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.fix_budget_minutes',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.fix_attempts',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.gate.kind',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.gate.min_score',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.notify',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.page_human_when',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.dispatch_timeout_minutes',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.ack_timeout_minutes',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.reenable.after',
+    'change_policy.delivery.rollouts.<rollout>.on_breach.triage.reenable.cohort',
     # contributors_team: (0.5.0) the third top-level block. It registers the
     # repo with a contributors team and, under `artifacts`, with that team's
     # shared findings-artifact area. The first three fields predate this

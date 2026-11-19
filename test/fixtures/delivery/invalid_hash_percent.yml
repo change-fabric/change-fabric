@@ -1,0 +1,4 @@
+# hash percent is 1 to 99.
+expect: "percent must be an integer from 1 to 99"
+patch:
+  change_config: { delivery: { cohorts: { hash25: { kind: hash, percent: 100, hash_key: tenant_id } } } }

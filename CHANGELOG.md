@@ -18,6 +18,32 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.24.0] - 2026-11-18
+
+Progressive delivery: a flagged feature walks named cohorts under absolute
+guards, and a breach turns the flag off first. The consumer's own worker runs
+the controller; this release is the contract it reads. Additive for
+CHANGE.md.
+
+### Added
+
+- `change_config.delivery`: flag adapters (`flags`, speaking cf.flags/1, with
+  an `intents` queue and a `discover` command), metric sources (`metrics`),
+  `cohorts` (`adapter_selector`, `hash`, `all`), `verdict_sources`, and
+  `rollouts` with an `owner` and ordered `stages` ending at `everyone`. A
+  rollout's `revision`, `stages` and `pacing` may live in a per-flag
+  `delivery/<flag>.yml` named by `source:`.
+- `change_policy.delivery`: `require_rollout` (declared; enforced later),
+  `verdicts` freshness limits, `notify`, `one_way_door_paths`, and per
+  rollout `guards`, `pacing`, `human_checkpoints` and `on_breach`.
+- Schema-fixed floors: flag-off first, `everyone` always a human checkpoint,
+  no automatic advance when money-affecting, a roast gate of at least 9, at
+  most 2 fix attempts in 60 minutes, re-enable on the first internal cohort
+  only, every page trigger on, telemetry at most 180s old, and a heartbeat
+  gap of at most 10 minutes.
+- `doctor` lists each rollout and flags missing owners, automatic advance on
+  a money-affecting rollout, and fixture adapters on a production profile.
+
 ## [0.23.0] - 2026-11-18
 
 A command lane entry's trust digest covers the repo files it runs. Additive for

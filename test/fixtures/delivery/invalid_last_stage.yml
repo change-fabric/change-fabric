@@ -1,0 +1,4 @@
+# The last stage is everyone, of kind all.
+expect: "the last stage must be cohort"
+patch:
+  change_config: { delivery: { rollouts: { new-checkout: { stages: [ { cohort: internal }, { cohort: pilot } ] } } } }

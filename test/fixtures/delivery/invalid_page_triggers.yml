@@ -1,0 +1,4 @@
+# Every page trigger stays on.
+expect: "missing: one_way_door"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { page_human_when: [gate_failed, budget_exhausted, rebreach_after_fix] } } } } } }

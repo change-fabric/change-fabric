@@ -1,0 +1,4 @@
+# The roast gate never drops below 9.
+expect: "min_score must be from 9 to 10"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { gate: { kind: roast, min_score: 8 } } } } } } }

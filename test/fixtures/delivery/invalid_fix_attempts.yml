@@ -1,0 +1,4 @@
+# At most 2 fix attempts.
+expect: "fix_attempts must be an integer from 1 to 2"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { fix_attempts: 3 } } } } } }

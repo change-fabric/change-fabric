@@ -1,0 +1,4 @@
+# A heartbeat gap over 10 minutes always alerts.
+expect: "heartbeat_max_gap_minutes must be an integer from 1 to 10"
+patch:
+  change_policy: { delivery: { verdicts: { heartbeat_max_gap_minutes: 30 } } }

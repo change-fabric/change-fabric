@@ -1,0 +1,4 @@
+# An agent that never acknowledges pages within 20 minutes.
+expect: "ack_timeout_minutes must be an integer from 1 to 20"
+patch:
+  change_policy: { delivery: { rollouts: { new-checkout: { on_breach: { triage: { ack_timeout_minutes: 45 } } } } } }

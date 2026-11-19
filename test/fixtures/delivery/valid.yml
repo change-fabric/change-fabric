@@ -1,0 +1,75 @@
+# The 0.24.0 key shape, inline form: the rollout's stages live in CHANGE.md.
+# Each invalid_*.yml deep-merges a patch onto this file and names the error
+# it expects.
+change_config:
+  delivery:
+    flags:
+      main:
+        kind: command
+        argv: [pnpm, app, flags]
+        cwd: repo
+        timeout_s: 30
+        environments: { staging: staging, production: production }
+        intents: { kind: file_drop, path: var/cf-intents }
+        discover: { argv: [pnpm, app, flags, discover], cwd: repo, timeout_s: 60 }
+    metrics:
+      otel:
+        kind: signoz
+        url: https://signoz.example.internal
+        provider: signoz_prod
+        service: api
+        flag_attribute: "app.flag.<key>"
+        cohort_attribute: "app.tenant_id"
+        error_source: unsampled
+    verdict_sources:
+      worker: { kind: file_drop, path: var/cf-verdicts }
+    cohorts:
+      internal: { kind: adapter_selector, segment: staff_and_test }
+      pilot: { kind: adapter_selector, ids: [t_101, t_102] }
+      hash25: { kind: hash, percent: 25, hash_key: tenant_id }
+      hash50: { kind: hash, percent: 50, hash_key: tenant_id }
+      everyone: { kind: all }
+    rollouts:
+      new-checkout:
+        owner: "@maintainer"
+        flag: new_checkout
+        flags: main
+        metrics: otel
+        profile: production
+        revision: 1
+        stages:
+          - { cohort: internal, dwell_minutes: 60, min_requests: 20 }
+          - { cohort: pilot, dwell_minutes: 1440, min_requests: 50, advance: manual }
+          - { cohort: hash25, dwell_minutes: 1440 }
+          - { cohort: hash50, dwell_minutes: 1440 }
+          - { cohort: everyone }
+change_policy:
+  delivery:
+    require_rollout: false
+    verdicts:
+      max_telemetry_age_s: 180
+      heartbeat_max_gap_minutes: 10
+    notify: { dm: slack_dm, page: pager }
+    one_way_door_paths: ["db/migrate/**"]
+    rollouts:
+      new-checkout:
+        guards:
+          new_5xx_on_flagged_spans: { max: 0 }
+          new_exceptions_on_flagged_spans: { max: 0 }
+          p95_ms_vs_baseline: { max_ratio: 1.25, baseline: flag_off_last_7d }
+        pacing:
+          advance: auto
+          money_affecting: false
+        human_checkpoints: [everyone]
+        on_breach:
+          immediate: flag_off
+          then: triage
+          triage:
+            fix_budget_minutes: 60
+            fix_attempts: 2
+            gate: { kind: roast, min_score: 9 }
+            notify: dm
+            page_human_when: [gate_failed, budget_exhausted, one_way_door, rebreach_after_fix]
+            dispatch_timeout_minutes: 10
+            ack_timeout_minutes: 20
+            reenable: { after: fix_merged_and_staging_green, cohort: internal }
