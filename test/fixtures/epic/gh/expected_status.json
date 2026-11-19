@@ -1,0 +1,9 @@
+{
+  "P1#Phase 1": "done",
+  "P1#Phase 2": "in_progress",
+  "P2#Phase 1": "blocked",
+  "P2#Phase 2": "pending",
+  "P3#Phase 1": "blocked",
+  "P3#Phase 2": "unknown",
+  "P4#Phase 1": "next"
+}
