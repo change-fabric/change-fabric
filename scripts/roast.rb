@@ -256,13 +256,13 @@ module Roast
 
   # `transcript` is optional narration and caption text the critic reads next to
   # the frames; it joins the key only when present, so frame-only keys are stable.
-  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL, effort: DEFAULT_EFFORT, backend: 'api')
+  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL, effort: DEFAULT_EFFORT, backend: 'api', pinned: false)
     WalkthroughCache.key({ model: model, brief: brief, round: round, history: history,
                            shots: shots.map { |s| Digest::SHA256.file(s).hexdigest } }
                            .merge(texts.empty? ? {} : { texts: texts.map { |t| Digest::SHA256.file(t).hexdigest } })
                            .merge(transcript ? { transcript: transcript } : {}).merge(review ? { review: review } : {})
                            .merge(lenses.empty? ? {} : { lenses: lenses.map { |l| [ l.name, Digest::SHA256.hexdigest(l.body) ] } })
-                           .merge(effort_key(effort)).merge(backend_key(backend)))
+                           .merge(effort_key(effort)).merge(backend_key(backend)).merge(pinned ? { pinned: true } : {}))
   end
 
   # Only a non-API backend joins the key, so cached API answers keep their key
@@ -559,12 +559,13 @@ module Roast
 
   # The inputs a codex round is keyed and run under: the tier's effort unless
   # the user gave one (clamped onto codex's scale). The model stays the roast
-  # name, which the key records; the live model is picked at call time.
+  # name; the live model is picked at call time, so the key also records
+  # whether the name was passed through as pinned or mapped from a tier.
   def codex_inputs(inputs, pin: {})
     model = inputs[:model] || MODEL
     tier = pin[:model] ? nil : RoastCodex.tier_for(model)
     effort = pin[:effort] || tier.nil? ? RoastCodex.clamp_effort(inputs[:effort] || DEFAULT_EFFORT) : RoastCodex::TIERS.dig(tier, :effort)
-    inputs.merge(model: model, effort: effort)
+    inputs.merge(model: model, effort: effort, pinned: tier.nil?)
   end
 
   # 'codex' when a codex round will run (a cached answer, or a usable login),

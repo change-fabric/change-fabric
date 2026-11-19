@@ -230,4 +230,25 @@ class RoastCodexTest < Minitest::Test
       assert_equal critic, again
     end
   end
+
+  def test_pinned_and_tier_selections_never_share_a_codex_cache_entry
+    Dir.mktmpdir do |dir|
+      shot = File.join(dir, "s.png")
+      FileUtils.cp(File.join(FIXTURES, "tiny64.png"), shot)
+      models = []
+      runner = lambda do |argv, **kw|
+        next status_result("login_status_chatgpt.txt") if argv.include?("login")
+        next result(fixture("models.json")) if argv.include?("debug")
+
+        models << argv[argv.index("-m") + 1]
+        runner_for(result(fixture("exec_ok.jsonl")), answer: fixture("exec_ok_last.json")).call(argv, **kw)
+      end
+      args = { brief: "b", shots: [ shot ], history: [], round: 1, cache_root: File.join(dir, "cache"), backend: "codex",
+               codex_runner: runner, env: { "PATH" => "/bin" }, out: StringIO.new, model: "gpt-6.1-terra" }
+      Roast.critique(**args)
+      Roast.critique(**args, pin: { model: true })
+      Roast.critique(**args, pin: { model: true })
+      assert_equal %w[gpt-6.2-sol gpt-6.1-terra], models
+    end
+  end
 end
