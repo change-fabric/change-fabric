@@ -12,8 +12,11 @@ module ReviewPrompt
   module_function
 
   ACK_SCRIPT = File.expand_path('review_ack.rb', __dir__)
-  # Hosts without an Agent tool rewrite this line to their native reviewer.
-  REVIEWER = 'Agent(subagent_type: "general-purpose", model: "haiku")'
+  # A named placeholder: SkillCompiler#rewrite_reviewer replaces this whole
+  # expression per host (the classifier model where an Agent tool exists, else
+  # the host's native reviewer). Never emitted raw; review_gate and skill_review
+  # rewrite it for Claude, cf_host_hook for every other host.
+  REVIEWER = 'Agent(subagent_type: "general-purpose", model: "{{model:classifier}}")'
 
   # The gate is released only by the explicit ack, never by the review being
   # dispatched. Agent calls may return asynchronously, so the prompt does not ask

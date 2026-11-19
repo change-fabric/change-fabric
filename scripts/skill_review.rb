@@ -8,6 +8,7 @@ require_relative 'review_queue'
 require_relative 'review_key'
 require_relative 'review_prompt'
 require_relative 'review_scope'
+require_relative 'skill_compiler'
 
 # Stop hook: when the turn ends, block with the review prompt if review-enabled
 # files changed without a review verdict. This is the catch-all that also covers
@@ -22,9 +23,12 @@ require_relative 'review_scope'
 # loop; the round cap bounds re-blocking across turns if the identical batch is
 # denied CAP times in a row. A changed batch resumes blocking on its own.
 class SkillReview
-  def initialize(event, skills: nil)
+  # rewrite: false leaves the REVIEWER placeholder for cf_host_hook, which
+  # rewrites it for the host it serves; the native Claude hook rewrites here.
+  def initialize(event, skills: nil, rewrite: true)
     @event = event
     @skills = skills
+    @rewrite = rewrite
   end
 
   def emit(io = $stdout)
@@ -79,7 +83,9 @@ class SkillReview
 
     queue.bump_round(pending)
     scope = subagent_stop? ? nil : own_root
-    { decision: 'block', reason: ReviewPrompt.build(pending, registry, keys, own_tree: scope) }
+    prompt = ReviewPrompt.build(pending, registry, keys, own_tree: scope)
+    prompt = SkillCompiler.new(host: 'claude').rewrite_reviewer(prompt) if @rewrite
+    { decision: 'block', reason: prompt }
   end
 end
 

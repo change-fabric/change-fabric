@@ -7,6 +7,8 @@ require "open3"
 require "digest"
 require_relative "../scripts/cf_host_hook"
 require_relative "../scripts/native_hook_install"
+require_relative "../scripts/review_queue"
+require_relative "../scripts/skill_registry"
 
 class CfHostHookTest < Minitest::Test
   def setup
@@ -40,6 +42,30 @@ class CfHostHookTest < Minitest::Test
     assert_includes hook("opencode", "SessionStart").dig("hookSpecificOutput", "additionalContext"), "merge-ready"
     hook("opencode", "PostToolUse", payload)
     assert_includes hook("opencode", "SessionStart").dig("hookSpecificOutput", "additionalContext"), "local-only"
+  end
+
+  # A queued review at Stop surfaces as a block whose reviewer line is the
+  # host-native fallback, never a partial or Claude-only Agent expression.
+  def test_non_claude_review_block_carries_the_fallback_reviewer_text
+    skills = Dir.mktmpdir
+    FileUtils.mkdir_p(File.join(skills, "ruby"))
+    File.write(File.join(skills, "ruby", "SKILL.md"),
+               "---\nname: ruby\ndescription: x\nauto:\n  extensions: [rb]\n---\n\nPRINCIPLES\n")
+    prev_home = ENV["HOME"]
+    ENV["HOME"] = @home
+    %w[codex copilot opencode pi].each do |host|
+      key = Digest::SHA256.hexdigest([ host, File.realpath(@home), "rev-#{host}" ].join("\0"))
+      ReviewQueue.new("cf-#{key}").add("ruby", "/p/user.rb", "h1")
+      result = CfHostHook.new(host: host, event: host == "copilot" ? "agentStop" : "Stop",
+                              payload: { "session_id" => "rev-#{host}", "sessionId" => "rev-#{host}", "cwd" => @home },
+                              root: File.join(@home, "state"), home: @home, skills: SkillRegistry.load(skills)).call
+      reason = result["reason"].to_s
+      assert_includes reason, "Use the host-native reviewer or review the files directly when delegation is unavailable,", host
+      refute_match(/Agent\(|subagent_type|\{\{model/, reason, host)
+    end
+  ensure
+    ENV["HOME"] = prev_home
+    FileUtils.remove_entry(skills) if skills
   end
 
   def test_native_hook_install_preserves_foreign_hooks_and_is_idempotent

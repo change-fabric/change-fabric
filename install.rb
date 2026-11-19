@@ -15,6 +15,8 @@ require_relative 'scripts/skill_compiler'
 require_relative 'scripts/native_hook_install'
 require_relative 'scripts/cf_install_manifest'
 require_relative 'scripts/skill_providers'
+require_relative 'scripts/model_roles'
+require_relative 'scripts/cf_state'
 
 # Installs the cf merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
@@ -58,6 +60,10 @@ module Install
     def bin                  = File.join(@home, '.claude', 'cf', 'bin')
     def legacy_bin           = File.join(@home, '.claude', 'pst', 'bin')
     def provider_registry    = File.join(@repo, 'config', 'providers.yml')
+    def model_roles_file     = File.join(@repo, 'config', 'model_roles.yml')
+    def state_dir            = CfState.root(home: @home)
+    def model_roles_user_file = ModelRoles.default_user_file(state_dir)
+    def model_roles_snapshot = ModelRoles.default_snapshot_path(state_dir)
 
     # Every place a script resolves providers.yml from (its own ../config):
     # beside the Claude bin and beside the runtime bin.
@@ -401,8 +407,11 @@ module Install
     # prior pst-branded install are still spotted and pruned.
     LEGACY_MARKERS = [ MARKER, '.pst-generated-from-claude', '.pst-generated' ].freeze
 
-    def initialize(paths)
+    # roles is {host => {role => model}}; a host with no entry renders the
+    # host-neutral phrasing.
+    def initialize(paths, roles = {})
       @paths = paths
+      @roles = roles
     end
 
     def mirror(sources)
@@ -431,11 +440,17 @@ module Install
       FileUtils.rm_rf(dest)
       FileUtils.mkdir_p(File.dirname(dest))
       FileUtils.cp_r(source, dest)
-      compiler = SkillCompiler.new(host: host, workflows: File.join(File.dirname(@paths.skills_dir), 'workflows', 'modes'))
+      compiler = SkillCompiler.new(host: host, workflows: File.join(File.dirname(@paths.skills_dir), 'workflows', 'modes'),
+                                   roles: @roles[host])
       Dir.glob(File.join(dest, '**', '*.md')).each do |path|
         text = File.read(path)
         rendered = path == File.join(dest, 'SKILL.md') ? compiler.compile(text) : compiler.references(text)
         File.write(path, rendered)
+      end
+      Dir.glob(File.join(dest, '**', '*.js')).each do |path|
+        text = File.read(path)
+        rendered = compiler.render_model_js(text)
+        File.write(path, rendered) unless rendered == text
       end
       File.write(File.join(dest, MARKER), "source: #{source}\n")
     end
@@ -501,6 +516,7 @@ module Install
     def install
       # First, so an unknown provider fails the install before anything moves.
       @required_providers = SkillProviders.collect(@paths.skill_sources)
+      resolve_model_roles
       migrate_state_root
       migrate_merge_mode_slugs
       place_hooks
@@ -517,10 +533,33 @@ module Install
       wire_native_hooks
       place_launcher
       record_installation
+      write_model_roles_snapshot
       report(settings)
     end
 
     private
+
+    # The snapshot host: the host whose resolved table the hook and grader read.
+    SNAPSHOT_HOST = 'claude'
+
+    # Resolve the whole map once (env > user file > repo, validated), before
+    # anything moves, so a bad model string fails the install and every skill
+    # compiles from the same in-memory table the snapshot will record.
+    def resolve_model_roles
+      options = { env: ENV, user_file: @paths.model_roles_user_file, repo_file: @paths.model_roles_file }
+      @role_tables = SkillCompiler::HOSTS.to_h { |host| [ host, ModelRoles.table(host: host, **options) ] }
+      @role_sources = ModelRoles.sources(host: SNAPSHOT_HOST, **options)
+      drift = ModelRoles.drift(host: SNAPSHOT_HOST, path: @paths.model_roles_snapshot, **options)
+      puts ModelRoles.drift_message(drift, applying: true) unless drift.empty?
+    end
+
+    # Last, and atomic, so a failed compile leaves the old snapshot in place.
+    def write_model_roles_snapshot
+      roles = @role_tables[SNAPSHOT_HOST]
+      return unless roles
+
+      ModelRoles.write_snapshot(host: SNAPSHOT_HOST, roles: roles, sources: @role_sources, path: @paths.model_roles_snapshot)
+    end
 
     # Best-effort carry-over of the state root from the pre-rename location so a
     # prior install's sessions/ctx/change/teams/telemetry survive the cf rename.
@@ -594,6 +633,8 @@ module Install
       @paths.provider_registry_dests.each do |dest|
         FileUtils.mkdir_p(File.dirname(dest))
         FileUtils.cp(@paths.provider_registry, dest)
+        # Beside it, so scripts/model_roles.rb finds the repo map from a runtime copy.
+        FileUtils.cp(@paths.model_roles_file, File.join(File.dirname(dest), 'model_roles.yml'))
       end
     end
 
@@ -646,7 +687,7 @@ module Install
     end
 
     def link_skills
-      ClaudeSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      ClaudeSkillMirror.new(@paths, @role_tables).mirror(@paths.skill_sources)
       links = @paths.skill_sources.to_h do |source|
         name = SkillName.of(source)
         [ @paths.skill_link(name), File.join(@paths.compiled_claude_root, name) ]
@@ -783,7 +824,7 @@ module Install
 
     def mirror_to_pi
       LegacyPiSkillPruner.new(@paths).prune
-      PiSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      PiSkillMirror.new(@paths, @role_tables).mirror(@paths.skill_sources)
       shared_copies = @paths.skill_sources.filter_map do |source|
         path = @paths.codex_skill(SkillName.of(source))
         next unless PortableSkillMirror::LEGACY_MARKERS.any? { |marker| File.file?(File.join(path, marker)) }
@@ -794,16 +835,16 @@ module Install
     end
 
     def mirror_to_opencode
-      OpenCodeSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      OpenCodeSkillMirror.new(@paths, @role_tables).mirror(@paths.skill_sources)
       OpenCodeConfigFile.new(@paths.opencode_config).wire([ @paths.opencode_skills_root ])
     end
 
     def mirror_to_copilot
-      CopilotSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      CopilotSkillMirror.new(@paths, @role_tables).mirror(@paths.skill_sources)
     end
 
     def mirror_to_codex
-      CodexSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      CodexSkillMirror.new(@paths, @role_tables).mirror(@paths.skill_sources)
     end
 
     def report(settings)

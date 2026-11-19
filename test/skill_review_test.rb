@@ -46,6 +46,13 @@ class SkillReviewTest < Minitest::Test
     assert_includes out["reason"], "review_ack.rb"
   end
 
+  def test_claude_review_names_the_classifier_model_in_the_agent_call
+    enqueue("ruby", "/p/user.rb", "h1")
+    reason = review["reason"]
+    assert_match(/Agent\(subagent_type: "general-purpose", model: "[A-Za-z0-9._:\[\]-]+"\),/, reason)
+    refute_includes reason, "{{model"
+  end
+
   def test_all_code_section_includes_taxonomy_note
     enqueue("refactoring", "/p/main.go", "h1")
     assert_includes review["reason"], "genuinely code"

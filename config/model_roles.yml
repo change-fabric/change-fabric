@@ -1,0 +1,12 @@
+# Role -> model per host. Skills name roles as {{model:<role>}}; the skill
+# compiler renders them at install time. Per-user overrides: CF_MODEL_<ROLE>
+# env vars, then <cf state dir>/model_roles.yml, then this file.
+version: 1
+roles: [orchestrator, worker, author, critic, classifier]
+hosts:
+  claude:
+    orchestrator: opus
+    worker: sonnet
+    author: opus
+    critic: opus
+    classifier: haiku
