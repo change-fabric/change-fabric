@@ -11,6 +11,9 @@ require_relative 'path_canon'
 # file, and any shell command that names either. Template env files
 # (.example, .sample, .template) stay readable. The shell exceptions are a
 # plain run of cf_keys.rb or secret_intake.rb, which never print a value.
+# approval_console.rb is exempt per verb, not as a whole: status, request and
+# wait are open to agents, while enroll, totp-enroll, unlock, revoke and
+# verify --write are denied to them (they also refuse without a real TTY).
 # Like the other guards this is a loud guardrail, not a sandbox. Fails
 # silent on any error.
 class SecretsReadGuard
@@ -21,6 +24,9 @@ class SecretsReadGuard
   SHELL_MARKERS = [ '.claude/cf/secrets', 'cf/secrets/' ].freeze
   CHAINING = /[;&|<>`\n]|\$\(/
   SAFE_CLIS = %w[cf_keys.rb secret_intake.rb].freeze
+  APPROVAL_CLI = 'approval_console.rb'
+  APPROVAL_AGENT_VERBS = %w[status request wait].freeze
+  APPROVAL_HUMAN_VERBS = %w[enroll totp-enroll unlock revoke].freeze
   ENV_NAME = %r{\A\.env(?:\.[^/]+)?\z}
   TEMPLATE_SUFFIX = /\.(?:example|sample|template)\z/
   SHELL_WORD = /[^\s'"=:<>|;&()`]+/
@@ -61,12 +67,55 @@ class SecretsReadGuard
   end
 
   def shell_denial(command)
-    return if safe_cli_only?(command)
+    return approval_denial(command) if approval_denial(command)
+    return if safe_cli_only?(command) || approval_cli_only?(command)
     return 'a shell command naming the secrets directory' if SHELL_MARKERS.any? { |marker| command.include?(marker) }
     return unless command.scan(SHELL_WORD).any? { |word| env_name?(File.basename(word)) }
 
     @env = true
     'a shell command naming a .env file'
+  end
+
+  # The human-only approval_console.rb verb a command runs, if any. Scans every
+  # word, so a chained or wrapped run is caught too, and an unparseable command
+  # that mentions the script is denied rather than guessed at.
+  def approval_denial(command)
+    return unless command.include?(APPROVAL_CLI)
+
+    words = nested_words(command)
+    words.each_with_index do |word, index|
+      next unless File.basename(word) == APPROVAL_CLI
+
+      verb = words[(index + 1)..].find { |arg| !arg.start_with?('-') }
+      write = verb == 'verify' && words[(index + 1)..].include?('--write')
+      next unless APPROVAL_HUMAN_VERBS.include?(verb) || write
+
+      @approval = true
+      return "a shell command running approval_console.rb #{verb}"
+    end
+    nil
+  rescue ArgumentError
+    @approval = true
+    'an unparseable shell command naming approval_console.rb'
+  end
+
+  # Shell words, plus the words inside any quoted argument (`bash -c '...'`).
+  def nested_words(command)
+    Shellwords.split(command).flat_map do |word|
+      word.match?(/\s/) ? [ word, *nested_words(word) ] : [ word ]
+    rescue ArgumentError
+      [ word ]
+    end
+  end
+
+  def approval_cli_only?(command)
+    return false if command.match?(CHAINING)
+
+    words = Shellwords.split(command)
+    words.first.to_s.end_with?('ruby') && File.basename(words[1].to_s) == APPROVAL_CLI &&
+      (words[2].nil? || APPROVAL_AGENT_VERBS.include?(words[2]))
+  rescue ArgumentError
+    false
   end
 
   def safe_cli_only?(command)
@@ -105,7 +154,10 @@ class SecretsReadGuard
   end
 
   def deny(reason)
-    message = @env ? env_message(reason) : keys_message(reason)
+    message = if @approval then approval_message(reason)
+    elsif @env then env_message(reason)
+    else keys_message(reason)
+    end
     { hookSpecificOutput: { hookEventName: EVENT, permissionDecision: 'deny', permissionDecisionReason: message } }
   end
 
@@ -114,6 +166,11 @@ class SecretsReadGuard
       'Ask the user to edit the file, or stage the value with cf:secret-intake and run ' \
       '`ruby ~/.claude/cf/bin/secret_intake.rb push NAME --to env:<path>`. ' \
       '.env.example, .env.sample and .env.template stay readable.'
+  end
+
+  def approval_message(reason)
+    "[cf:approval] Denied #{reason}: TOTP enrollment, unlock, revoke and record writes are human-only. " \
+      'Ask the user to run it from their own terminal. `approval_console.rb status`, `request` and `wait` stay open.'
   end
 
   def keys_message(reason)

@@ -70,6 +70,16 @@ from a real terminal.
 
 Enforcer: scripts/change_merge_guard.rb, scripts/change_tag_guard.rb, scripts/change_gate_check.rb
 
+## Terminal approvals need a one-use TOTP code
+
+`change_approve.rb` and `change_override.rb` also require a TOTP code from the
+machine's seed, kept only in the cf secret store and shown once on `/dev/tty`.
+A code spends under a file lock, one per 30 second step: a replay or wrong code
+records nothing and five failures lock the machine. The human-only verbs refuse
+without a TTY or in an agent harness. Friction, not a sandbox.
+
+Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb
+
 ## Agents merge at the ready bar; carve-outs escalate
 
 The coordinating agent squash-merges a PR only when it is rebased on main, CI

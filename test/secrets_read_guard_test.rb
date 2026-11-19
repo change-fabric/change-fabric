@@ -72,6 +72,28 @@ class SecretsReadGuardTest < Minitest::Test
     assert_nil decide("Bash", "command" => "git status")
   end
 
+  def test_approval_console_human_verbs_are_denied_to_agents
+    cli = "~/.claude/cf/bin/approval_console.rb"
+    [ "ruby #{cli} totp-enroll", "ruby #{cli} enroll --url https://x.invalid", "ruby #{cli} unlock", "ruby #{cli} revoke",
+      "ruby #{cli} verify abc --write", "cd /tmp && ruby #{cli} totp-enroll", "ruby #{cli} totp-enroll --rotate",
+      "ruby #{cli} --quiet unlock", "bash -c 'ruby #{cli} totp-enroll'", "ruby #{cli} 'unterminated" ].each do |cmd|
+      assert_equal "deny", decide("Bash", "command" => cmd), cmd
+    end
+  end
+
+  def test_approval_console_agent_verbs_stay_open
+    cli = "~/.claude/cf/bin/approval_console.rb"
+    [ "ruby #{cli} status", "ruby #{cli} request --type prod-op", "ruby #{cli} wait abc", "ruby #{cli} verify abc" ].each do |cmd|
+      assert_nil decide("Bash", "command" => cmd), cmd
+    end
+  end
+
+  def test_approval_denial_message_names_the_human_only_rule
+    io = StringIO.new
+    SecretsReadGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => "ruby approval_console.rb unlock" }, "cwd" => @home }, home: @home).emit(io)
+    assert_includes JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason"), "[cf:approval]"
+  end
+
   def test_env_files_are_denied_to_file_tools
     project = File.join(@home, "project")
     assert_equal "deny", decide("Read", "file_path" => File.join(project, ".env"))

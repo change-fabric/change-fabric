@@ -5,6 +5,8 @@ require 'open3'
 require 'optparse'
 require_relative 'change_trust'
 require_relative 'change_approval_store'
+require_relative 'cf_project_identity'
+require_relative 'approval_console/terminal_prompt'
 
 # Human-run approval of host-run step definitions (boot.up, boot.down, command
 # lane entries) that differ from the base branch at one exact commit. cf:change
@@ -20,11 +22,14 @@ require_relative 'change_approval_store'
 # every listed step for that sha. It never consults who authored the commit:
 # the maintainer's own pull requests need the same approval.
 #
-# Refuses without a real TTY on stdin. As with change_override.rb this is
-# friction against a scripted or agent-driven approval, not a cryptographic
-# bar: a process that allocates its own pty can still drive the prompt, since
-# the confirmation value is not secret. The intended use is a human reading
-# the listed commands at their own terminal before typing.
+# Refuses without a real TTY on stdin, then, after the typed confirmation,
+# requires a TOTP code from this machine's enrolled seed (approval_console.rb
+# totp-enroll) read with echo off. The code is fenced to one use per 30 second
+# step, and the record carries a `totp-terminal` proof bound to the exact
+# steps shown. The typed prefix is not secret, so a process that allocates its
+# own pty can still drive that part; the TOTP code is the second factor, and
+# like the other guards here this is friction, not a sandbox. The intended use
+# is a human reading the listed commands at their own terminal.
 module ChangeApprove
   # One step awaiting approval, with the fields a human needs to judge it.
   Pending = Struct.new(:step, :digest, :fields, :base_fields, :profile, keyword_init: true)
@@ -54,12 +59,38 @@ module ChangeApprove
       return 0
     end
 
+    refusal = ApprovalConsole::TerminalPrompt.preflight('step')
+    if refusal
+      stderr.puts "[change] refusing: #{refusal}"
+      return 1
+    end
+
     describe(pending, sha, base, stdout)
     return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
-    ChangeApprovalStore.new(sha).record(steps: pending.map { |item| [ item.step, item.digest ] }, by: approver(root))
+    proof = prove(pending, root, sha, stdin: stdin, stdout: stdout, stderr: stderr)
+    return 1 unless proof
+
+    ChangeApprovalStore.new(sha).record(steps: pending.map { |item| [ item.step, item.digest ] }, by: approver(root), proof: proof)
     stdout.puts "[change] approved #{pending.size} step(s) for #{sha[0, 12]}. A new commit or an edited step needs a new approval."
     0
+  end
+
+  # The TOTP second factor over the exact items just shown. Nil (with the
+  # reason on stderr) when the code is refused; nothing is recorded then.
+  def prove(pending, root, sha, stdin:, stdout:, stderr:)
+    items = pending.map { |item| { 'step' => item.step, 'fields' => item.fields, 'base_fields' => item.base_fields } }
+    result = ApprovalConsole::TerminalPrompt.approve(
+      { 'type' => 'step', 'repo' => CfProjectIdentity.for(root).id, 'sha' => sha, 'profile' => nil, 'items' => items },
+      stdin: stdin, stdout: stdout
+    )
+    return result.proof if result.ok?
+
+    stderr.puts "[change] #{result.error}; nothing recorded."
+    nil
+  rescue ApprovalConsole::Canonical::Invalid => e
+    stderr.puts "[change] cannot bind the approval: #{e.message}; nothing recorded."
+    nil
   end
 
   # Every (step, digest) at `sha` that matches neither the base branch nor an

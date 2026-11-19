@@ -4,17 +4,26 @@ require "minitest/autorun"
 require "tmpdir"
 require "fileutils"
 require "stringio"
+require "json"
 require_relative "git_fixture"
 require_relative "../scripts/change_approve"
+require_relative "support/totp_enrollment"
 
 # The approval tool's load-bearing control is that it refuses without a real
 # terminal, so an agent's Bash call cannot approve its own changed steps.
 # Stdin is injected so the TTY check and the typed confirmation are both
 # exercised without one.
 class ChangeApproveTest < Minitest::Test
-  FakeStdin = Struct.new(:tty_value, :line) do
+  include TotpEnrollment
+
+  # Answers each gets in turn: the typed prefix, then the TOTP code.
+  FakeStdin = Struct.new(:tty_value, :lines) do
     def tty? = tty_value
-    def gets = line
+
+    def gets
+      @queue ||= Array(lines).dup
+      @queue.shift
+    end
   end
 
   def setup
@@ -26,6 +35,7 @@ class ChangeApproveTest < Minitest::Test
     @base = commit("echo base")
     GitFixture.git(@repo, "update-ref", "refs/remotes/origin/main", @base)
     @sha = commit("echo head")
+    @store = enroll_totp
   end
 
   def teardown
@@ -67,10 +77,10 @@ class ChangeApproveTest < Minitest::Test
     GitFixture.git(@repo, "rev-parse", "HEAD").strip
   end
 
-  def approve(tty:, typed: @sha[0, 12], sha: @sha)
+  def approve(tty:, typed: @sha[0, 12], sha: @sha, code: totp_now(@store))
     out = StringIO.new
     err = StringIO.new
-    status = ChangeApprove.run([ sha, "--repo", @repo ], stdin: FakeStdin.new(tty, typed), stdout: out, stderr: err,
+    status = ChangeApprove.run([ sha, "--repo", @repo ], stdin: FakeStdin.new(tty, [ typed, code ]), stdout: out, stderr: err,
                                                          fetch: false)
     [ status, out.string, err.string ]
   end
@@ -130,8 +140,70 @@ class ChangeApproveTest < Minitest::Test
 
   def test_usage_error_without_a_sha
     err = StringIO.new
-    status = ChangeApprove.run([], stdin: FakeStdin.new(true, ""), stdout: StringIO.new, stderr: err)
+    status = ChangeApprove.run([], stdin: FakeStdin.new(true, [ "" ]), stdout: StringIO.new, stderr: err)
     refute_equal 0, status
     assert_match(/usage/, err.string)
+  end
+
+  def stored_proof = JSON.parse(File.read(ChangeApprovalStore.new(@sha).path))["approved"].first["proof"]
+
+  def test_records_a_terminal_totp_proof_bound_to_the_shown_steps
+    status, = approve(tty: true)
+    assert_equal 0, status
+    proof = stored_proof
+    assert_equal "totp-terminal", proof["kind"]
+    assert_nil proof["receipt"]
+    body = ApprovalConsole::Canonical.parse(proof["body"])
+    assert_equal "step", body["type"]
+    assert_equal @sha, body["sha"]
+    assert_equal @store.machine_id, body["machine_id"]
+    assert_equal [ "boot.up" ], body["items"].map { |item| item["step"] }
+  end
+
+  def test_refuses_and_prints_the_enroll_snippet_when_no_seed_is_enrolled
+    FileUtils.rm_rf(File.dirname(@store.path("totp_seed")))
+    status, _out, err = approve(tty: true, code: "123456")
+    refute_equal 0, status
+    assert_match(/totp-enroll/, err)
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
+  def test_a_wrong_totp_code_records_nothing
+    wrong = totp_now(@store) == "000000" ? "000001" : "000000"
+    status, _out, err = approve(tty: true, code: wrong)
+    refute_equal 0, status
+    assert_match(/not valid/, err)
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
+  def test_a_malformed_or_missing_totp_code_records_nothing
+    [ "12345", "abcdef", "", nil ].each do |bad|
+      status, _out, err = approve(tty: true, code: bad)
+      refute_equal 0, status
+      assert_match(/6 digits/, err)
+    end
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
+  def test_a_replayed_totp_code_records_nothing
+    code = totp_now(@store)
+    assert_predicate @store.consume(code), :ok?
+    status, _out, err = approve(tty: true, code: code)
+    refute_equal 0, status
+    assert_match(/already used/, err)
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
+  def test_a_locked_out_machine_records_nothing
+    5.times { @store.consume("000000") }
+    status, _out, err = approve(tty: true, code: totp_now(@store))
+    refute_equal 0, status
+    assert_match(/locked until/, err)
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
+  def test_a_wrong_typed_prefix_never_spends_the_code
+    approve(tty: true, typed: "000000000000")
+    assert_nil @store.status[:last_step]
   end
 end
