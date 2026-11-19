@@ -1,0 +1,22 @@
+{
+  "protocol": "cf.verdict/1",
+  "rollout": "new-checkout",
+  "flag": "new_checkout",
+  "rollout_revision": 3,
+  "rollout_digest": "9f2c1a7e5b0d4c63a8e1f7d2b4c9a0e6d3f5b8a1c7e2d4f60918a3b5c7d9e1f2",
+  "stage": "internal",
+  "stage_entry_id": "se-0007",
+  "cohort": "internal",
+  "controller_id": "worker-1",
+  "fencing_token": 12,
+  "seq": 41,
+  "verdict": "pass",
+  "coverage": "complete",
+  "guards": [
+    { "name": "new_5xx_on_flagged_spans", "observed": 0, "limit": 0, "ok": true },
+    { "name": "new_exceptions_on_flagged_spans", "observed": 0, "limit": 0, "ok": true },
+    { "name": "p95_ms_vs_baseline", "observed": 1.04, "limit": 1.25, "ok": true }
+  ],
+  "telemetry_at": "2026-11-18T12:00:00Z",
+  "evaluated_at": "2026-11-18T12:01:00Z"
+}
