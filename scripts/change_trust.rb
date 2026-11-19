@@ -10,6 +10,10 @@ require 'yaml'
 require_relative 'change_apps'
 require_relative 'change_frontmatter'
 require_relative 'change_approval_store'
+require_relative 'change_override_store'
+require_relative 'change_policy'
+require_relative 'cf_project_identity'
+require_relative 'approval_console/proof_check'
 require_relative 'emit_digest'
 require_relative 'change_trust_files'
 
@@ -42,7 +46,7 @@ module ChangeTrust
   # `sources` maps each trusted step to :base or :approved; `untrusted` lists
   # the rest.
   Verdict = Struct.new(:sources, :untrusted, :head_digests, :base_digests, :base_ref, :base_sha, :head_sha,
-                       :note, :reasons, keyword_init: true) do
+                       :note, :reasons, :policy_sha, keyword_init: true) do
     def trusted?(step) = sources.key?(step)
 
     def refusal(step)
@@ -305,12 +309,77 @@ module ChangeTrust
   # only that app's config under this profile.
   # `base` overrides the resolved base: a schedule compares against the
   # default-branch snapshot it already loaded, not the per-PR gate trunk.
-  def evaluate(root:, head_sha:, head_definitions:, profile: nil, apps: nil, fetch: true, base: nil)
+  #
+  # Before any approval counts, every approval and override proof for this
+  # sha is verified (0.26.0) under the default branch's policy
+  # (ChangePolicy.authoritative; `authority` injects one). When a step
+  # approval proof does not stand, or the policy cannot be read, no approval
+  # counts: only steps equal to the base run. The policy commit is returned
+  # as `policy_sha` and named in the note.
+  def evaluate(root:, head_sha:, head_definitions:, profile: nil, apps: nil, fetch: true, base: nil, authority: nil,
+               proof_store: nil)
     base ||= resolve_base(root, fetch: fetch)
     base_defs = base_definitions(root, base, profile, apps)
-    verify(head_digests: digests(head_definitions), base_digests: digests(base_defs),
-           approvals: ChangeApprovalStore.new(head_sha).approvals, head_sha: head_sha, base: base,
-           reasons: file_reasons(head_definitions, base_defs))
+    records = proof_records(head_sha, profile)
+    # Read only when there is a record to judge, so a run without approvals
+    # makes no extra fetch or GitHub call.
+    authority ||= approval_authority(root, base, fetch) if records
+    problems = records ? proof_problems(root, head_sha, records, authority, proof_store) : {}
+    approvals = problems[:approvals] ? [] : ChangeApprovalStore.new(head_sha).approvals
+    verdict = verify(head_digests: digests(head_definitions), base_digests: digests(base_defs),
+                     approvals: approvals, head_sha: head_sha, base: base,
+                     reasons: file_reasons(head_definitions, base_defs))
+    verdict.policy_sha = authority.is_a?(ChangePolicy::Authority) ? authority.policy_sha : nil
+    verdict.note = [ verdict.note, *problems.values.compact ].compact.join('; ').then { |text| text.empty? ? nil : text }
+    verdict
+  end
+
+  # The default branch's approval policy for a run, or the reason it cannot
+  # be read (a String). Without a fetch (tests, a snapshot caller) the already
+  # resolved base commit is read in place.
+  def approval_authority(root, base, fetch)
+    if fetch
+      ChangePolicy.authoritative(root: root, repo: ChangePolicy.origin_repo(root).to_s)
+    elsif base.sha
+      ChangePolicy::Authority.new(policy: ChangePolicy.for_ref(root, base.sha), policy_sha: base.sha, ref: base.ref)
+    else
+      'no default branch resolves'
+    end
+  rescue ChangePolicy::Unreadable => e
+    e.message
+  end
+
+  # The approval and override records a run judges for one sha and profile.
+  ProofRecords = Struct.new(:entries, :override, :profile, keyword_init: true)
+
+  # This sha's ProofRecords, or nil when there is neither kind of record.
+  def proof_records(head_sha, profile)
+    entries = ChangeApprovalStore.new(head_sha).entries
+    override = ChangeOverrideStore.new(head_sha, profile: profile).read
+    entries.empty? && override.nil? ? nil : ProofRecords.new(entries: entries, override: override, profile: profile)
+  end
+
+  # { approvals: why no step approval counts, override: why the override
+  # does not stand }, each nil when fine. Fails closed on an unreadable policy.
+  def proof_problems(root, head_sha, records, authority, proof_store)
+    entries, override, profile = records.to_a
+    return { approvals: "approval policy unreadable (#{authority}); no approval counts" } unless authority.is_a?(ChangePolicy::Authority)
+
+    policy = authority.policy
+    return {} unless policy
+
+    check = ApprovalConsole::ProofCheck.new(level: policy.require_approval_proof, pins: policy.approval_pins,
+                                            **{ store: proof_store }.compact)
+    repo = CfProjectIdentity.for(root).id
+    approvals = entries.empty? ? nil : check.approvals_problem(entries, repo: repo, sha: head_sha)
+    { approvals: approvals && "#{approvals}; no approval counts (policy #{authority.policy_sha.to_s[0, 12]})",
+      override: override && override_problem(check, override, repo, head_sha, profile) }
+  end
+
+  def override_problem(check, record, repo, sha, profile)
+    return 'override record is malformed' unless record.is_a?(Hash)
+
+    check.override_problem(record, repo: repo, sha: sha, profile: profile)
   end
 
   # { step => why its covered files make it a change }, for the refusal.

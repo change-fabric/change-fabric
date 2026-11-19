@@ -163,6 +163,13 @@ change_policy:
       require_trunk_ancestor: main
       ci_gate: "the ci.yml run that gated the merge to main, plus deploy-site.yml's version and spec-release checks"
       ci_skippable: false
+  # Only a phone passkey approval with a console receipt stands for a step
+  # approval or an override, checked against these pins. Gates read this block
+  # from the default branch (or the PR base), never the working tree.
+  require_approval_proof: passkey
+  approval_pins:
+    receipt_key_fingerprint: "sha256:14184f67113b8eb2c2f1b6a4d1c10e241e4c9d2a4bad299fc955537b9a2def3b"
+    rp_id: d7cnimvl6wqykxfkrphbbmufxu0zybds.lambda-url.us-east-1.on.aws
   admin_bypass:
     # The merge guard reads `allowed` only for `gh pr merge --admin`. A plain
     # `gh pr merge --squash` by an agent session in admin-bypass mode takes the
@@ -171,6 +178,30 @@ change_policy:
     # needed for the ready bar; the carve-outs are policy, not code.
     allowed: true
     require_change_pass: true
+    # The carve-out files, read from the PR base. Nothing enforces the list
+    # yet; the merge guard classifies PRs by it in a later release.
+    carve_out_paths:
+      - CHANGE.md
+      - PRINCIPLES.md
+      - AGENTS.md
+      - install.rb
+      - hooks/**
+      - scripts/*guard*.rb
+      - scripts/change_gate_check.rb
+      - scripts/change_policy.rb
+      - scripts/change_trust.rb
+      - scripts/change_trust_files.rb
+      - scripts/change_*_store.rb
+      - scripts/cf_host_hook.rb
+      - scripts/approval_console*.rb
+      - scripts/approval_console/**
+      - scripts/change_prod_*.rb
+      - approval_console/**
+      - platform/infra/**
+      - site/infra/**
+      - .github/workflows/cf-prod.yml
+      - .github/workflows/release-*.yml
+      - .github/workflows/bump-tap-formula.yml
     conditions: "the coordinating agent may squash-merge a PR only when it is rebased on main, CI is green, mergeStateStatus is CLEAN, it has 0 unresolved review threads, and a passing comprehensive cf:change run is recorded for the exact head SHA; a PR touching the merge or tag guards, the review gate, the sensitive-term or secret hooks, this change_policy block, the merge rules in AGENTS.md or PRINCIPLES.md, or a release workflow escalates to the maintainer, as does a thread contesting a settled decision, red CI or cf:change after three fix attempts, or a conflict needing a design choice; release tags, the Homebrew release, change_approve and change_override stay human-only and are handed over as a ready-to-run script under ~/.claude/cf/manual/, not a question: a change_approve the cf:change run needs is handed over before the audit, and post-merge release steps after the merge, batched across merges where possible"
 ---
 

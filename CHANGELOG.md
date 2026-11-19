@@ -18,6 +18,22 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.26.0] - 2026-11-19
+
+Passkey approvals and a pinned trust root. Additive for CHANGE.md.
+
+### Added
+
+- `passkey` level for `change_policy.require_approval_proof`: only a phone
+  passkey approval with a console receipt stands. An override also needs a
+  reason of 20 or more characters and a receipt under 24h old when used.
+- `change_policy.approval_pins` (`receipt_key_fingerprint`, `rp_id`): the
+  local pins must match, or every proof is refused.
+- `change_policy.admin_bypass.carve_out_paths`: the carve-out glob list.
+- The approval policy is read from the default branch (or PR base) after an
+  explicit fetch and an origin repo check, failing closed. Run-time trust
+  verifies approval and override proofs before any host step runs.
+
 ## [0.25.0] - 2026-11-19
 
 Approval proofs at the release gates. Additive for CHANGE.md.

@@ -80,6 +80,34 @@ approval, environment and refs/cf-prod paths. An admin token can bypass hooks.
 
 Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb, scripts/prod_approval_guard.rb, scripts/change_prod_gate.rb
 
+## Agent-startable approvals need a passkey receipt
+
+Under `require_approval_proof: passkey` only a phone passkey approval with a
+console receipt stands; the TOTP seed and machine key sit on the agent's host.
+
+Enforcer: scripts/approval_console/proof_check.rb
+
+## Approval policy comes from the base or default branch
+
+Pins, proof level and carve-out paths come from the fetched base or default
+branch after an origin repo check, never the working tree; failure fails closed.
+
+Enforcer: scripts/change_policy.rb, scripts/approval_console/local_store.rb
+
+## Receipts are under 24h old when recorded
+
+Override, carve-out and release receipts also when used. Step approvals are
+the only records that never expire: they are bound to sha and step digest.
+
+Enforcer: scripts/approval_console/proof_check.rb, scripts/change_trust.rb
+
+## Local guards are friction against an admin token
+
+An admin token can call the merge API directly; off-machine enforcement is a
+separate plan.
+
+Enforcer: advisory
+
 ## Agents merge at the ready bar; carve-outs escalate
 
 The coordinating agent squash-merges a PR only when it is rebased on main, CI

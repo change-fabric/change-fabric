@@ -22,6 +22,7 @@ module ApprovalConsole
   class LocalStore
     class NotEnrolled < StandardError; end
     class AlreadyEnrolled < StandardError; end
+    class PinMismatch < StandardError; end
 
     FILE_MODE = 0o600
     DIR_MODE = 0o700
@@ -115,7 +116,21 @@ module ApprovalConsole
     end
 
     # { 'rp_id', 'credentials' => {id => cose}, 'receipt_public_key' } or {}.
-    def pins = read_json(path('credentials.json'))
+    # credentials.json is agent-writable, so a gate passes `expect:`, the
+    # authoritative { 'receipt_key_fingerprint', 'rp_id' } from the base or
+    # default branch's change_policy.approval_pins, and a mismatch raises.
+    def pins(expect: nil)
+      data = read_json(path('credentials.json'))
+      check_pins!(data, expect) if expect
+      data
+    end
+
+    # "sha256:<hex>" of the receipt public key's SubjectPublicKeyInfo DER.
+    def self.key_fingerprint(pem)
+      "sha256:#{Digest::SHA256.hexdigest(OpenSSL::PKey.read(pem.to_s).public_to_der)}"
+    rescue OpenSSL::PKey::PKeyError, ArgumentError
+      nil
+    end
 
     # Raises the local fence mirror to a step the console accepted, and records
     # a successful console contact for the offline bounds.
@@ -188,6 +203,15 @@ module ApprovalConsole
     def unsynced = pending.reject { |entry| entry['status'] == 'conflict' }
 
     private
+
+    def check_pins!(data, expect)
+      unless data['rp_id'].to_s == expect['rp_id'].to_s && !data['rp_id'].to_s.empty?
+        raise PinMismatch, "the local rpId pin does not match the authoritative approval_pins.rp_id #{expect['rp_id'].inspect}"
+      end
+      return if self.class.key_fingerprint(data['receipt_public_key']) == expect['receipt_key_fingerprint'].to_s
+
+      raise PinMismatch, 'the local receipt key does not match the authoritative approval_pins.receipt_key_fingerprint'
+    end
 
     def decide(code, now, state, entry)
       locked = locked_until(state)

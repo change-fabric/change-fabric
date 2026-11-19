@@ -80,6 +80,58 @@ class ChangePolicy
     raise Unreadable, "cannot read CHANGE.md at #{ref} in #{root}: #{err.strip}"
   end
 
+  # The approval policy authority (0.26.0): the policy, the commit it was read
+  # at (`policy_sha`, recorded with every decision and store record), and the
+  # ref it came from.
+  Authority = Struct.new(:policy, :policy_sha, :ref, keyword_init: true)
+
+  BRANCH_NAME = %r{\A(?!-)[A-Za-z0-9._/-]+\z}
+
+  # Which CHANGE.md governs approval proofs, pins and carve-out paths. `repo`
+  # is the claimed owner/repo (a PR URL's, or the run's). `base` is the PR
+  # base branch for PR consumers; without it the repo's default branch is
+  # asked of GitHub (`gh repo view --json defaultBranchRef`). The branch is
+  # fetched explicitly into origin/<branch> and read there; the working tree
+  # is never read. Raises Unreadable, so a caller fails closed, when origin
+  # names another repo, the default branch cannot be resolved, the fetch
+  # fails or the ref is missing. `policy` is nil when that commit has no
+  # CHANGE.md (ungoverned).
+  def self.authoritative(root:, repo:, base: nil, default_branch: method(:gh_default_branch))
+    check_origin!(root, repo)
+    branch = base || default_branch.call(root, repo)
+    raise Unreadable, "cannot resolve the default branch of #{repo}" unless branch.to_s.match?(BRANCH_NAME)
+
+    fetch_into(root, 'origin', branch, "refs/remotes/origin/#{branch}") or
+      raise Unreadable, "cannot fetch #{branch} from origin in #{root}"
+    sha = resolve_commit(root, "refs/remotes/origin/#{branch}")
+    Authority.new(policy: for_ref(root, sha), policy_sha: sha, ref: "origin/#{branch}")
+  end
+
+  # Raises Unreadable unless origin's URL names the claimed owner/repo.
+  def self.check_origin!(root, repo)
+    url = Source.git(root, 'config', '--get', 'remote.origin.url') or raise Unreadable, "#{root} has no origin remote"
+    identity = Source.parse_url(url)
+    claimed = repo.to_s.downcase.split('/')
+    return if identity && claimed.size == 2 && identity[1..] == claimed
+
+    raise Unreadable, "origin (#{url}) is not #{repo}; refusing to read its approval policy"
+  end
+
+  # owner/repo of origin, or nil.
+  def self.origin_repo(root)
+    url = Source.git(root, 'config', '--get', 'remote.origin.url')
+    identity = url && Source.parse_url(url)
+    identity && identity[1..].join('/')
+  end
+
+  def self.gh_default_branch(root, repo)
+    out, status = Open3.capture2e('gh', 'repo', 'view', repo.to_s, '--json', 'defaultBranchRef',
+                                  '--jq', '.defaultBranchRef.name', chdir: root.to_s)
+    status.success? ? out.strip : nil
+  rescue SystemCallError
+    nil
+  end
+
   # Fetches `branch` from `remote` (a remote name or URL) into `dest` and
   # returns `dest`, or nil when the fetch fails. Callers go through
   # ChangePolicy::Source, which picks the remote and names the ref; an explicit
@@ -335,11 +387,36 @@ class ChangePolicy
 
   def gate_errors = ChangeSchema.gate_errors(@policy) + ChangeSchema.approval_proof_errors(@policy)
 
-  # change_policy.require_approval_proof (0.25.0): 'local', 'remote', or nil
-  # (unset or invalid) for the compatibility window.
+  # change_policy.require_approval_proof (0.25.0): 'local', 'remote',
+  # 'passkey' (0.26.0), or nil (unset or invalid) for the compatibility window.
   def require_approval_proof
     value = @policy['require_approval_proof']
     ChangeSchema::APPROVAL_PROOF_LEVELS.include?(value) ? value : nil
+  end
+
+  # change_policy.approval_pins (0.26.0): { 'receipt_key_fingerprint',
+  # 'rp_id' }, or nil when absent or malformed. Only meaningful on a policy
+  # read through `authoritative`.
+  def approval_pins
+    pins = @policy['approval_pins']
+    return nil unless pins.is_a?(Hash)
+
+    { 'receipt_key_fingerprint' => pins['receipt_key_fingerprint'].to_s, 'rp_id' => pins['rp_id'].to_s }
+  end
+
+  # change_policy.admin_bypass.carve_out_paths (0.26.0): the glob list, [] when unset.
+  def carve_out_paths
+    paths = @policy.dig('admin_bypass', 'carve_out_paths')
+    paths.is_a?(Array) ? paths.map(&:to_s).reject(&:empty?) : []
+  end
+
+  # Whether `path` matches a carve-out glob (FNM_PATHNAME, so `*` stays in one
+  # directory; a trailing `/**` covers everything below that directory).
+  def carve_out?(path)
+    carve_out_paths.any? do |glob|
+      glob = "#{glob}/*" if glob.end_with?('/**')
+      File.fnmatch?(glob, path.to_s, File::FNM_PATHNAME | File::FNM_DOTMATCH)
+    end
   end
 
   # change_policy.trackers (0.19.0). config is the change_config block, for

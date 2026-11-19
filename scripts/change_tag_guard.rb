@@ -215,7 +215,8 @@ class ChangeTagGuard
 
     profile = policy.profile_for_rule(rule)
     apps = ChangeGateCheck.required_apps(root, policy.apps_for_rule(rule))
-    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: root, proof_level: policy.require_approval_proof)
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: root, proof_level: policy.require_approval_proof,
+                                      proof_pins: policy.approval_pins)
     return nil if check.satisfied?
 
     conditions = policy.admin_bypass_conditions
