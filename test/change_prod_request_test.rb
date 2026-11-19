@@ -30,6 +30,15 @@ class ChangeProdRequestTest < Minitest::Test
 
   def request_id(out) = out[/request_id: (\S+)/, 1]
 
+  def test_version_defaults_to_the_remote_default_branch_not_main
+    GitFixture.git(@dir, "update-ref", "refs/remotes/origin/trunk", @sha)
+    GitFixture.git(@dir, "update-ref", "-d", "refs/remotes/origin/main")
+    GitFixture.git(@dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+    assert_equal @sha, ChangeProdRequest.base_sha(@dir)
+    GitFixture.git(@dir, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+    assert_raises(ChangeProdEnvelope::Invalid) { ChangeProdRequest.base_sha(@dir) }
+  end
+
   def test_create_writes_the_request_ref_and_prints_the_digest
     code, out, = create
     assert_equal 0, code
@@ -54,7 +63,7 @@ class ChangeProdRequestTest < Minitest::Test
     GitFixture.git(@dir, "update-ref", "-d", "refs/remotes/origin/main")
     code, _, err = create
     assert_equal 1, code
-    assert_match(/cannot resolve origin\/main/, err)
+    assert_match(/cannot resolve the default branch/, err)
   end
 
   def test_dispatch_refuses_until_an_approval_for_the_digest_exists

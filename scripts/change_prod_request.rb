@@ -90,11 +90,17 @@ module ChangeProdRequest
     status.success?
   end
 
+  # The tip of the remote's default branch: origin/HEAD when set, else the
+  # conventional main, then master. Never a guess that could pick a stale branch
+  # when origin/HEAD says otherwise.
   def base_sha(repo)
-    out, status = Open3.capture2e('git', '-C', repo, 'rev-parse', 'origin/main')
-    raise ChangeProdEnvelope::Invalid, 'cannot resolve origin/main; pass --version' unless status.success?
-
-    out.strip
+    head, = Open3.capture2e('git', '-C', repo, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD')
+    candidates = head.strip.empty? ? %w[refs/remotes/origin/main refs/remotes/origin/master] : [ head.strip ]
+    candidates.each do |ref|
+      out, status = Open3.capture2e('git', '-C', repo, 'rev-parse', '--verify', '--quiet', ref)
+      return out.strip if status.success?
+    end
+    raise ChangeProdEnvelope::Invalid, 'cannot resolve the default branch (origin/HEAD, origin/main, origin/master); pass --version'
   end
 
   def usage(stderr)
