@@ -3,6 +3,7 @@
 
 require 'json'
 require 'open3'
+require_relative 'plan_phase_trailer'
 
 # The only place epic_status (and later epic_drift) shells out to gh.
 # EpicGh::Cli makes the real calls; EpicGh::Fake replays fixture JSON so
@@ -29,19 +30,26 @@ module EpicGh
       @pr_view_cache[key] = JSON.parse(out)
     rescue JSON::ParserError => e
       raise Error, "gh pr view #{repo}##{number}: bad json (#{e.message})"
+    rescue SystemCallError => e
+      raise Error, "gh pr view #{repo}##{number}: #{e.message}"
     end
 
     # Every open-or-closed PR in `repo` whose body carries the
-    # `Plan-Phase: <ref>` trailer. Returns an array of PR numbers.
+    # `Plan-Phase: <ref>` trailer. Returns an array of PR numbers. The search
+    # is full text, so a body that only mentions the ref in prose also
+    # matches; each candidate's body is parsed and kept only when its trailer
+    # line names `ref`.
     def pr_search_trailer(repo, ref)
       query = "\"Plan-Phase: #{ref}\" in:body"
       out, err, status = Open3.capture3('gh', 'pr', 'list', '--repo', repo, '--state', 'all',
-                                         '--search', query, '--json', 'number')
+                                         '--search', query, '--json', 'number,body')
       raise Error, "gh pr list #{repo} #{ref}: #{err.to_s.strip}" unless status.success?
 
-      JSON.parse(out).map { |row| row['number'] }
+      JSON.parse(out).select { |row| PlanPhaseTrailer.parse(row['body']) == ref }.map { |row| row['number'] }
     rescue JSON::ParserError => e
       raise Error, "gh pr list #{repo} #{ref}: bad json (#{e.message})"
+    rescue SystemCallError => e
+      raise Error, "gh pr list #{repo} #{ref}: #{e.message}"
     end
   end
 

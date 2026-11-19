@@ -160,4 +160,35 @@ class EpicStatusTest < Minitest::Test
   def test_missing_pr_fixture_in_fake_gh_raises_a_fixture_error
     assert_raises(EpicGh::Error) { EpicGh::Fake.new(GH).pr_view("no/such", 1) }
   end
+
+  def test_cli_turns_a_missing_gh_executable_into_an_epic_gh_error
+    with_path(Dir.mktmpdir) do
+      cli = EpicGh::Cli.new
+      assert_raises(EpicGh::Error) { cli.pr_view("o/r", 1) }
+      assert_raises(EpicGh::Error) { cli.pr_search_trailer("o/r", "a/b#Phase 1") }
+    end
+  end
+
+  def test_cli_trailer_search_keeps_only_prs_whose_trailer_line_names_the_ref
+    rows = [
+      { number: 1, body: "Summary\n\nPlan-Phase: a/b#Phase 1\n" },
+      { number: 2, body: "Add `Plan-Phase: a/b#Phase 1` to the next PR." },
+      { number: 3, body: "Plan-Phase: a/b#Phase 12\n" }
+    ]
+    bin = Dir.mktmpdir
+    File.write(File.join(bin, "rows.json"), JSON.generate(rows))
+    File.write(File.join(bin, "gh"), "#!/bin/sh\n/bin/cat \"#{bin}/rows.json\"\n")
+    File.chmod(0o755, File.join(bin, "gh"))
+    with_path(bin) { assert_equal [ 1 ], EpicGh::Cli.new.pr_search_trailer("o/r", "a/b#Phase 1") }
+  end
+
+  private
+
+  def with_path(dir)
+    old = ENV.fetch("PATH")
+    ENV["PATH"] = dir
+    yield
+  ensure
+    ENV["PATH"] = old
+  end
 end
