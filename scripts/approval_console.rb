@@ -193,6 +193,14 @@ module ApprovalConsoleCli
     status.success? ? out.strip : nil
   end
 
+  # nil when there is no override, a problem for a malformed one.
+  def override_report(check, override, **context)
+    return nil if override.nil?
+    return 'override record is malformed' unless override.is_a?(Hash)
+
+    check.override_problem(override, **context)
+  end
+
   def report_proofs(sha, root, profile, ctx)
     repo = CfProjectIdentity.for(root).id
     entries = ChangeApprovalStore.new(sha).entries
@@ -201,7 +209,7 @@ module ApprovalConsoleCli
     %w[remote local].each do |level|
       check = ApprovalConsole::ProofCheck.new(level: level, store: ctx.store)
       problems = [ entries.empty? ? nil : check.approvals_problem(entries, repo: repo, sha: sha),
-                   override.is_a?(Hash) ? check.override_problem(override, repo: repo, sha: sha, profile: profile) : nil ].compact
+                   override_report(check, override, repo: repo, sha: sha, profile: profile) ].compact
       ctx.stdout.puts "#{level}: #{problems.empty? ? 'pass' : problems.join('; ')}"
       failed = !problems.empty? if level == 'local'
     end

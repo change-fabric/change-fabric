@@ -381,6 +381,17 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     end
   end
 
+  def test_verify_fails_on_a_malformed_override_record
+    path = File.join(@home, ".claude", "cf", "change", "#{SHA}.override")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, "[]")
+    Dir.chdir(@repo) do
+      status, out, = cli(%W[verify #{SHA}])
+      assert_equal 1, status
+      assert_match(/local: override record is malformed/, out)
+    end
+  end
+
   # ----- enroll ----------------------------------------------------------
 
   class FakeOperator
