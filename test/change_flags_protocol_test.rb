@@ -6,6 +6,7 @@ require "open3"
 require "tmpdir"
 require_relative "../scripts/change_flags_protocol"
 require_relative "../scripts/change_flags_fixture"
+require_relative "../scripts/change_flags_fixture"
 
 # cf.flags/1: validation, revision conflicts, the incident latch, fencing,
 # recovery_auth binding, the fixture adapter, and confirmed disable.
@@ -181,6 +182,35 @@ class ChangeFlagsProtocolTest < Minitest::Test
     result = P.disable_confirmed(flaky, flag: "f", env: "staging", incident_key: "i2", pause: ->(_) { })
     assert_equal :confirmed, result[:status]
     assert_operator result[:attempts], :>, 1
+  end
+
+  def test_disable_works_with_adapter_objects_without_arity
+    one = Class.new do
+      attr_reader :ops
+
+      def initialize(state) = (@state = state; @ops = [])
+
+      def call(req)
+        @ops << req["op"]
+        reply, @state = ChangeFlagsProtocol.apply(@state, req)
+        reply
+      end
+    end
+    two = Class.new(one) { def call(req, _seconds) = super(req) }
+    [ one, two ].each do |klass|
+      adapter = klass.new(P.initial_state.merge("enabled" => true))
+      result = P.disable_confirmed(adapter, flag: "f", env: "staging", incident_key: "obj", pause: ->(_) { })
+      assert_equal :confirmed, result[:status], klass.inspect
+      assert_includes adapter.ops, "disable"
+    end
+  end
+
+  def test_disable_through_the_fixture_adapter_sends_a_disable
+    Dir.mktmpdir do |dir|
+      fixture = ChangeFlagsFixture.new(File.join(dir, "flags.json"))
+      result = P.disable_confirmed(fixture, flag: "f", env: "staging", incident_key: "fx", pause: ->(_) { })
+      refute_nil result[:reply], "the fixture adapter never received a disable"
+    end
   end
 
   def test_disable_retries_keep_one_request_id

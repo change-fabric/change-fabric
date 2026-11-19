@@ -271,11 +271,14 @@ module ChangeFlagsProtocol
   def bounded_call(call, request, seconds)
     return nil unless seconds.positive?
 
-    reply = Timeout.timeout(seconds) { call.arity == 1 ? call.call(request) : call.call(request, seconds) }
+    reply = Timeout.timeout(seconds) { call_arity(call) == 1 ? call.call(request) : call.call(request, seconds) }
     reply_errors(reply).empty? ? reply : nil
   rescue StandardError, Timeout::Error
     nil
   end
+
+  # Lambdas expose arity; adapter objects only expose #call.
+  def call_arity(call) = call.respond_to?(:arity) ? call.arity : call.method(:call).arity
 
   def text?(value) = value.is_a?(String) && !value.strip.empty?
   def natural?(value) = value.is_a?(Integer) && !value.negative?
