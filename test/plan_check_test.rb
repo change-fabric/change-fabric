@@ -50,6 +50,70 @@ class PlanCheckTest < Minitest::Test
     end
   end
 
+  GOOD_STORY = {
+    "hero" => "the platform admin", "audience" => "platform team",
+    "before" => { "state" => "waits on tickets" }, "turn" => { "moment" => "opens the console" },
+    "after" => { "outcomes" => [ "ships in ten minutes" ] }
+  }.freeze
+
+  def story_dir(plan_extra:, files: {})
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "plan.md"), "#{thick_plan}\n#{plan_extra}\n")
+      files.each do |rel, body|
+        FileUtils.mkdir_p(File.dirname(File.join(dir, rel)))
+        File.write(File.join(dir, rel), body.is_a?(String) ? body : JSON.generate(body))
+      end
+      lines = []
+      ok = PlanCheck.check_stories(dir, lines)
+      return [ ok, lines ]
+    end
+  end
+
+  def test_valid_single_story_passes
+    ok, lines = story_dir(plan_extra: "walkthrough: admin-console", files: { "story.json" => GOOD_STORY })
+    assert ok, lines.join("\n")
+    assert_includes lines, "story.json: story valid"
+  end
+
+  def test_no_walkthrough_and_no_story_is_skipped
+    ok, lines = story_dir(plan_extra: "")
+    assert ok
+    assert_empty lines
+  end
+
+  def test_bad_story_json_fails_with_shape_errors
+    ok, lines = story_dir(plan_extra: "walkthrough: admin-console",
+                          files: { "story.json" => GOOD_STORY.merge("hero" => "") })
+    refute ok
+    assert(lines.any? { |l| l.start_with?("story.json:") && l.include?("hero") }, lines.join("\n"))
+  end
+
+  def test_unparseable_story_json_fails
+    ok, lines = story_dir(plan_extra: "", files: { "story.json" => "{nope" })
+    refute ok
+    assert(lines.any? { |l| l.include?("story.json: does NOT parse") })
+  end
+
+  def test_declared_slug_without_story_file_fails
+    ok, lines = story_dir(plan_extra: "walkthrough: admin-console")
+    refute ok
+    assert(lines.any? { |l| l.include?("story.json is MISSING") })
+  end
+
+  def test_two_walkthroughs_need_a_file_each
+    ok, lines = story_dir(plan_extra: "walkthrough: admin-console\nwalkthrough: audit-log",
+                          files: { "story/admin-console.json" => GOOD_STORY })
+    refute ok
+    assert_includes lines, "walkthrough admin-console: story/admin-console.json present"
+    assert(lines.any? { |l| l.include?("story/audit-log.json is MISSING") })
+  end
+
+  def test_scene_arrays_in_a_story_file_fail
+    story = GOOD_STORY.merge("before" => { "state" => "x", "scenes" => [ "s01" ] })
+    ok, = story_dir(plan_extra: "", files: { "story.json" => story })
+    refute ok
+  end
+
   def thick_plan(lines: 80)
     ([ "## Section" ] + Array.new(lines - 1, "a real line of plan content")).join("\n")
   end

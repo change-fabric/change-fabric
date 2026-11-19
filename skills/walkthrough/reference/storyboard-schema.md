@@ -516,6 +516,8 @@ The product or our team is normally the guide, not the hero. A first-person view
 
 UI before/after: when `highlights.ui_before_after` is true, one scene has `"footage": "before"` and a later scene `"footage": "after"` with the same `"pair": "<id>"` (both are new optional scene keys). Defaults are never stored: an absent key means unanswered, and readers apply `ui_before_after` false, `scope` `built_only` and empty lists in code.
 
+Plan seeding: `cf:walkthrough --plan <dir>` seeds from `<dir>/story.json` (one walkthrough), and `--plan <dir> --story <slug>` from `<dir>/story/<slug>.json` (several, named by the `walkthrough: <slug>` lines in plan.md); `plan_check.rb` validates every such file in story-only mode.
+
 Provenance: `story.assumptions` lists the pointers of fields the agent drafted rather than heard from the user; `walkthrough_assumptions.rb` writes one ASSUMPTIONS.md line each. Seeding (`walkthrough_story.rb seed <story.json> <storyboard.json>`) copies story.json whole into a storyboard with no story, otherwise fills only absent or empty keys, never overwrites, never seeds scene arrays, and carries a pointer only for a field it copied.
 
 Question table (`WalkthroughStory::QUESTIONS`; `walkthrough_story.rb unanswered <file> [--away]` lists the open keys, counting an assumed field as open unless `--away`). Ask in order, up to four per AskUserQuestion call:

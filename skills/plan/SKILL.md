@@ -146,6 +146,19 @@ fresh session that will execute the plan.
    that returns findings but no candidate questions has almost certainly
    assumed something; send it back once.
 
+   **Walkthrough classifier (between steps 4 and 5).** Spawn one background
+   agent (model {{model:classifier}}, description starting `[role:classifier]`)
+   that reads the research findings and the goal and answers yes or no per
+   phase: "does this phase produce a walkthrough video?", with a one-line
+   reason each. It writes no files. On a yes, the interview in step 5 also
+   runs the walkthrough round (`reference/interview.md`, Walkthrough round) and
+   the story lands as `story.json` beside `plan.md` (one walkthrough) or
+   `story/<slug>.json` (several); the writing agent adds a
+   `walkthrough: <slug>` line to that phase's section of plan.md. In away mode
+   the classifier still runs; on a yes the story is drafted from the docs with
+   every filled field listed in `story.assumptions`, and nothing is asked.
+   `cf:walkthrough --plan <dir> [--story <slug>]` later seeds from that file.
+
 5. **Interview, round one.** Read `reference/interview.md` and follow it. In
    short: merge the agents' candidate questions with your own, drop the ones
    you can settle from evidence, then call `AskUserQuestion` directly with up
@@ -262,7 +275,9 @@ fresh session that will execute the plan.
    `diagrams/` directory or a `## Visuals` section, it also fails on a listed
    SVG that is missing, an SVG with a glyph, a home path, or no
    `data-diagram-type`/`data-chart-type`, and a `roast/round-N.json` without
-   its `round-N.response.json`. Do not report success until it exits zero.
+   its `round-N.response.json`. It also fails on a `story.json` or
+   `story/*.json` that breaks story-only validation, and on a
+   `walkthrough: <slug>` line whose story file is missing. Do not report success until it exits zero.
 
    On failure, `SendMessage` the writing agent the checker's exact output and
    have it fix and re-run. Up to two rounds. If `goal.md` is still over cap
