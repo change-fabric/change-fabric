@@ -42,7 +42,7 @@ terraform apply -var aws_profile=... -var alert_email=... -var 'claim_repos=["ow
 
 To ship a later change to the handler or the shared files (a new type or signed
 field), the maintainer runs `redeploy.sh <merged sha>` from this directory's
-checkout, through `~/.claude/cf/manual/queue/0006-approval-console-redeploy.sh`.
+checkout, through `~/.claude/cf/manual/queue/0014-approval-console-redeploy.sh`.
 It refuses unless HEAD is that sha, the sha is an ancestor of `origin/main`, the
 tree is clean and the AWS account is the expected one, and it never replaces the
 function or its URL.
