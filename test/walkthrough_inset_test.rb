@@ -47,6 +47,16 @@ class WalkthroughInsetTest < Minitest::Test
     assert(WalkthroughStoryboard.scene_errors(proto, [], {}, Dir.pwd).any? { |e| e.include?("needs a live scene") })
   end
 
+  def test_margin_px_sets_the_edge_margin_and_is_validated
+    scene = live(INSET.merge("margin_px" => 96))
+    plan = WI.plan(scene, WalkthroughDevice.layout(BOARD, scene), { "x" => 100, "y" => 200, "w" => 60, "h" => 14 }, viewport_w: 1920, fps: 30, frames: 120)
+    assert_equal 96, plan.y
+    assert_equal 1920 - 96 - plan.w - (2 * WI::BORDER), plan.x
+    assert_empty WI.errors(scene, live: true)
+    assert(WI.errors(live(INSET.merge("margin_px" => 43.5)), live: true).any? { |e| e.include?("inset.margin_px") })
+    assert(WI.errors(live(INSET.merge("margin_px" => -1)), live: true).any? { |e| e.include?("inset.margin_px") })
+  end
+
   def test_full_bleed_maps_identity_and_sits_top_right_above_band
     lay = WalkthroughDevice.layout(BOARD, live)
     plan = WI.plan(live, lay, { "x" => 100, "y" => 200, "w" => 60, "h" => 14 }, viewport_w: 1920, fps: 30, frames: 120)
