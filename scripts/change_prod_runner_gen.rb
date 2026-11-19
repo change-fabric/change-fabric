@@ -255,7 +255,7 @@ module ChangeProdRunnerGen
 
   def oidc_command(repo)
     "gh api -X PUT repos/#{repo || '<o>/<r>'}/actions/oidc/customization/sub -F use_default=false " \
-      "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'"
+      "-f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=workflow_ref'"
   end
 
   def run(argv, stdout: $stdout, stderr: $stderr)
