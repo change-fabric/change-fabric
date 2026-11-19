@@ -90,6 +90,10 @@ module ApprovalConsole
       problem && "override proof is refused: #{problem}"
     end
 
+    # nil, or why `proof` does not verify against `expected` (the full signed
+    # context, machine_id aside) at this check's level. The Recorder's entry.
+    def receipt_problem(proof, expected) = proof_problem(proof, expected)
+
     private
 
     def missing(what)

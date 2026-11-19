@@ -10,6 +10,7 @@ require_relative 'approval_console/client'
 require_relative 'approval_console/host_health'
 require_relative 'approval_console/local_store'
 require_relative 'approval_console/proof_check'
+require_relative 'approval_console/recorder'
 require_relative 'approval_console/remote'
 require_relative 'approval_console/sync'
 require_relative 'approval_console/totp'
@@ -24,6 +25,7 @@ require_relative 'cf_project_identity'
 #   enroll       register this machine with a deployed console and pin it
 #   request      ask the console for a prod-op, carve-out or money approval
 #   wait         resume waiting on a request made with --no-wait
+#   record       wait for a request this machine made, then record its receipt
 #   sync         upload offline terminal approvals for console receipts
 #   verify       check the proofs recorded for a sha (read-only)
 #   status       enrollment, fence, lockout, sync queue and host health
@@ -53,6 +55,7 @@ module ApprovalConsoleCli
     when 'enroll' then Enroll.run(argv.drop(1), ctx)
     when 'request' then request(argv.drop(1), ctx)
     when 'wait' then wait(argv.drop(1), ctx)
+    when 'record' then record(argv.drop(1), ctx)
     when 'sync' then sync(ctx)
     when 'verify' then verify(argv.drop(1), ctx)
     when 'status' then status(store, stdout, now)
@@ -70,7 +73,7 @@ module ApprovalConsoleCli
   def usage(stderr)
     stderr.puts 'usage: approval_console.rb totp-enroll | enroll --url URL --profile NAME | ' \
                 'request --type prod-op|carve-out|money --summary TEXT [--pr-url URL] [--no-wait] [-- argv...] | ' \
-                'wait <request_id> | sync | verify <sha> [--repo PATH] [--profile NAME] | status | unlock'
+                'wait <request_id> | record <request_id> [--repo PATH] | sync | verify <sha> [--repo PATH] [--profile NAME] | status | unlock'
     1
   end
 
@@ -89,7 +92,6 @@ module ApprovalConsoleCli
     body, url = ApprovalConsole::Remote.submit(attrs, store: ctx.store, client: client, now: ctx.clock.call, ttl: opts[:ttl])
     ctx.stderr.puts "[approval_console] approve on your phone: #{url}"
     if opts[:no_wait]
-      ctx.store.save_request(ApprovalConsole::Canonical.parse(body)['request_id'], body)
       ctx.stdout.puts JSON.generate('request_id' => ApprovalConsole::Canonical.parse(body)['request_id'], 'url' => url)
       return 0
     end
@@ -153,6 +155,35 @@ module ApprovalConsoleCli
 
     finish(ApprovalConsole::Remote.wait(body, expected: ApprovalConsole::Remote.expected_from_body(body), store: ctx.store,
                                               client: ctx.client, sleeper: ctx.sleeper, clock: ctx.clock), ctx)
+  end
+
+  # Resumes a request this machine made (by change_approve --remote,
+  # change_override --remote or `request`): waits for the phone, then hands
+  # the receipt to ApprovalConsole::Recorder, which checks it against the
+  # default branch's policy for the repo at --repo (default: cwd) and writes
+  # the store for its signed type.
+  def record(args, ctx)
+    root = Dir.pwd
+    OptionParser.new { |o| o.on('--repo PATH') { |value| root = File.expand_path(value) } }.parse!(args = args.dup)
+    body = ctx.store.saved_request(args.first)
+    return refuse(ctx.stderr, 'record', 'no request with that id was made from this machine') unless body
+    return refuse(ctx.stderr, 'record', 'no console is configured') unless ctx.client
+
+    authority = ctx.io.key?(:authority) ? ctx.io[:authority] : ApprovalConsole::Recorder.authority_for(root)
+    expected = ApprovalConsole::Remote.expected_from_body(body)
+    waited = ApprovalConsole::Remote.wait(body, expected: expected, store: ctx.store, client: ctx.client,
+                                                sleeper: ctx.sleeper, clock: ctx.clock)
+    return refuse(ctx.stderr, 'record', waited.error) unless waited.ok?
+
+    result = ApprovalConsole::Recorder.new(authority: authority, store: ctx.store, clock: ctx.clock).record(waited.proof, expected: expected)
+    return refuse(ctx.stderr, 'record', result.error) unless result.ok?
+
+    ctx.stdout.puts "[approval_console] recorded #{result.summary}."
+    0
+  rescue ChangePolicy::Unreadable => e
+    refuse(ctx.stderr, 'record', "cannot read the authoritative approval policy (#{e.message})")
+  rescue OptionParser::ParseError
+    usage(ctx.stderr)
   end
 
   def finish(result, ctx)

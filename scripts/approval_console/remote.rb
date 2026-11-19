@@ -57,16 +57,20 @@ module ApprovalConsole
     # Posts the request and returns [body, url]. Raises Client errors.
     # Queued offline approvals are synced first: a phone approval advances the
     # console's last_step past them, which would turn them into conflicts.
+    # The body is saved by request id, so `approval_console.rb record <id>`
+    # can resume when the waiting process dies.
     def submit(attrs, store:, client:, now:, ttl: LIFETIME)
       Sync.run(store: store, client: client) unless store.unsynced.empty?
       body = build_body(attrs, store, now: now, ttl: ttl)
       data = client.create_request(body)
+      store.save_request(Canonical.parse(body)['request_id'], body)
       [ body, data['url'].to_s ]
     end
 
     def approve(attrs, store:, client:, out:, sleeper: ->(s) { sleep(s) }, clock: -> { Time.now }, ttl: LIFETIME)
       body, url = submit(attrs, store: store, client: client, now: clock.call, ttl: ttl)
       out.puts "Approve on your phone: #{url}"
+      out.puts "(if this process dies, resume with: approval_console.rb record #{Canonical.parse(body)['request_id']})"
       out.puts '(review every field, enter the code from your TOTP app, then approve with your passkey)'
       wait(body, expected: expected(attrs, store.machine_id), store: store, client: client, sleeper: sleeper, clock: clock)
     rescue Client::Unreachable => e

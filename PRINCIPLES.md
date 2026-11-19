@@ -80,12 +80,13 @@ approval, environment and refs/cf-prod paths. An admin token can bypass hooks.
 
 Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb, scripts/prod_approval_guard.rb, scripts/change_prod_gate.rb
 
-## Agent-startable approvals need a passkey receipt
+## Only Patrick's phone approves; one Recorder writes every approval store
 
-Under `require_approval_proof: passkey` only a phone passkey approval with a
-console receipt stands; the TOTP seed and machine key sit on the agent's host.
+Agents start approvals (`--remote`, `request`; `record <id>` resumes); only a
+phone passkey receipt stands, since the TOTP seed and machine key sit on the
+agent's host. `ApprovalConsole::Recorder` alone writes the four stores.
 
-Enforcer: scripts/approval_console/proof_check.rb
+Enforcer: scripts/approval_console/proof_check.rb, scripts/approval_console/recorder.rb, scripts/secrets_read_guard.rb
 
 ## Approval policy comes from the base or default branch
 
@@ -115,10 +116,9 @@ is green, `mergeStateStatus` is CLEAN, it has 0 unresolved review threads, and
 a comprehensive `cf:change` run passed for the exact head SHA. A PR touching
 the merge or tag guards, the review gate, the sensitive-term or secret hooks,
 the `change_policy` block, these merge rules, or a release workflow escalates
-to the maintainer; the full path list is in `CHANGE.md`. Tags, the Homebrew
-release, `change_approve` and `change_override` stay human, handed over as a
-script under `~/.claude/cf/manual/`. No hook checks threads or carve-out paths
-yet.
+to the maintainer; the full path list is in `CHANGE.md`. Only Patrick's phone
+approves `change_approve` and `change_override`; tags go in a script under
+`~/.claude/cf/manual/`. No hook checks threads or carve-out paths yet.
 
 Enforcer: scripts/change_merge_guard.rb, CHANGE.md
 

@@ -17,8 +17,9 @@ require_relative 'change_sha_record'
 # colliding with a gate-store record for the same key.
 class ChangeOverrideStore < ChangeShaRecord
   # An optional `proof` (see scripts/approval_console) is stored beside the
-  # reason; ChangeGateCheck verifies it.
-  def record(reason:, recorded_by:, proof: nil)
+  # reason; ChangeGateCheck verifies it. `policy_sha` is the authoritative
+  # policy commit the Recorder checked the proof against.
+  def record(reason:, recorded_by:, proof: nil, policy_sha: nil)
     payload = {
       'sha' => @sha,
       'profile' => @profile,
@@ -27,6 +28,7 @@ class ChangeOverrideStore < ChangeShaRecord
       'recorded_at' => Time.now.utc.iso8601
     }
     payload['proof'] = proof if proof
+    payload['policy_sha'] = policy_sha if policy_sha
     write(payload)
   end
 
