@@ -102,7 +102,7 @@ module ApprovalConsole
     def proof_problem(proof, expected)
       return 'the proof is not an object' unless proof.is_a?(Hash)
       return "marked conflict on sync (#{proof['conflict']})" if proof['conflict']
-      return "a #{proof['kind'].inspect} proof is not a phone passkey approval (require_approval_proof: passkey)" if passkey? && proof['kind'] != PASSKEY_KIND
+      return wrong_kind(proof['kind']) if passkey? && proof['kind'] != PASSKEY_KIND
 
       machine = @store.machine_id
       return 'this machine has no approval enrollment to verify against' unless machine
@@ -112,6 +112,8 @@ module ApprovalConsole
     rescue LocalStore::PinMismatch => e
       e.message
     end
+
+    def wrong_kind(kind) = "a #{kind.inspect} proof is not a phone passkey approval (require_approval_proof: passkey)"
 
     def short_reason(reason)
       return nil unless passkey? && reason.to_s.strip.length < MIN_REASON

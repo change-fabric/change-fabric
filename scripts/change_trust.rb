@@ -349,18 +349,20 @@ module ChangeTrust
     e.message
   end
 
-  # [step approval entries, override record, profile] for this sha, or nil
-  # when there is neither.
+  # The approval and override records a run judges for one sha and profile.
+  ProofRecords = Struct.new(:entries, :override, :profile, keyword_init: true)
+
+  # This sha's ProofRecords, or nil when there is neither kind of record.
   def proof_records(head_sha, profile)
     entries = ChangeApprovalStore.new(head_sha).entries
     override = ChangeOverrideStore.new(head_sha, profile: profile).read
-    entries.empty? && override.nil? ? nil : [ entries, override, profile ]
+    entries.empty? && override.nil? ? nil : ProofRecords.new(entries: entries, override: override, profile: profile)
   end
 
   # { approvals: why no step approval counts, override: why the override
   # does not stand }, each nil when fine. Fails closed on an unreadable policy.
   def proof_problems(root, head_sha, records, authority, proof_store)
-    entries, override, profile = records
+    entries, override, profile = records.to_a
     return { approvals: "approval policy unreadable (#{authority}); no approval counts" } unless authority.is_a?(ChangePolicy::Authority)
 
     policy = authority.policy
