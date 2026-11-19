@@ -170,13 +170,14 @@ class ChangeProdRunnerGenTest < Minitest::Test
     assert Gen.tampered?("name: cf-prod\n")
   end
 
-  def test_cli_writes_the_file_prints_no_customization_and_checks_it
+  def test_cli_writes_the_file_prints_the_reset_not_a_customization_and_checks_it
     Dir.mktmpdir do |root|
       out = StringIO.new
       assert_equal 0, Gen.run([ "--config", FIXTURE, "--root", root, "--repo", "acme/app" ], stdout: out)
-      refute_includes out.string, "-X PUT"
+      refute_includes out.string, "-F use_default=false"
       refute_includes out.string, "include_claim_keys"
       assert_includes out.string, "accepted limit: any default-branch workflow that runs in cf-claim can claim"
+      assert_match(%r{-X PUT repos/\S+/actions/oidc/customization/sub -F use_default=true}, out.string)
       assert_includes out.string, "gh api repos/acme/app/actions/oidc/customization/sub --jq .sub_claim_prefix"
       assert_equal 0, Gen.run([ "--check", "--root", root ], stdout: StringIO.new)
       path = File.join(root, Gen::WORKFLOW)

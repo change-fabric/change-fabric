@@ -338,13 +338,7 @@ module ChangeProdRunnerGen
     File.write(path, text)
     stdout.puts "wrote #{path}"
     vendor(opts[:root]).each { |file| stdout.puts "wrote #{file}" }
-    stdout.puts "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment with deployment branch = default only, no reviewers"
-    unless opts[:sub_prefix]
-      stdout.puts "sub prefix for the trust subject (pass as --sub-prefix): gh api repos/#{opts[:repo] || '<o>/<r>'}" \
-                  "/actions/oidc/customization/sub --jq .sub_claim_prefix"
-    end
-    stdout.puts "accepted limit: any default-branch workflow that runs in #{CLAIM_ENVIRONMENT} can claim; " \
-                'the worst case is a blocked prod run, which fails safe'
+    subject_hints(opts).each { |line| stdout.puts line }
     trust_policy(config, sub_prefix: opts[:sub_prefix]).each { |line| stdout.puts line }
     0
   rescue Refused, ChangeProdEnvelope::Invalid, OptionParser::ParseError, KeyError => e
@@ -368,6 +362,17 @@ module ChangeProdRunnerGen
       target = File.join(root, SCRIPTS, name)
       File.exist?(target) && File.read(target) == File.read(File.join(source_root, name))
     end
+  end
+
+  def subject_hints(opts)
+    api = "repos/#{opts[:repo] || '<o>/<r>'}/actions/oidc/customization/sub"
+    hints = [ "one-time repo setting (human, once): create a #{CLAIM_ENVIRONMENT} environment " \
+              'with deployment branch = default only, no reviewers' ]
+    hints << "sub prefix for the trust subject (pass as --sub-prefix): gh api #{api} --jq .sub_claim_prefix" unless opts[:sub_prefix]
+    hints << 'prerequisite: the repo must issue the default subject format; if an earlier generator had you set ' \
+             "a custom template (use_default=false), reset it first: gh api -X PUT #{api} -F use_default=true"
+    hints << "accepted limit: any default-branch workflow that runs in #{CLAIM_ENVIRONMENT} can claim; " \
+             'the worst case is a blocked prod run, which fails safe'
   end
 
   def check(opts, stdout, stderr)
