@@ -66,8 +66,12 @@ class ChangeGateCheck
   def override_problem
     return @override_problem if defined?(@override_problem)
 
-    record = override_store.read
-    @override_problem = if record.nil? then nil
+    @override_problem = problem_for(override_store)
+  end
+
+  def problem_for(store)
+    record = store.read
+    if record.nil? then nil
     elsif record.is_a?(Hash) then proof_check.override_problem(record, repo: repo_id, sha: @sha, profile: @profile, scope: record['scope'])
     else 'override record is malformed'
     end
@@ -97,12 +101,16 @@ class ChangeGateCheck
     @overridden = override_store.authorized? && override_problem.nil?
   end
 
-  # The override record this gate's consumer may honor: one scoped to its own
-  # guard (`merge` or `tag`) when it has one, else the unscoped record.
+  # The override record this gate's consumer may honor: its own scoped one
+  # (`merge` or `tag`) when that stands on its proof, else the unscoped one, so
+  # an expired scoped record never shadows a valid unscoped approval. When none
+  # stands, the first recorded one is kept so the deny names its problem.
   def override_store
     @override_store ||= begin
-      scoped = ChangeOverrideStore.new(@sha, profile: @profile, scope: @scope) if @scope
-      scoped&.authorized? ? scoped : ChangeOverrideStore.new(@sha, profile: @profile)
+      candidates = [ (ChangeOverrideStore.new(@sha, profile: @profile, scope: @scope) if @scope),
+                     ChangeOverrideStore.new(@sha, profile: @profile) ].compact
+      present = candidates.select(&:authorized?)
+      present.find { |candidate| problem_for(candidate).nil? } || present.first || candidates.last
     end
   end
 

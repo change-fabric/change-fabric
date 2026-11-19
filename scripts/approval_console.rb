@@ -173,9 +173,13 @@ module ApprovalConsoleCli
     head = ChangePrFacts.head(opts[:pr_url], runner: gh)
     raise RequestRefused, "--sha #{opts[:sha]} is not the PR head #{head[:sha]}" if opts[:sha] && opts[:sha] != head[:sha]
 
+    files = ChangePrFacts.files(opts[:pr_url], runner: gh)
+    # A push or rebase between the two reads would pair this sha with another
+    # head's files, so the head read again must be the same.
+    raise RequestRefused, 'the PR head moved while its files were read; run the request again' unless ChangePrFacts.head(opts[:pr_url], runner: gh) == head
+
     { 'type' => 'carve-out', 'repo' => ChangePrFacts.repo_id(opts[:pr_url]), 'sha' => head[:sha], 'profile' => opts[:profile],
-      'summary' => opts[:summary], 'pr_url' => opts[:pr_url], 'pr_title' => head[:title], 'base' => head[:base],
-      'files' => ChangePrFacts.files(opts[:pr_url], runner: gh) }
+      'summary' => opts[:summary], 'pr_url' => opts[:pr_url], 'pr_title' => head[:title], 'base' => head[:base], 'files' => files }
   end
 
   def git_head(root)

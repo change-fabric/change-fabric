@@ -419,6 +419,15 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     refute scoped_gate(nil).overridden?
   end
 
+  def test_an_expired_scoped_override_does_not_shadow_a_valid_unscoped_one
+    old, = remote_approve(override_attrs(reason: LONG_REASON).merge("scope" => "merge"))
+    ChangeOverrideStore.new(SHA, scope: "merge").record(reason: LONG_REASON, recorded_by: "t", proof: old.proof)
+    @now += 90_000
+    fresh, = remote_approve(override_attrs(reason: LONG_REASON))
+    ChangeOverrideStore.new(SHA).record(reason: LONG_REASON, recorded_by: "t", proof: fresh.proof)
+    assert scoped_gate("merge").overridden?
+  end
+
   def test_an_unscoped_phone_override_unlocks_both_gates
     result, = remote_approve(override_attrs(reason: LONG_REASON))
     ChangeOverrideStore.new(SHA).record(reason: LONG_REASON, recorded_by: "t", proof: result.proof)
@@ -499,6 +508,18 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     status, = cli(%W[request --type carve-out --summary merge --pr-url #{PR} --repo #{@repo}], io: { sleeper: approving_sleeper(seen), gh: fake_gh(head: other) })
     assert_equal 0, status
     assert_equal other, Canonical.parse(seen.first)["sha"], "no --sha: the PR head, never the working tree HEAD"
+  end
+
+  def test_request_for_a_carve_out_refuses_when_the_head_moves_while_the_files_are_read
+    heads = [ SHA, "c" * 40 ]
+    moving = lambda do |*args|
+      next fake_gh(head: heads.shift || "c" * 40).call(*args) if args.first(2) == %w[pr view]
+
+      fake_gh.call(*args)
+    end
+    status, _, err = cli(%W[request --type carve-out --summary merge --pr-url #{PR} --repo #{@repo}], io: { gh: moving })
+    assert_equal 2, status
+    assert_match(/head moved/, err)
   end
 
   def test_request_for_a_carve_out_fails_closed_when_the_pr_facts_are_unreadable
