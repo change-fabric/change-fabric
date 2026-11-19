@@ -172,4 +172,4 @@ Enforcer: scripts/docs_check.rb, test/docs_check_test.rb
 
 A walkthrough has a hero the audience recognizes as themselves, and a before, turn and after spine anchored to scenes. `validate` warns; every paid call site refuses a missing or broken story block with exit 2 before its first paid call (`--estimate-only` only warns).
 
-Enforcer: scripts/walkthrough_story.rb, scripts/walkthrough_render.rb, scripts/elevenlabs.rb, test/walkthrough_story_test.rb, test/walkthrough_story_preflight_test.rb, and RUBRIC item 15 in scripts/walkthrough_roast.rb (test/walkthrough_roast_test.rb)
+Enforcer: scripts/walkthrough_story.rb, scripts/walkthrough_render.rb, scripts/elevenlabs.rb, test/walkthrough_story_test.rb, test/walkthrough_story_preflight_test.rb, scripts/walkthrough_roast.rb, test/walkthrough_roast_test.rb
