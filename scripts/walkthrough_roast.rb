@@ -93,15 +93,19 @@ module WalkthroughRoast
     end.uniq { |k| k[:frame] }.sort_by { |k| k[:frame] }
   end
 
-  # Each overlay's hold midpoint, local to its scene: halfway from the frame
-  # it first shows (mid-fade, so a bad sample) to the next overlay or the
-  # scene's last frame, so the critic sees it settled. { key => local frame }.
+  # Frames after first sight to sample an overlay: past the fade-in, short
+  # enough to land inside a brief toast (only the first sight is recorded).
+  OVERLAY_SETTLE_FRAMES = 24
+
+  # Each overlay's settled frame, local to its scene: the settle offset after
+  # it first shows (mid-fade, so a bad sample), but no later than halfway to
+  # the next overlay or the scene's last frame. { key => local frame }.
   def overlay_holds(overlays, frames)
     starts = overlays.transform_values(&:to_i).select { |_, f| f.between?(0, frames - 1) }
     ordered = starts.values.sort
     starts.transform_values do |f|
       stop = ordered.find { |o| o > f } || (frames - 1)
-      f + ((stop - f) / 2)
+      f + [ (stop - f) / 2, OVERLAY_SETTLE_FRAMES ].min
     end
   end
 
@@ -302,7 +306,14 @@ module WalkthroughRoast
     end
   end
 
-  def scene_named?(location, ids) = ids.any? { |id| location.match?(/(?<![\w-])#{Regexp.escape(id)}(?![\w-])/) }
+  # A scene id as a bare word, or inside a generated keyframe file name such as
+  # 003-intro-middle.jpg (the rubric has the critic cite those).
+  def scene_named?(location, ids)
+    ids.any? do |id|
+      esc = Regexp.escape(id)
+      location.match?(/(?<![\w-])#{esc}(?![\w-])/) || location.match?(/\d{3}-#{esc}-(?:start|middle|end|overlay-[\w-]+)\.jpg/)
+    end
+  end
 
   # A round skipped because it would pass the run cap: the loop is over.
   def mark_capped(dir) = write_ledger(dir, ledger(dir).merge('capped' => true))

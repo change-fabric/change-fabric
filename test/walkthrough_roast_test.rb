@@ -22,6 +22,19 @@ class WalkthroughRoastTest < Minitest::Test
     assert_equal 74, frames["overlay-two"]
   end
 
+  # A toast visible for frames 30 to 90 of a long scene is still sampled while it shows.
+  def test_overlay_sample_stays_near_first_sight_in_a_long_scene
+    keys = WalkthroughRoast.keyframes([ { "id" => "a", "frames" => 300, "start_frame" => 0 } ], { "a" => { "#toast" => 30 } })
+    assert_equal 54, keys.find { |k| k[:label] == "overlay-toast" }[:frame]
+  end
+
+  def test_scene_ids_inside_keyframe_file_names_are_recognized
+    assert WalkthroughRoast.scene_named?("003-intro-middle.jpg", %w[intro])
+    assert WalkthroughRoast.scene_named?("007-intro-overlay-toast.jpg", %w[intro])
+    refute WalkthroughRoast.scene_named?("003-intro-2-middle.jpg", %w[intro])
+    assert WalkthroughRoast.scene_named?("003-intro-2-middle.jpg", %w[intro-2])
+  end
+
   def test_extract_args_select_each_frame
     args = WalkthroughRoast.extract_args("/work/v.mp4", [ { frame: 0 }, { frame: 15 } ], "/work/k/%03d.jpg")
     assert_includes args, "select=eq(n\\,0)+eq(n\\,15)"
