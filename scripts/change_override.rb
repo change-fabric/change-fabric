@@ -2,7 +2,10 @@
 # frozen_string_literal: true
 
 require 'optparse'
+require 'open3'
 require_relative 'change_override_store'
+require_relative 'cf_project_identity'
+require_relative 'approval_console/terminal_prompt'
 
 # Human-run companion to change_merge_guard.rb's CF_ALLOW_UNGATED_MERGE escape
 # hatch, for the case that hatch is documented but unreachable: the guard reads
@@ -23,31 +26,78 @@ require_relative 'change_override_store'
 # not secret from whatever already wants to override the gate. The intended
 # use is still a human typing it themselves at their own terminal; this is not
 # a substitute for that intent, only friction against skipping it by accident.
+#
+# After the typed confirmation it also requires a TOTP code from this
+# machine's enrolled seed (approval_console.rb totp-enroll), fenced to one use
+# per 30 second step, and stores a `totp-terminal` proof with the override.
 module ChangeOverride
   module_function
 
   def run(argv, stdin: $stdin, stdout: $stdout, stderr: $stderr)
     sha, reason, profile = parse_args(argv, stderr)
     return 1 unless sha
+    return 1 unless real_terminal?(stdin, stderr)
+
+    sha = full_sha(sha)
+    unless sha
+      stderr.puts '[change] the override must name a full 40-character commit sha (or a ref git can resolve here).'
+      return 1
+    end
+    return 1 unless enrolled?(stderr)
     return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
+    proof = prove(sha, reason, profile, stdin: stdin, stdout: stdout, stderr: stderr)
+    return 1 unless proof
+
     ChangeOverrideStore.new(sha, profile: profile).record(
-      reason: reason, recorded_by: ENV['USER'] || ENV['USERNAME'] || 'unknown'
+      reason: reason, recorded_by: ENV['USER'] || ENV['USERNAME'] || 'unknown', proof: proof
     )
     stdout.puts "[change] override recorded for #{sha[0, 12]}#{profile ? " (profile: #{profile})" : ''}. " \
                 'Scoped to this exact commit; a new commit needs a new override.'
     0
   end
 
-  # The TTY check plus the typed-SHA-prefix confirmation, isolated from
+  # The TOTP second factor over this exact (sha, profile, reason). Nil, with
+  # the reason on stderr, when refused; nothing is recorded then.
+  def prove(sha, reason, profile, stdin:, stdout:, stderr:)
+    result = ApprovalConsole::TerminalPrompt.approve(
+      { 'type' => 'override', 'repo' => CfProjectIdentity.for(Dir.pwd).id, 'sha' => sha, 'profile' => profile,
+        'reason' => reason }, stdin: stdin, stdout: stdout
+    )
+    return result.proof if result.ok?
+
+    stderr.puts "[change] #{result.error}; nothing recorded."
+    nil
+  rescue ApprovalConsole::Canonical::Invalid => e
+    stderr.puts "[change] cannot bind the override: #{e.message}; nothing recorded."
+    nil
+  end
+
+  # A full lowercase sha as given, else what git resolves it to here.
+  def full_sha(ref)
+    return ref if ref.match?(/\A[0-9a-f]{40}\z/)
+
+    out, status = Open3.capture2e('git', 'rev-parse', '--verify', '--quiet', "#{ref}^{commit}")
+    status.success? && out.strip.match?(/\A[0-9a-f]{40}\z/) ? out.strip : nil
+  end
+
+  def enrolled?(stderr)
+    refusal = ApprovalConsole::TerminalPrompt.preflight('override')
+    stderr.puts "[change] refusing: #{refusal}" if refusal
+    refusal.nil?
+  end
+
+  def real_terminal?(stdin, stderr)
+    return true if stdin.tty?
+
+    stderr.puts '[change] refusing: this must be run from a real terminal, not scripted or piped.'
+    false
+  end
+
+  # The typed-SHA-prefix confirmation, isolated from
   # argument parsing and the record/report steps so each concern in run can
   # be read (and tested) on its own.
   def confirmed?(sha, stdin:, stdout:, stderr:)
-    unless stdin.tty?
-      stderr.puts '[change] refusing: this must be run from a real terminal, not scripted or piped.'
-      return false
-    end
-
     stdout.print "Confirm: type the first 12 characters of #{sha} to authorize a merge gate override: "
     typed = stdin.gets.to_s.strip
     return true if typed == sha[0, 12]

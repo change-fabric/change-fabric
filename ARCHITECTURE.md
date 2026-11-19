@@ -51,6 +51,10 @@ SessionStart hooks state rules up front (`doctrine_digest.rb` holds the
 session-global tenets as a Ruby constant, kept in sync with `PRINCIPLES.md` by
 `test/docs_check_test.rb`). PreToolUse guards deny after the fact. The two
 change guards share their gate question through `scripts/change_gate_check.rb`.
+Terminal approvals add a TOTP second factor: `scripts/approval_console.rb`
+(`totp-enroll`, `status`, `unlock`) and `scripts/approval_console/` keep the seed
+and replay fence under the cf secret store; `change_approve.rb` and
+`change_override.rb` store a `totp-terminal` proof beside the record.
 Rubric skills are matched to edited files by `skill_detect.rb` and
 `skill_inject.rb`, queued, and reviewed at Stop by `skill_review.rb`.
 
