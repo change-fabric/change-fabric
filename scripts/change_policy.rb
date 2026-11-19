@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require 'open3'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
 require_relative 'tracker_policy'
@@ -20,6 +21,15 @@ require_relative 'tracker_policy'
 # merge gate, so nothing here ever manufactures a policy for an ungoverned repo:
 # `for_repo` returns nil when the file is absent.
 class ChangePolicy
+  # Raised by `for_ref` when the base ref's CHANGE.md cannot be determined at
+  # all (the ref cannot be resolved, a fetch never ran, git itself fails) -
+  # distinct from the ref resolving cleanly to "no CHANGE.md there" (nil,
+  # ungoverned). A gating decision that cannot tell which of these is true
+  # must not quietly fall back to the PR's own working-tree policy (#553), so
+  # callers that gate on this are expected to fail closed on the exception
+  # rather than rescue it into nil.
+  class Unreadable < StandardError; end
+
   DEFAULT_PROTECTED = %w[staging production].freeze
 
   # Prefixes that disambiguate a promotion: key. A git refname cannot contain
@@ -42,6 +52,37 @@ class ChangePolicy
     # A malformed CHANGE.md must not wedge every merge; fall back to the
     # conservative default policy so the gate still protects the named branches.
     new({}, path)
+  end
+
+  # Loads the policy from CHANGE.md as it stands at `ref` (e.g. `origin/main`,
+  # a sha), never the working tree. This is what every gating decision must
+  # read (#553): a PR cannot weaken the policy it is judged by just by editing
+  # its own working-tree CHANGE.md, because that copy is never consulted here.
+  #
+  # Returns nil when `ref` resolves cleanly but has no CHANGE.md at all (an
+  # ungoverned base, same meaning as `for_repo` returning nil). Raises
+  # `Unreadable` when the ref or the read itself cannot be determined - an
+  # unresolvable ref, a repo git cannot operate on, any git failure other than
+  # "the path is absent in that tree" - so a gating caller can fail closed
+  # instead of silently treating "could not check" as "nothing to enforce".
+  # A malformed-but-present CHANGE.md at ref is not rescued here the way
+  # `for_repo` rescues one on disk: the base ref is immutable from the PR's
+  # vantage point, so there is no risk of an agent's bad edit wedging the
+  # gate, and a caller is better served failing closed on it like any other
+  # read it cannot trust.
+  def self.for_ref(root, ref)
+    out, ok, err = git_show_change_md(root, ref)
+    return new(ChangeFrontmatter.parse(out)['change_policy'], "#{ref}:CHANGE.md") if ok
+    return nil if err =~ /does not exist in/
+
+    raise Unreadable, "cannot read CHANGE.md at #{ref} in #{root}: #{err.strip}"
+  end
+
+  def self.git_show_change_md(root, ref)
+    out, status = Open3.capture2e('git', '-C', root.to_s, 'show', "#{ref}:CHANGE.md")
+    [ out, status.success?, status.success? ? '' : out ]
+  rescue StandardError => e
+    [ '', false, e.message ]
   end
 
   def initialize(policy, path)

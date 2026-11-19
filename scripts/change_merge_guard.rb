@@ -52,13 +52,40 @@ class ChangeMergeGuard
   # must not wedge a merge on an inability to check.
   def violation
     root = repo_root or return nil
-    policy = ChangePolicy.for_repo(root) or return nil
     pr = pr_facts or return nil
     base, sha = pr
+    policy = base_policy(root, base)
+    return unreadable_violation(root, base) if policy == :unreadable
+    return nil if policy.nil?
     return nil unless policy.protects?(base)
     return nil if ChangeOverrideStore.new(sha, profile: policy.profile_for(base)).authorized?
 
     admin?(command) ? admin_violation(policy, base, sha) : normal_violation(policy, base, sha)
+  end
+
+  # The policy as CHANGE.md stands on the base branch, never the PR's own
+  # working tree (#553): a PR cannot loosen the rule it is judged by. Fetches
+  # the base first so a stale local remote-tracking ref never reads as fresh.
+  # Returns :unreadable rather than letting ChangePolicy::Unreadable escape,
+  # so `violation` can decide fail-open-vs-fail-closed against the
+  # working-tree CHANGE.md's mere presence.
+  def base_policy(root, base)
+    Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', base)
+    ChangePolicy.for_ref(root, "origin/#{base}")
+  rescue ChangePolicy::Unreadable
+    :unreadable
+  end
+
+  # Fail-closed only when this repo is otherwise governed at all (a
+  # working-tree CHANGE.md exists); an unrelated repo that never opted into
+  # change-fabric must still merge freely even if, say, the base ref cannot be
+  # fetched for some unrelated network reason.
+  def unreadable_violation(root, base)
+    return nil unless File.exist?(File.join(root, 'CHANGE.md'))
+
+    "merge into '#{base}' is gated: the base branch's CHANGE.md could not be read " \
+      "(fetch or git show failed), so this guard fails closed rather than judge the merge " \
+      "by the PR's own copy. #{escape_note}"
   end
 
   # An admin-bypass merge (`--admin`): first the repo must permit the practice at

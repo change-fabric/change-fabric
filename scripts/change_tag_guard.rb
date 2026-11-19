@@ -55,7 +55,11 @@ class ChangeTagGuard
   # check.
   def violation
     root = repo_root or return nil
-    policy = ChangePolicy.for_repo(root) or return nil
+    local_policy = ChangePolicy.for_repo(root) or return nil
+    trunk = local_policy.trunk_branch
+    policy = base_policy(root, trunk)
+    return unreadable_violation(root, trunk) if policy == :unreadable
+    return nil if policy.nil?
     return nil if policy.protected_tag_patterns.empty?
 
     refs = ChangeTagRefs.for_command(command, root)
@@ -63,6 +67,26 @@ class ChangeTagGuard
 
     reasons = refs.flat_map { |tag, sha| tag_violations(policy, tag, sha, root) }
     reasons.empty? ? nil : reasons.join(' ')
+  end
+
+  # The gating policy as CHANGE.md stands on the trunk branch, never the
+  # working tree (#553). Only the *name* of the trunk branch is read locally
+  # (via `local_policy`, above) - a low-stakes bootstrap, not itself a
+  # gating decision - before the policy content that actually decides
+  # anything is re-read from that branch's own published CHANGE.md.
+  def base_policy(root, trunk)
+    Open3.capture2e('git', '-C', root, 'fetch', '--quiet', 'origin', trunk)
+    ChangePolicy.for_ref(root, "origin/#{trunk}")
+  rescue ChangePolicy::Unreadable
+    :unreadable
+  end
+
+  def unreadable_violation(root, trunk)
+    return nil unless File.exist?(File.join(root, 'CHANGE.md'))
+
+    "publishing this tag is gated: the trunk branch's ('#{trunk}') CHANGE.md could not be read " \
+      "(fetch or git show failed), so this guard fails closed rather than judge the tag " \
+      "by the working tree's own copy. #{ChangeGateCheck.escape_note}"
   end
 
   # Every tag rule matching this tag must independently be satisfied (the
