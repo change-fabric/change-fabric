@@ -41,7 +41,7 @@ Wired by `install.rb` per lifecycle event (Claude Code names shown):
 | Event | Scripts |
 | --- | --- |
 | SessionStart | `skill_detect.rb`, `ctx_session_start.rb`, `doctrine_digest.rb`, `secret_alert_poll.rb` |
-| PreToolUse | `secrets_read_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `presence_probe.rb` |
+| PreToolUse | `secrets_read_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `presence_probe.rb`, `prod_approval_guard.rb` |
 | PostToolUse | `skill_inject.rb`, `secret_ack.rb`, `change_post_merge_check.rb` |
 | UserPromptSubmit | `key_paste_guard.rb`, `prune_remind.rb`, `inbox_prompt_hook.rb` |
 | SessionEnd | `telemetry_emit.rb`, `inbox_session_end.rb` |
@@ -56,6 +56,13 @@ Terminal approvals add a TOTP second factor: `scripts/approval_console.rb`
 (`totp-enroll`, `status`, `unlock`) and `scripts/approval_console/` keep the seed
 and replay fence under the cf secret store; `change_approve.rb` and
 `change_override.rb` store a `totp-terminal` proof beside the record.
+Bounded prod ops: an agent files a cf.prod.request/1 envelope
+(`change_prod_request.rb`, state in refs/cf-prod git refs); a human approves
+its digest (`change_prod_approve.rb`); `change_prod_runner_gen.rb` generates
+the cf-prod workflow, whose jobs verify the approval offline through
+`change_prod_gate.rb` and claim it once (a conditional put in the approval console's table, never a git ref) before any credential. This release
+emits staging only and has no op executor; `prod_approval_guard.rb` denies the
+agent the approval paths.
 Rubric skills are matched to edited files by `skill_detect.rb` and
 `skill_inject.rb`, queued, and reviewed at Stop by `skill_review.rb`.
 

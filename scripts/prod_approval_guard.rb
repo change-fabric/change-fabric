@@ -1,0 +1,169 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'json'
+require 'shellwords'
+require_relative 'hook_event'
+
+# PreToolUse (Bash): denies the agent every route to approving, or tampering
+# with the state of, a bounded prod op. Production credentials never reach the
+# agent, so the remaining risk is the agent granting itself the approval:
+#
+#   change_prod_approve.rb                      the human-only approval tool
+#   gh api .../actions/runs/N/pending_deployments   approving a deployment review
+#   gh api .../environments/... (a write)        protection rules, reviewers, branch policy
+#   git push or gh api writes to refs/cf-prod/{approvals,claims,lock,journal}
+#
+# The console verbs (enroll, totp-enroll, unlock, revoke, verify --write) are
+# already denied by secrets_read_guard.rb. There is no escape hatch for the
+# agent: a human runs the command in a real terminal. The limit, stated in
+# PRINCIPLES.md, is that the agent's admin token can still call these APIs from
+# anywhere a hook does not see. Friction, not a sandbox. Fails silent on error.
+class ProdApprovalGuard
+  EVENT = 'PreToolUse'
+  APPROVE_CLI = 'change_prod_approve.rb'
+  MARKERS = [ APPROVE_CLI, 'pending_deployments', '/environments', 'cf-prod' ].freeze
+  PENDING = %r{repos/[^/\s]+/[^/\s]+/actions/runs/[^/\s]+/pending_deployments}
+  ENVIRONMENTS = %r{repos/[^/\s]+/[^/\s]+/environments(?:/|\z|\?)}
+  GIT_WRITE_VERBS = %w[push update-ref fast-import replace receive-pack send-pack].freeze
+  GIT_ARG_OPTIONS = %w[-C -c --git-dir --work-tree --namespace --super-prefix --config-env --exec-path].freeze
+  WORKFLOW = '.github/workflows/cf-prod.yml'
+  WRITE_METHODS = %w[PUT POST PATCH DELETE].freeze
+  FIELD_FLAGS = %w[-f -F --field --raw-field --input].freeze
+
+  def initialize(event) = @event = event
+
+  def emit(io = $stdout)
+    reason = denial
+    io.puts(JSON.generate(deny(reason))) if reason
+  rescue StandardError
+    nil
+  end
+
+  def denial
+    return unless @event['tool_name'] == 'Bash'
+
+    input = @event['tool_input']
+    command = input.is_a?(Hash) ? input['command'].to_s : ''
+    list = words(command)
+    stream = stream_denial(list)
+    return stream if stream
+    return unless MARKERS.any? { |marker| command.include?(marker) }
+
+    inspect_words(list, command)
+  rescue ArgumentError
+    'an unparseable shell command naming a prod approval path'
+  end
+
+  private
+
+  # Shell words, plus the words inside any quoted argument (`bash -c '...'`).
+  def words(command)
+    Shellwords.split(command).flat_map do |word|
+      word.match?(/\s/) ? [ word, *words(word) ] : [ word ]
+    rescue ArgumentError
+      [ word ]
+    end
+  end
+
+  def inspect_words(list, command)
+    return "a shell command running #{APPROVE_CLI}" if list.any? { |word| File.basename(word) == APPROVE_CLI }
+
+    api = api_calls(list)
+    api.each do |args|
+      return 'a gh api call to pending_deployments' if args.any? { |arg| arg.match?(PENDING) }
+      return 'a gh api write to a repository environment' if env_write?(args)
+    end
+    return 'a gh api write in a command naming cf-prod' if command.include?('cf-prod') && api.any? { |args| write?(args) }
+    return 'a git write in a command naming cf-prod' if command.include?('cf-prod') && git_verbs(list).intersect?(GIT_WRITE_VERBS)
+
+    nil
+  end
+
+  # The argument run after each `gh api`.
+  def api_calls(list)
+    list.each_index.filter_map { |i| list[(i + 2)..] if list[i] == 'gh' && list[i + 1] == 'api' }
+  end
+
+  def env_write?(args) = args.any? { |arg| arg.match?(ENVIRONMENTS) } && write?(args)
+
+  # An explicit non-GET method, or any field flag (gh defaults those to POST).
+  def write?(args)
+    method = method_of(args)
+    return WRITE_METHODS.include?(method) if method
+    return false if method_given?(args)
+
+    args.any? { |arg| FIELD_FLAGS.include?(arg) || arg.start_with?('--field=', '--raw-field=', '--input=') || arg.match?(/\A-[fF]./) }
+  end
+
+  def method_given?(args) = !method_of(args).nil?
+
+  def method_of(args)
+    args.each_with_index do |arg, i|
+      return args[i + 1].to_s.upcase if %w[-X --method].include?(arg)
+      return arg.sub(/\A--method=/, '').upcase if arg.start_with?('--method=')
+      return arg.sub(/\A-X/, '').upcase if arg.match?(/\A-X.+/)
+    end
+    nil
+  end
+
+  # The verb of every `git` invocation, skipping git's global options (and
+  # their arguments), so `git -C . push` and `git -c k=v push` read as push.
+  # A bare `git-receive-pack` style plumbing name counts as its own verb. An
+  # alias defined on the command line (`-c alias.x=push`) makes every verb
+  # suspect, reported as a write.
+  def git_verbs(list)
+    list.each_index.flat_map do |i|
+      name = File.basename(list[i])
+      next [ name.delete_prefix('git-') ] if name.start_with?('git-') && GIT_WRITE_VERBS.include?(name.delete_prefix('git-'))
+      next [] unless name == 'git'
+
+      git_verb_after(list, i + 1)
+    end
+  end
+
+  def git_verb_after(list, index)
+    while index < list.size
+      word = list[index]
+      return [ 'push' ] if word == '-c' && list[index + 1].to_s.start_with?('alias.')
+      return [ word ] unless word.start_with?('-')
+
+      index += GIT_ARG_OPTIONS.include?(word) ? 2 : 1
+    end
+    []
+  end
+
+  # `git update-ref --stdin` and `git fast-import` take their ref names from a
+  # stream the command text does not show, so in a repo with the cf-prod
+  # workflow they are denied outright.
+  def stream_denial(list)
+    verbs = git_verbs(list)
+    stream = verbs.include?('fast-import') || (verbs.include?('update-ref') && list.include?('--stdin'))
+    return unless stream && cf_prod_repo?
+
+    'a git stream write (update-ref --stdin or fast-import) in a repo with cf-prod configured'
+  end
+
+  def cf_prod_repo?
+    dir = File.expand_path(@event['cwd'].to_s.empty? ? Dir.pwd : @event['cwd'])
+    loop do
+      return true if File.exist?(File.join(dir, WORKFLOW))
+      return false if dir == File.dirname(dir)
+
+      dir = File.dirname(dir)
+    end
+  end
+
+  def deny(reason)
+    {
+      hookSpecificOutput: {
+        hookEventName: EVENT,
+        permissionDecision: 'deny',
+        permissionDecisionReason: "[cf:prod] #{reason}. Production approvals are human-only: run it yourself in a real terminal. " \
+                                  'The agent never approves its own prod op.'
+      }
+    }
+  end
+end
+
+ProdApprovalGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME

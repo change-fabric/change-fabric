@@ -72,13 +72,13 @@ Enforcer: scripts/change_merge_guard.rb, scripts/change_tag_guard.rb, scripts/ch
 
 ## Terminal approvals need a one-use TOTP code
 
-`change_approve.rb` and `change_override.rb` also require a TOTP code from the
-machine's seed, kept only in the cf secret store and shown once on `/dev/tty`.
-A code spends under a file lock, one per 30 second step: a replay or wrong code
-records nothing and five failures lock the machine. The human-only verbs refuse
-without a TTY or in an agent harness. Friction, not a sandbox.
+`change_approve.rb`, `change_override.rb` and `change_prod_approve.rb` need a
+one-use TOTP code and refuse without a TTY or in an agent harness. Prod ops run
+only via the generated cf-prod workflow: the runner verifies approval offline, a
+terminal proof is staging only, and `prod_approval_guard.rb` denies agents the
+approval, environment and refs/cf-prod paths. An admin token can bypass hooks.
 
-Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb
+Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb, scripts/prod_approval_guard.rb, scripts/change_prod_gate.rb
 
 ## Agents merge at the ready bar; carve-outs escalate
 
