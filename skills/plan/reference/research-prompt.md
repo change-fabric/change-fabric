@@ -156,6 +156,12 @@ Write exactly three files.
    - every phase agent gets the plan's real instruction and the plan's real
      verification command, not a paraphrase;
    - `parallel()` only where the plan's units are genuinely independent;
+   - keep the template's resource gate: `await gate(` right after
+     `phase("Resource floors")`, as the first statement after
+     `phase(spec.title)` in the PHASES loop, and as the statement before every
+     `parallel(`; declare `FANOUT` literally with one `[{op, count}]` batch per
+     `parallel()` block. "Resource floors" is the first `meta.phases` entry, so
+     a `(phases: N)` visual tag counts it;
    - nothing nondeterministic in the script body and no tool calls there: no
      wall-clock read, no randomness. plan_check.rb greps for the literal call
      syntax, in comments too.

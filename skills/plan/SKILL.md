@@ -49,6 +49,20 @@ plans in your own notes tree instead.
 Then one more thing, to the user only: a fenced handoff prompt to paste into a
 fresh session that will execute the plan.
 
+## Resource floors
+
+Every `workflow.js` keeps the template's resource gate. `gate()` runs
+`~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe` (run from the target repo) and returns its JSON.
+It must be the statement right after Phase 0's `phase("Resource floors")`, the
+first statement after `phase(spec.title)` in the PHASES loop, and the
+statement before every `parallel(` (an `if (!g || !g.ok)` guard may sit
+between). `FANOUT` declares the heavy ops literally, one batch per
+`parallel()` block as `[{op, count}]`. A gate that is late, commented out or
+after a `return` does not count. `plan_check.rb` fails the plan through
+`scripts/resource_gate_lint.rb`. On `ok: false` the workflow returns
+`{stopped: "resource-floor", gate}`; the executing session asks the user about
+tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
+
 ## Reference files
 
 - `reference/interview.md`: how to run the interview at steps 5 and 6. The
@@ -277,8 +291,9 @@ fresh session that will execute the plan.
 
    It fails on a missing or empty file, a `goal.md` over 4000 characters, an
    AI-slop glyph, or a `workflow.js` that is missing its literal
-   `export const meta = {` header, has no `phase()` call, or calls
-   `Date.now()`, `Math.random()`, or `new Date()`. When the plan has a
+   `export const meta = {` header, has no `phase()` call, calls
+   `Date.now()`, `Math.random()`, or `new Date()`, or lacks the resource gate
+   (see "Resource floors" below). When the plan has a
    `diagrams/` directory or a `## Visuals` section, it also fails on a listed
    SVG that is missing, an SVG with a glyph, a home path, or no
    `data-diagram-type`/`data-chart-type`, and a `roast/round-N.json` without

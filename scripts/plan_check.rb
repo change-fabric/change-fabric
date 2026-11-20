@@ -4,6 +4,7 @@
 require 'json'
 require_relative 'ctx_paths'
 require_relative 'plan_visuals'
+require_relative 'resource_gate_lint'
 require_relative 'walkthrough_story'
 
 # Mechanically verifies a landed cf:plan triple: plan.md, goal.md, and the
@@ -213,7 +214,20 @@ module PlanCheck
     ok &= require_marker(text, /^export const meta = \{/, 'export const meta = { literal header', lines)
     ok &= require_marker(text, /\bphase\(/, 'at least one phase() call', lines)
     ok &= check_determinism(text, lines)
+    ok &= check_resource_gate(text, lines)
     ok
+  end
+
+  # The resource gate marker: structural rules live in resource_gate_lint.rb.
+  def self.check_resource_gate(text, lines)
+    problems = ResourceGateLint.check(text)
+    if problems.empty?
+      lines << 'workflow.js: resource gate present (Phase 0, PHASES loop, before parallel)'
+      true
+    else
+      problems.each { |problem| lines << "workflow.js: resource gate MISSING or misplaced (#{problem})" }
+      false
+    end
   end
 
   # A path that survives to another machine only if it never carried the

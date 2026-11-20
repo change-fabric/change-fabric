@@ -15,12 +15,22 @@ class PlanCheckTest < Minitest::Test
     export const meta = {
       name: "example-plan",
       description: "Build the example",
-      phases: [ { title: "Build" } ]
+      phases: [ { title: "Resource floors" }, { title: "Build" } ]
     }
 
-    phase("Build")
-    const built = await agent("Build it", { phase: "Build" })
-    return { built }
+    async function gate(where) { return await agent("gate " + where, { phase: "Resource floors" }) }
+    const PHASES = [ { title: "Build" } ]
+
+    phase("Resource floors")
+    const first = await gate("Phase 0")
+    if (!first || !first.ok) return { stopped: "resource-floor", gate: first }
+    for (const spec of PHASES) {
+      phase(spec.title)
+      const g = await gate("start of " + spec.title)
+      if (!g || !g.ok) break
+      const built = await agent("Build it", { phase: spec.title })
+    }
+    return { first }
   JS
 
   def with_pair(goal:, plan:, workflow: nil)
@@ -259,9 +269,28 @@ class PlanCheckTest < Minitest::Test
   end
 
   def test_workflow_with_no_phase_call_fails
-    ok, lines = workflow_lines(GOOD_WORKFLOW.gsub(/^phase\("Build"\)\n/, ""))
+    ok, lines = workflow_lines(GOOD_WORKFLOW.gsub(/^\s*phase\(.*\)\n/, ""))
     refute ok
     assert_includes lines, "workflow.js: MISSING at least one phase() call"
+  end
+
+  def test_good_workflow_reports_the_resource_gate
+    ok, lines = workflow_lines(GOOD_WORKFLOW)
+    assert ok
+    assert_includes lines, "workflow.js: resource gate present (Phase 0, PHASES loop, before parallel)"
+  end
+
+  def test_workflow_without_a_gate_fails_and_names_the_rule
+    ok, lines = workflow_lines(GOOD_WORKFLOW.gsub(/^\s*(?:const \w+ = )?await gate\(.*\n/, ""))
+    refute ok
+    assert_includes lines.join("\n"), "workflow.js: resource gate MISSING or misplaced (phase0:"
+    assert_includes lines.join("\n"), "(loop:"
+  end
+
+  def test_workflow_with_an_ungated_parallel_fails
+    ok, lines = workflow_lines("#{GOOD_WORKFLOW}\nconst r = await parallel([ () => agent(\"x\") ])\n")
+    refute ok
+    assert_includes lines.join("\n"), "(parallel:"
   end
 
   def test_workflow_using_date_now_fails
