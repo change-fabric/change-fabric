@@ -5,8 +5,8 @@ require 'fileutils'
 require 'json'
 require 'open3'
 require 'optparse'
-require 'pathname'
 require_relative 'cf_project_identity'
+require_relative 'path_canon'
 require_relative 'resource_fingerprint'
 require_relative 'resource_gate'
 
@@ -107,18 +107,10 @@ module ResourceProbe
     def relative_to(arg, root)
       return nil if arg.start_with?('~')
 
-      clean = Pathname.new(arg).cleanpath.to_s
-      return '.' if clean == root
-
-      clean.start_with?("#{root}/") ? clean.delete_prefix("#{root}/") : nil
+      PathCanon.relative(arg, root)
     end
 
-    def cwd(dir, root)
-      rel = Pathname.new(File.realpath(dir)).relative_path_from(Pathname.new(root)).to_s
-      rel.start_with?('..') ? '.' : rel
-    rescue SystemCallError, ArgumentError
-      '.'
-    end
+    def cwd(dir, root) = PathCanon.relative(dir, root) || '.'
   end
 
   # The profile file for one project, written under an exclusive lock.
