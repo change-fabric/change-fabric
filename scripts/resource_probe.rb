@@ -36,6 +36,7 @@ module ResourceProbe
   FORWARDED_SIGNALS = %w[INT TERM HUP].freeze
   SECRET_FLAG = /\A--?[\w-]*(token|secret|password|passwd|apikey|api-key|key|auth|credential)[\w-]*\z/i
   SECRET_VALUE = %r{\A(sk-|ghp_|gho_|github_pat_|xox[abp]-|AKIA|AIza)|\A[A-Fa-f0-9]{32,}\z|\A(?=[A-Za-z0-9+_-]*\d)(?=[A-Za-z0-9+_-]*[A-Za-z])[A-Za-z0-9+_-]{40,}={0,2}\z}
+  URL_CREDENTIALS = %r{\A([a-z][a-z0-9+.-]*://)[^/@\s]*@}i
   ENV_ASSIGN = /\A([A-Za-z_][A-Za-z0-9_]*)=(.*)\z/m
 
   # How a new run changes a stored op: a peak more than 25% over the stored
@@ -90,14 +91,19 @@ module ResourceProbe
       return key_value(arg, root, cwd) if arg.start_with?('-') && arg.include?('=')
       return '<redacted>' if arg.match?(SECRET_VALUE)
 
-      path(arg, root, cwd)
+      url_or_path(arg, root, cwd)
     end
 
     def key_value(arg, root, cwd)
       flag, value = arg.split('=', 2)
       return "#{flag}=<redacted>" if flag.match?(SECRET_FLAG) || value.match?(SECRET_VALUE)
 
-      "#{flag}=#{path(value, root, cwd)}"
+      "#{flag}=#{url_or_path(value, root, cwd)}"
+    end
+
+    # user:password@ in a URL is dropped; the host and path stay.
+    def url_or_path(arg, root, cwd)
+      arg.match?(URL_CREDENTIALS) ? arg.sub(URL_CREDENTIALS, '\\1<redacted>@') : path(arg, root, cwd)
     end
 
     def path(arg, root, cwd)

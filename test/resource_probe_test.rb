@@ -193,6 +193,18 @@ class ResourceProbeTest < Minitest::Test
     assert @store.ops["rb"]["command_redacted"]
   end
 
+  def test_url_credentials_are_redacted_and_the_command_is_not_replayable
+    argv = [ "git", "clone", "https://alice:secret-example-value@example.invalid/repo.git", "--origin-url=ssh://bob:pw123@host/x", "https://example.invalid/ok" ]
+    probe_with(FakeRunner.new(ok)).probe("clone", argv, cwd: @root)
+    raw = File.read(@store.path)
+    %w[secret-example-value alice pw123 bob].each { |bad| refute_includes raw, bad }
+    entry = @store.ops["clone"]
+    assert_equal "https://<redacted>@example.invalid/repo.git", entry["command"][2]
+    assert_equal "--origin-url=ssh://<redacted>@host/x", entry["command"][3]
+    assert_equal "https://example.invalid/ok", entry["command"][4]
+    assert entry["command_redacted"]
+  end
+
   def test_repo_executable_is_recorded_so_replay_resolves_it
     tool = File.join(@root, "my-probe-tool")
     File.write(tool, "#!/bin/sh\nexit 0\n")
