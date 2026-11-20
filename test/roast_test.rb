@@ -7,6 +7,8 @@ require "tmpdir"
 require_relative "../scripts/roast"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
+require_relative "key_project_helpers"
+require_relative "../scripts/key_project"
 
 # These tests drive the API path; the default backend would try the host's real codex.
 ENV["CF_ROAST_BACKEND"] = "api"
@@ -14,6 +16,7 @@ ENV["CF_ROAST_BACKEND"] = "api"
 class RoastTest < Minitest::Test
   include ImagegenHelpers
   include EnrollHelpers
+  include KeyProjectHelpers
 
   CRITIC = {
     "score" => 6, "summary" => "Muddled hero.",
@@ -949,5 +952,60 @@ class RoastTest < Minitest::Test
     out = StringIO.new
     Roast::Cli.run([ "--video", "x.mp4", "--backend", "api", "--brief", @brief ], out: out)
     refute_includes out.string, "using API"
+  end
+
+  # --- --project: scratchpad runs ---
+
+  def enroll_only_a_project_repo
+    unenroll!("openai")
+    repo = make_repo!(File.join(@dir, "app"))
+    CfSecretStore.write_key(CfProjectIdentity.for(repo).slug, "openai", "sk-project-key")
+    repo
+  end
+
+  def test_scratchpad_run_with_project_uses_the_project_key
+    scratch = make_scratchpad!
+    repo = enroll_only_a_project_repo
+    code, text, http = Dir.chdir(scratch) { run_cli("--project", repo) }
+    assert_equal 0, code, text
+    assert_equal "Bearer sk-project-key", http.requests.first["Authorization"]
+  ensure
+    remove_scratchpad!
+  end
+
+  def test_scratchpad_run_without_project_is_loud_and_makes_no_request
+    scratch = make_scratchpad!
+    enroll_only_a_project_repo
+    code, text, http = Dir.chdir(scratch) { run_cli }
+    assert_equal 4, code
+    assert_empty http.requests
+    assert_empty enroll_lines(text)
+    assert_includes text, "Fix: re-run with --project <repo root>"
+  ensure
+    remove_scratchpad!
+  end
+
+  def test_project_naming_a_scratchpad_exits_2
+    scratch = make_scratchpad!
+    code, text, http = run_cli("--project", scratch)
+    assert_equal 2, code
+    assert_includes text, "is a Claude Code session scratchpad"
+    assert_empty http.requests
+  ensure
+    remove_scratchpad!
+  end
+
+  def test_a_cached_codex_round_replays_from_a_scratchpad_under_auto_without_a_project
+    runner, = fake_codex { codex_ok }
+    code, text, = run_cli("--backend", "codex", runner: runner)
+    assert_equal 0, code, text
+    scratch = make_scratchpad!
+    @out = StringIO.new
+    runner, = fake_codex { codex_ok }
+    code, text, http = Dir.chdir(scratch) { run_cli("--backend", "auto", runner: runner) }
+    assert_equal 0, code, text
+    assert_empty http.requests
+  ensure
+    remove_scratchpad!
   end
 end

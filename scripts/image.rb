@@ -4,6 +4,7 @@ require 'fileutils'
 require 'optparse'
 require_relative 'image_plate'
 require_relative 'image_text_mode'
+require_relative 'key_project'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_env'
 
@@ -17,7 +18,7 @@ module Image
   DEFAULT_QUALITY = PrototypeImagegen::QUALITY_DRAFT
   USAGE = 'usage: image.rb "<prompt>" | --prompt-file PATH [--size WxH] [--quality low|medium|high] ' \
           '[--ref PNG]... [--edit PNG [--mask PNG]] [--mode none|short|heavy] [--spec copy.json] [--out PATH] ' \
-          '[--max-usd N] [--cache DIR] [--estimate-only]'
+          '[--max-usd N] [--cache DIR] [--estimate-only] [--project DIR]'
 
   class UsageError < StandardError; end
   class CeilingError < StandardError; end
@@ -42,7 +43,7 @@ module Image
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
-      WalkthroughEnv.key_error(e, out: out)
+      WalkthroughEnv.key_error(e, out: out, cwd: opts&.dig(:key_cwd) || Dir.pwd)
     rescue CeilingError, PrototypeImagegen::RequestError, WalkthroughEnv::MissingKeyError, SystemCallError => e
       out.puts("error: #{e.message}")
       1
@@ -63,6 +64,7 @@ module Image
         o.on('--estimate-only') { opts[:estimate_only] = true }
         o.on('--mode MODE') { |v| opts[:mode] = v }
         o.on('--spec PATH') { |v| opts[:spec] = v }
+        KeyProject.add_option(o, opts)
       end.parse!(args)
       opts[:prompt] = prompt_from(opts, args)
       validate!(opts)
@@ -107,7 +109,8 @@ module Image
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]
 
-      path = PrototypeImagegen.generate(**args, cache_root: opts[:cache], http: http)
+      opts[:key_cwd] = KeyProject.resolve(argv_project: opts[:project]) unless cached && !opts[:project]
+      path = PrototypeImagegen.generate(**args, cache_root: opts[:cache], http: http, key_cwd: opts[:key_cwd] || Dir.pwd)
       path = copy_out(path, opts[:out]) if opts[:out]
       out.puts("image: #{path}")
     end

@@ -3,10 +3,13 @@
 require "minitest/autorun"
 require "stringio"
 require_relative "enroll_helpers"
+require_relative "key_project_helpers"
+require_relative "../scripts/key_project"
 require_relative "../scripts/walkthrough_env"
 
 class WalkthroughEnvTest < Minitest::Test
   include EnrollHelpers
+  include KeyProjectHelpers
 
   def test_each_helper_reads_its_own_enrolled_key
     with_enrolled("openai", "elevenlabs", "gemini") do
@@ -143,5 +146,83 @@ class WalkthroughEnvTest < Minitest::Test
       assert_equal "sk-test-secret", WalkthroughEnv.key!("openai", err: err)
       assert_empty err.string
     end
+  end
+
+  # --- the key is looked up against the cwd the script resolved ---
+
+  def with_project_keys(provider, &)
+    with_enrolled do
+      repo = make_repo!(File.join(Dir.mktmpdir, "app"))
+      CfSecretStore.write_key(CfProjectIdentity.for(repo).slug, provider, "sk-repo")
+      yield repo
+    end
+  end
+
+  def test_each_helper_takes_the_key_from_the_cwd_it_is_given
+    with_project_keys("openai") do |repo|
+      assert_equal "sk-repo", WalkthroughEnv.openai_key!(cwd: repo)
+      assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.openai_key! }
+      assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.elevenlabs_key!(cwd: repo) }
+      assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.gemini_key!(cwd: repo) }
+    end
+  end
+
+  def test_a_projects_own_key_wins_over_an_ancestor
+    with_project_keys("openai") do |repo|
+      CfSecretStore.write_key(CfProjectIdentity.for_explicit_dir(File.dirname(repo)).slug, "openai", "sk-ancestor")
+      assert_equal "sk-repo", WalkthroughEnv.openai_key!(cwd: repo)
+    end
+  end
+
+  def test_defer_check_reads_the_given_cwd_not_the_process_cwd
+    with_project_keys("openai") do |repo|
+      CfSecretStore.defer(CfProjectIdentity.for(repo).slug, "openai")
+      err = StringIO.new
+      assert_raises(WalkthroughEnv::Deferred) { WalkthroughEnv.key!("openai", cwd: repo, err: err) }
+      assert_includes err.string, "openai deferred until"
+      assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.key!("openai", err: StringIO.new) }
+    end
+  end
+
+  def test_revoked_reports_the_given_cwd_and_its_owning_level
+    with_project_keys("openai") do |repo|
+      failure = CfProviderError::AuthRevoked.new("rejected", provider: "openai", status: 401, next_step: "enroll")
+      out = StringIO.new
+      assert_equal 4, WalkthroughEnv.key_error(failure, out: out, cwd: repo)
+      line = JSON.parse(out.string.lines.first).fetch("cf_enroll")
+      assert_equal CfProjectIdentity.for(repo).root, line["project_root"]
+      assert_equal "revoked", line["reason"]
+      assert_includes out.string, "enrolled at #{CfProjectIdentity.for(repo).root}"
+    end
+  end
+
+  # --- a scratchpad is never enrolled ---
+
+  def test_enroll_for_an_unresolved_scratchpad_prints_the_fix_and_no_cf_enroll_line
+    scratch = make_scratchpad!
+    err = KeyProject::Unresolved.new(cwd: scratch, session: "sid-1")
+    out = StringIO.new
+    assert_equal 4, WalkthroughEnv.enroll(err, out: out)
+    assert_empty enroll_lines(out.string)
+    refute_includes out.string, "cf_keys.rb enroll"
+    assert_includes out.string, scratch
+    assert_includes out.string, "session record for sid-1"
+    assert_includes out.string, "--project <repo root>"
+  ensure
+    remove_scratchpad!
+  end
+
+  def test_a_key_lookup_run_in_a_scratchpad_cwd_gets_the_fix_not_an_enroll_prompt
+    scratch = make_scratchpad!
+    with_enrolled do
+      e = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.openai_key!(cwd: scratch) }
+      out = StringIO.new
+      assert_equal 4, WalkthroughEnv.enroll(e, out: out)
+      assert_empty enroll_lines(out.string)
+      refute_includes out.string, "Paste this"
+      assert_includes out.string, "Fix: re-run with --project <repo root>"
+    end
+  ensure
+    remove_scratchpad!
   end
 end

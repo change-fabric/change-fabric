@@ -7,12 +7,15 @@ require "tmpdir"
 require_relative "../scripts/roast_video"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
+require_relative "key_project_helpers"
+require_relative "../scripts/key_project"
 
 # These tests drive the API path; the default backend would try the host's real codex.
 ENV["CF_ROAST_BACKEND"] = "api"
 
 class RoastVideoTest < Minitest::Test
   include EnrollHelpers
+  include KeyProjectHelpers
 
   CRITIC = {
     "score" => 6, "summary" => "Narration runs ahead of the picture.",
@@ -290,5 +293,42 @@ class RoastVideoTest < Minitest::Test
     assert_equal 0, code, out.string
     assert_empty http.requests
     refute File.file?(File.join(@roast, "round-2.video.json"))
+  end
+
+  # The cwd's own project has no key; only the --project repo does.
+  def enroll_only_a_project_repo
+    unenroll!("openai")
+    repo = make_repo!(File.join(@dir, "app"))
+    CfSecretStore.write_key(CfProjectIdentity.for(repo).slug, "openai", "sk-project-key")
+    repo
+  end
+
+  def test_project_flag_forwards_the_project_key_to_the_paid_call
+    repo = enroll_only_a_project_repo
+    FileUtils.rm_f(Dir[File.join(@roast, "round-2.video.*")])
+    http = Http.new
+    out = StringIO.new
+    assert_equal 0, RoastVideo::Cli.run(video_args + [ "--project", repo ], out: out, http: http, docker: fake_docker), out.string
+    assert_equal "Bearer sk-project-key", http.requests.first["Authorization"]
+  end
+
+  def test_without_project_the_cwd_project_has_no_key_so_the_call_stops
+    enroll_only_a_project_repo
+    http = Http.new
+    out = StringIO.new
+    assert_equal 4, RoastVideo::Cli.run(video_args, out: out, http: http, docker: fake_docker)
+    assert_empty http.requests
+  end
+
+  def test_project_naming_a_scratchpad_exits_2_before_any_call
+    scratch = make_scratchpad!
+    http = Http.new
+    out = StringIO.new
+    assert_equal 2, RoastVideo::Cli.run(video_args + [ "--project", scratch ], out: out, http: http, docker: fake_docker)
+    assert_includes out.string, "is a Claude Code session scratchpad"
+    assert_empty enroll_lines(out.string)
+    assert_empty http.requests
+  ensure
+    remove_scratchpad!
   end
 end

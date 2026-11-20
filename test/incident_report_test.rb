@@ -10,10 +10,13 @@ require "open3"
 require "base64"
 require_relative "git_fixture"
 require_relative "../scripts/incident_report"
+require_relative "key_project_helpers"
 
 # Fakes only: no docker, no network, no paid call. roast.rb, typst and the OCR
 # container are stubbed; the browser module runs under node against a fake page.
 class IncidentReportTest < Minitest::Test
+  include KeyProjectHelpers
+
   T0 = "2026-03-02T10:00:00Z"
   T1 = "2026-03-02T10:05:00Z"
   T2 = "2026-03-02T11:00:00Z"
@@ -791,5 +794,62 @@ class IncidentReportTest < Minitest::Test
     assert_equal 0, code, out
     assert_match(/summary: ready/, out)
     assert_equal 2, run.call("bogus").first
+  end
+
+  # --- --project: the roast children get the resolved project ---
+
+  def roast_cli(*args)
+    out = StringIO.new
+    err = StringIO.new
+    code = IncidentReport::Cli.new(args + [ "--repo", "shop-web", "--id", @id ], out: out, err: err, shell: @shell, ocr: ocr, env: @env).run
+    [ code, err.string ]
+  end
+
+  def drafted_and_scanned
+    rep = report
+    capture!
+    rep.draft(at: T1, sections: sections, title: "Analytics errors")
+    rep.ocr_screens(at: T1)
+    rep.scan(at: T1)
+  end
+
+  def test_roast_forwards_the_explicit_project_to_every_roast_child
+    drafted_and_scanned
+    project = File.realpath(@tmp)
+    code, err = roast_cli("roast", "--at", T1, "--project", @tmp)
+    assert_equal 0, code, err
+    assert_equal 2, @shell.roast_calls.size
+    @shell.roast_calls.each do |argv|
+      assert_equal [ "--project", project ], argv.each_cons(2).find { |a, _| a == "--project" }
+    end
+  end
+
+  def test_roast_forwards_the_cwd_when_it_is_an_ordinary_dir
+    drafted_and_scanned
+    code, err = roast_cli("roast", "--at", T1)
+    assert_equal 0, code, err
+    assert(@shell.roast_calls.all? { |argv| argv[argv.index("--project") + 1] == Dir.pwd })
+  end
+
+  def test_roast_from_a_scratchpad_without_project_leaves_the_children_to_decide
+    scratch = make_scratchpad!
+    drafted_and_scanned
+    code, err = Dir.chdir(scratch) { roast_cli("roast", "--at", T1) }
+    assert_equal 0, code, err
+    assert_equal 2, @shell.roast_calls.size
+    assert(@shell.roast_calls.none? { |argv| argv.include?("--project") })
+  ensure
+    remove_scratchpad!
+  end
+
+  def test_roast_project_naming_a_scratchpad_exits_2
+    scratch = make_scratchpad!
+    drafted_and_scanned
+    code, err = roast_cli("roast", "--at", T1, "--project", scratch)
+    assert_equal 2, code
+    assert_includes err, "is a Claude Code session scratchpad"
+    assert_empty @shell.roast_calls
+  ensure
+    remove_scratchpad!
   end
 end

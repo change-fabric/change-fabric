@@ -19,6 +19,7 @@ require_relative 'walkthrough_captions'
 require_relative 'walkthrough_clipcheck'
 require_relative 'elevenlabs'
 require_relative 'ffmpeg_watchdog'
+require_relative 'key_project'
 require_relative 'walkthrough_env'
 require_relative 'walkthrough_ffmpeg'
 require_relative 'walkthrough_housekeeping'
@@ -72,9 +73,11 @@ module WalkthroughRender
     # rubocop:disable Metrics/ParameterLists
     def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: nil,
                    burn_captions: false, gates: {}, recapture: false, final_only: false, silent: false, provisional: false,
-                   filmed: nil)
+                   filmed: nil, key_cwd: Dir.pwd)
       # rubocop:enable Metrics/ParameterLists
       @root = File.expand_path(root)
+      # The directory every paid call looks its key up against (--project).
+      @key_cwd = key_cwd
       @gates = { allow_ux: false, allow_roast: false, roast: true, roast_max_usd: WalkthroughRoast::DEFAULT_CEILING_USD }.merge(gates)
       @only = scene
       @recapture = recapture
@@ -198,7 +201,7 @@ module WalkthroughRender
         say("#{scene['id']}: narrating")
         res = @p[:tts].call(text: scene['narration']['text'], voice_id: voice['voice_id'], model: voice['model'],
                             output_format: voice['output_format'], settings: voice['settings'] || {},
-                            pronunciations: voice['pronunciations'], cache_root: @cache)
+                            pronunciations: voice['pronunciations'], cache_root: @cache, key_cwd: @key_cwd)
         scene['narration']['measured_ms'] = res[:measured_ms]
       end
     end
@@ -222,7 +225,7 @@ module WalkthroughRender
       scenes.select { |s| targeted?(s) }.each do |scene|
         image_requests(scene).reject { |r| image_cached?(r) }.each do |req|
           say("#{scene['id']}: image")
-          @p[:image].call(**req, cache_root: @cache, screen: scene['id'], attempts: attempts)
+          @p[:image].call(**req, cache_root: @cache, screen: scene['id'], attempts: attempts, key_cwd: @key_cwd)
         end
       end
     end
@@ -238,7 +241,7 @@ module WalkthroughRender
         elsif @silent
                 { mode: spec['fallback'], path: nil, reason: 'the silent cut never generates' }
         else
-                @p[:broll].call(**broll_args(scene), fallback: spec['fallback'], cache_root: @cache, budget: @budget)
+                @p[:broll].call(**broll_args(scene), fallback: spec['fallback'], cache_root: @cache, budget: @budget, key_cwd: @key_cwd)
         end
         say(res[:mode] == 'generated' ? "#{scene['id']}: b-roll generated" : "#{scene['id']}: b-roll #{res[:mode]} fallback (#{res[:reason]})")
         broll_frames(scene, res)
@@ -522,7 +525,7 @@ module WalkthroughRender
 
       recheck_music_spend!(music_ms(total_ms))
       say('music: composing')
-      @p[:music].call(**music_block, length_ms: music_ms(total_ms), cache_root: @cache)
+      @p[:music].call(**music_block, length_ms: music_ms(total_ms), cache_root: @cache, key_cwd: @key_cwd)
     end
 
     # -- assembly (cache only) -----------------------------------------------
@@ -1019,7 +1022,7 @@ module WalkthroughRender
       info = {}
       critic = @p[:roast].call(**inputs, cache_root: @cache, allow_sensitive: @gates[:allow_sensitive], backend: effective == 'codex' ? requested : 'api',
                                          probed: true, info: info, out: @out, codex_runner: @p[:codex_runner], pin: roast_pin,
-                                         max_usd: (roast_fallback_usd if effective == 'codex'))
+                                         max_usd: (roast_fallback_usd if effective == 'codex'), key_cwd: @key_cwd)
       Roast.write_round(roast_dir, inputs[:round], critic)
       WalkthroughRoast.record_spend(roast_dir, inputs[:round], info[:backend] == 'codex' ? 0.0 : api_usd, backend: info[:backend], subscription_tokens: info[:subscription_tokens])
       WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
@@ -1332,7 +1335,7 @@ module WalkthroughRender
       say('silent cut: rendering the free first cut before paid audio')
       Run.new(@root, providers: @providers, out: @out, board: WalkthroughDraftBoard.silent(@board),
                      gates: @gates.merge(roast: false), burn_captions: @burn_captions, silent: true,
-                     provisional: anchored_board?, recapture: @recapture, filmed: @filmed).call
+                     provisional: anchored_board?, recapture: @recapture, filmed: @filmed, key_cwd: @key_cwd).call
     rescue StandardError => e
       say("silent cut failed: #{e.class}: #{e.message.lines.first.to_s.strip}; the run stopped before any paid call " \
           '(no narration, music, image, or b-roll spend); fix the cause and rerun')
@@ -1425,7 +1428,7 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final|--final-only] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
-          '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--backend auto|codex|api] [--recapture]' \
+          '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--backend auto|codex|api] [--recapture] [--project DIR]' \
           "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report" \
           "\n  --recapture films every live scene again, changed or not (film after a deploy); without it only changed live scenes refilm"
   dir = ARGV.first
@@ -1438,6 +1441,11 @@ if __FILE__ == $PROGRAM_NAME
       abort(e.message)
     end
     exit 0
+  end
+  begin
+    project = KeyProject.take_option(ARGV)
+  rescue KeyProject::Invalid => e
+    abort(e.message)
   end
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
@@ -1457,8 +1465,10 @@ if __FILE__ == $PROGRAM_NAME
             roast: roast[:roast], roast_max_usd: roast[:max_usd], roast_target: roast[:target],
             roast_rounds: roast[:rounds], roast_model: roast[:model], roast_backend: roast[:backend], roast_model_pinned: roast[:model_pinned], roast_review: roast[:review],
             allow_fidelity: ARGV.include?('--allow-fidelity-findings'), fidelity_targets: fidelity_targets }
+  key_cwd = Dir.pwd
   begin
-    WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
+    key_cwd = KeyProject.resolve_lazily(argv_project: project)
+    WalkthroughRender::Run.new(dir, scene: scene, key_cwd: key_cwd, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'),
                                final_only: ARGV.include?('--final-only'))
                           .call(estimate_only: ARGV.include?('--estimate-only'))
@@ -1468,9 +1478,11 @@ if __FILE__ == $PROGRAM_NAME
     abort("refused: #{e.message}")
   rescue WalkthroughStory::MissingStoryError => e
     exit(WalkthroughStory.report(e))
+  rescue KeyProject::Invalid => e
+    abort(e.message)
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)
   rescue CfProviderError::Failure => e
-    WalkthroughEnv.key_error_exit!(e)
+    WalkthroughEnv.key_error_exit!(e, cwd: key_cwd)
   end
 end
