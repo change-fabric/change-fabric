@@ -228,6 +228,7 @@ module ResourceGate
     def initialize(platform:, repo_file:, user_file:, env:)
       @warnings = []
       @config = load_yaml(repo_file) || {}
+      @warnings << "shipped floors defaults missing at #{repo_file}; using built-in fallbacks" unless File.file?(repo_file)
       min = PLATFORM_MIN.fetch(platform)
       @floor = { 'ram_mb' => min[:ram_mb], 'disk_gb' => min[:disk_gb] }
       raise_with(@config['floors'], repo_file, warn: false) # shipped defaults, below the macOS minimum by design
@@ -285,8 +286,8 @@ module ResourceGate
     # separate lists run one after another.
     def check(batches: [], worktrees: 1, reclaim_safe: false)
       ops = batches.flatten.map { |b| b[:op] }.uniq
-      need_docker = ops.any? { |op| docker_op?(op) }
       resolved = resolve(ops)
+      need_docker = ops.any? { |op| docker_op?(op) } || resolved.values.any? { |r| r[:docker_mem_mb].positive? || r[:docker_disk_gb].positive? }
       reclaimed = { disk_gb: 0.0, pids: [] }
       reading = measure(need_docker)
       below = shortfalls(reading, batches, resolved, worktrees)
@@ -424,7 +425,13 @@ module ResourceGate
   end
 
   USER_FLOORS_FILE = File.join(Dir.home, '.claude', 'cf', 'config', 'resource_floors.yml')
-  REPO_FLOORS_FILE = File.expand_path('../config/resource_floors.yml', __dir__)
+  # An installed copy carries the shipped defaults as resource_floors.defaults.yml,
+  # because resource_floors.yml beside it is the user's own override file.
+  def self.defaults_file
+    config = File.expand_path('../config', __dir__)
+    installed = File.join(config, 'resource_floors.defaults.yml')
+    File.exist?(installed) ? installed : File.join(config, 'resource_floors.yml')
+  end
 
   # Parses "op:count,op:count" into [{op:, count:}]; raises ArgumentError.
   def self.parse_batch(text)
@@ -452,7 +459,7 @@ module ResourceGate
   def self.build_gate(project, opts, env)
     platform = ResourceGate.platform
     runner = Runner.new
-    floors = Floors.new(platform: platform, repo_file: REPO_FLOORS_FILE, user_file: USER_FLOORS_FILE, env: env)
+    floors = Floors.new(platform: platform, repo_file: defaults_file, user_file: USER_FLOORS_FILE, env: env)
     pids = opts[:session] ? CfPids.new(session: opts[:session]) : nil
     Gate.new(project: project, floors: floors, mem: MemReader.new(platform: platform, runner: runner), disk: DiskReader.new(runner: runner),
              docker: DockerReader.new(platform: platform, runner: runner),

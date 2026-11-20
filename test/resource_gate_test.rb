@@ -244,6 +244,29 @@ class ResourceGateTest < Minitest::Test
     assert_equal 38, r.json[:need][:disk_gb] # 10 + 8 + 20
   end
 
+  def test_unmeasured_op_in_a_docker_repo_reads_docker_and_fails_closed_without_a_reader
+    File.write(File.join(@project, "compose.yaml"), "services: {}")
+    r = gate(mem: mem(30_000), disk: 80.0).check(batches: [ batch([ "boot", 1 ]) ])
+    assert_equal 4, r.exit_code
+    assert(r.json[:notes].any? { |n| n.include?("docker") })
+  end
+
+  def test_unmeasured_op_in_a_docker_repo_is_held_to_the_docker_vm_cap
+    File.write(File.join(@project, "Dockerfile"), "FROM scratch")
+    r = gate(mem: mem(60_000), disk: 80.0, docker: SeqReader.new(docker_ok(total: 8000, used: 1000))).check(batches: [ batch([ "boot", 1 ]) ])
+    assert_equal 3, r.exit_code
+    assert(r.json[:notes].any? { |n| n.include?("exceeds VM cap") })
+  end
+
+  def test_missing_shipped_defaults_file_is_warned_not_silent
+    f = RG::Floors.new(platform: "linux", repo_file: File.join(@tmp, "absent.yml"), user_file: @user_yml, env: {})
+    assert(f.warnings.any? { |w| w.include?("absent.yml") })
+  end
+
+  def test_defaults_file_resolves_to_a_shipped_file_that_exists
+    assert File.file?(RG.defaults_file)
+  end
+
   def test_one_default_op_makes_the_result_provisional_in_a_partial_profile
     profile = { "a" => fresh(500) }
     r = gate(mem: mem(20_000), disk: 50.0, profile: profile).check(batches: [ batch([ "a", 1 ], [ "unknown", 1 ]) ])

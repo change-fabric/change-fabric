@@ -71,6 +71,13 @@ module Install
     def provider_registry_dests
       [ File.join(state_root, 'config', 'providers.yml'), File.join(runtime_root, 'config', 'providers.yml') ]
     end
+    def resource_floors      = File.join(@repo, 'config', 'resource_floors.yml')
+
+    # The installed copy is named *.defaults.yml: ~/.claude/cf/config/resource_floors.yml
+    # is the user's own override file, which an install must never overwrite.
+    def resource_floors_dests
+      [ File.join(state_root, 'config', 'resource_floors.defaults.yml'), File.join(runtime_root, 'config', 'resource_floors.defaults.yml') ]
+    end
     def state_root           = File.join(@home, '.claude', 'cf')
     def legacy_state_root    = File.join(@home, '.claude', 'pst')
     def skills_root          = File.join(@home, '.claude', 'skills')
@@ -688,6 +695,10 @@ module Install
         # Beside it, so scripts/model_roles.rb finds the repo map from a runtime copy.
         FileUtils.cp(@paths.model_roles_file, File.join(File.dirname(dest), 'model_roles.yml'))
       end
+      @paths.resource_floors_dests.each do |dest|
+        FileUtils.mkdir_p(File.dirname(dest))
+        FileUtils.cp(@paths.resource_floors, dest)
+      end
     end
 
     def remove_stale_managed_scripts(current_names)
@@ -850,6 +861,7 @@ module Install
       files.concat(@paths.lib_glob.flat_map { |source| [ @paths.lib_dest(source), @paths.lib_dest(source, @paths.runtime_bin) ] })
       files << File.join(@paths.runtime_root, 'config', 'host_capabilities.json')
       files.concat(@paths.provider_registry_dests)
+      files.concat(@paths.resource_floors_dests)
       files << File.expand_path('../../bin/cf', @paths.runtime_root)
       files << @paths.manifest
       files << File.join(@paths.bin, '.expected-home')
