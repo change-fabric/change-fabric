@@ -250,8 +250,11 @@ fresh session that will execute the plan.
    5. Round 2 runs only if
       `ruby ~/.claude/cf/bin/roast.rb decide --out-dir <plan_dir>/roast`
       says continue and the summed estimates, round 2's own included, stay at
-      or under 0.50 USD. There is never a round 3. When `decide` stops and
-      prints `followups:`, run the local pass in `skills/roast/SKILL.md` under
+      or under 0.50 USD. There is never a round 3. After the last round that
+      ran (round 2, or round 1 when the budget ends the loop), run
+      `roast.rb decide --out-dir <plan_dir>/roast --cap <rounds completed>`,
+      so the plan's own cap counts as the stop and its open P1s are written
+      to `followups`. When `decide` stops and prints `followups:`, run the local pass in `skills/roast/SKILL.md` under
       "Open P1s at the stop" over `roast/round-N.response.json` (no further
       paid round) and list each `unresolved` or `escalated` follow-up under
       `## Roast`.

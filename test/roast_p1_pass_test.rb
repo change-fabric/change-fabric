@@ -200,4 +200,9 @@ class RoastP1PassTest < Minitest::Test
     text = File.read(File.join(ROOT, "skills/brainstorm/SKILL.md"))
     assert_match(/roast\.rb decide --out-dir <plan_dir>\/roast --cap 1/, text)
   end
+
+  def test_plan_materializes_followups_at_its_own_cap
+    text = File.read(File.join(ROOT, "skills/plan/SKILL.md"))
+    assert_match(/decide --out-dir <plan_dir>\/roast --cap <rounds completed>/, text)
+  end
 end
