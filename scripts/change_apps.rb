@@ -6,6 +6,7 @@ require_relative 'change_config'
 require_relative 'change_delivery_schema'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
+require_relative 'change_prod_classes'
 require_relative 'change_schema'
 
 # Reads a root CHANGE.md's change_config.apps registry (schema 0.4.0), the
@@ -138,6 +139,7 @@ class ChangeAppRegistry
     lines.concat(gate_scope_errors(change_md_path))
     lines.concat(tracker_policy_errors(change_md_path))
     lines.concat(delivery_lines(change_md_path))
+    lines.concat(prod_class_lines(change_md_path))
     lines.concat(promotion_target_lines(change_md_path))
     lines.concat(require_scheduled_lines(change_md_path))
 
@@ -231,6 +233,14 @@ class ChangeAppRegistry
     []
   end
   private_class_method :delivery_lines
+
+  # Prod op classes and the one-way-door linkage note. Silent with no operations.
+  def self.prod_class_lines(change_md_path)
+    ChangeProdClasses.report(ChangeFrontmatter.parse_file(change_md_path))
+  rescue StandardError
+    []
+  end
+  private_class_method :prod_class_lines
 
   def self.delivery_rollout_line(rollout)
     stages = rollout.stages.map { |stage| stage.is_a?(Hash) ? stage['cohort'] : '?' }.join(' > ')

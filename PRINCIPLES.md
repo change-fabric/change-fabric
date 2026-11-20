@@ -86,10 +86,10 @@ Enforcer: scripts/change_merge_guard.rb, scripts/change_tag_guard.rb, scripts/ch
 one-use TOTP code and refuse without a TTY or in an agent harness. Prod ops run
 only via the generated cf-prod workflow: the runner verifies approval offline, a
 terminal proof is staging only, and `prod_approval_guard.rb` denies agents the
-approval, environment and refs/cf-prod paths. An admin token can bypass hooks.
-cf:incident never runs a prod command or pushes a tag; it drafts a manual script.
+approval, environment and refs/cf-prod paths. Every op class needs both factors.
+An admin token can bypass hooks. cf:incident runs no prod command or tag push.
 
-Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb, scripts/prod_approval_guard.rb, scripts/change_prod_gate.rb, test/incident_skill_test.rb
+Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb, scripts/prod_approval_guard.rb, scripts/change_prod_gate.rb, scripts/change_prod_classes.rb, test/incident_skill_test.rb
 
 ## Only Patrick's phone approves; one Recorder writes every approval store
 

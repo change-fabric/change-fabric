@@ -4,6 +4,7 @@
 require 'json'
 require 'open3'
 require 'optparse'
+require_relative 'change_prod_classes'
 require_relative 'change_prod_envelope'
 require_relative 'change_prod_store'
 
@@ -58,6 +59,8 @@ module ChangeProdRequest
     ChangeProdStore.new(opts[:repo]).create('requests', envelope['request_id'], envelope, push: opts[:push])
     stdout.puts "request_id: #{envelope['request_id']}"
     stdout.puts "digest: #{envelope['digest']}"
+    notice = ChangeProdClasses.notify_text(envelope, config)
+    stdout.puts notice if notice
     stdout.puts "A human must now approve it: ruby ~/.claude/cf/bin/change_prod_approve.rb #{envelope['request_id']}"
     0
   end
