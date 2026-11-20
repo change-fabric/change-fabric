@@ -162,7 +162,7 @@ module DeepResearch
     def finish_ingest(dir, record, opts, sha)
       xml_path = File.join(dir, 'raw.xml.tmp')
       xml = extract(opts[:pdf], xml_path)
-      refuse_secrets(DeepResearchParse.text(xml), xml_path)
+      refuse_secrets(DeepResearchParse.scannable_text(xml), xml_path)
       check_binding(xml, record)
       File.rename(xml_path, File.join(dir, 'raw.xml'))
       FileUtils.cp(opts[:pdf], File.join(dir, 'report.pdf'))

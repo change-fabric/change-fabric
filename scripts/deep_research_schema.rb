@@ -53,6 +53,9 @@ module DeepResearchSchema
     errors << "#{at}.status unknown" unless STATUSES.include?(finding['status'])
     errors << "#{at}.source_ids must be an array" unless finding['source_ids'].is_a?(Array)
     errors << "#{at}.quote must be a string or null" unless finding.key?('quote') && nullable_str?(finding['quote'])
+    unless finding['unresolved_citations'].is_a?(Integer) && finding['unresolved_citations'] >= 0
+      errors << "#{at}.unresolved_citations must be a non-negative integer"
+    end
     %w[citation_resolves has_quote].each do |k|
       errors << "#{at}.#{k} must be boolean" unless [ true, false ].include?(finding[k])
     end

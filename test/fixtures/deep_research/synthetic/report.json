@@ -16,6 +16,7 @@
         "S1"
       ],
       "quote": "plain text diffs cleanly",
+      "unresolved_citations": 0,
       "citation_resolves": true,
       "has_quote": true
     },
@@ -28,6 +29,7 @@
         "S3"
       ],
       "quote": null,
+      "unresolved_citations": 0,
       "citation_resolves": true,
       "has_quote": false
     },
@@ -39,6 +41,7 @@
         "S3"
       ],
       "quote": null,
+      "unresolved_citations": 0,
       "citation_resolves": true,
       "has_quote": false
     },
@@ -50,6 +53,7 @@
         "S3"
       ],
       "quote": null,
+      "unresolved_citations": 0,
       "citation_resolves": true,
       "has_quote": false
     },
@@ -61,6 +65,7 @@
         "S2"
       ],
       "quote": null,
+      "unresolved_citations": 0,
       "citation_resolves": true,
       "has_quote": false
     }

@@ -165,6 +165,17 @@ class DeepResearchCliTest < Minitest::Test
     assert File.exist?(File.join(out_dir, "report.json"))
   end
 
+  def test_ingest_refuses_a_secret_hidden_in_a_link_target
+    DeepResearchStore.create(record, "p")
+    secret = "ghp_#{"b" * 30}"
+    bad = StoredExtractor.new(xml("Findings", "1. Claim.", "Sources", [ "1. Doc", "https://example.org/?x=#{secret}" ]))
+    code, _out, err = cli("ingest", "--run", RUN_ID, "--pdf", synthetic_pdf, extractor: bad)
+    assert_equal 2, code
+    assert_includes err, "provider token"
+    refute_includes err, secret
+    refute File.exist?(File.join(DeepResearchStore.run_dir("synthetic", RUN_ID), "raw.xml"))
+  end
+
   def test_ingest_without_pdftohtml_names_p2
     DeepResearchStore.create(record, "p")
     saved = ENV["PATH"]

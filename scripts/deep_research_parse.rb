@@ -17,7 +17,9 @@ module DeepResearchParse
   MARKER_RE = /\[(\d+(?:\s*[,;]\s*\d+)*)\]/
   TOKEN_RE = /【\s*(\d+)\s*†\s*(L\d+(?:\s*-\s*L?\d+)?)\s*】/
   LIST_MARKER_RE = /\A\s*(?:(\d+)\.|([•*-]))\s*\z/
-  NONE_RE = /\A\s*(none\b|we found no\b|no (direct )?(contradictions?|conflicts?)\b)/i
+  # A standalone empty-section reply. Anything that carries a citation, or
+  # makes a claim beyond "none", is a finding.
+  NONE_RE = /\A\s*(none\.?|none (found|identified|noted)\b.*|(we )?(found |identified )?no (direct )?(contradictions?|conflicts?|disagreements?)\b.*)\z/i
   QUOTE_RE = /["“](.+?)["”]/
   URL_RE = %r{https?://[^\s<>"”【]+}
   LINE_TOLERANCE = 6
@@ -68,6 +70,12 @@ module DeepResearchParse
 
   def text(xml) = lines(xml).map(&:text).join("\n")
 
+  # Visible text plus every decoded link target, for the secret scan.
+  def scannable_text(xml)
+    targets = xml.scan(/href="([^"]*)"/).flatten.map { |h| CGI.unescapeHTML(h) }
+    [ text(xml), *targets ].join("\n")
+  end
+
   def page_one_text(xml) = lines(xml).select { |l| l.page == 1 }.map(&:text).join("\n")
 
   # Joins wrapped lines. A hyphen or a URL cut at a slash rejoins with no space.
@@ -93,9 +101,10 @@ module DeepResearchParse
                                                         .reject { |i| none_item?(i, name, diagnostics) }
     end
     all = findings.each { |i| i[:status] = 'unverified' } + extras
-    result = build(all, sources, { dup: dup, urlless: urlless }, diagnostics)
+    known = { dup: dup, urlless: urlless, conflict: {} }
+    result = build(all, sources, known, diagnostics)
     summary = normalize_tokens(join(sections['summary'].map(&:text)))
-    result[:citations].concat(cite(summary, 'summary', 'summary', result[:by_ref], result[:by_number], diagnostics, { dup: dup, urlless: urlless }))
+    result[:citations].concat(cite(summary, 'summary', 'summary', result[:by_ref], result[:by_number], diagnostics, known))
     result.except(:by_ref, :by_number).merge(
       summary: summary, diagnostics: diagnostics,
       link_annotations: annotation_level(all_lines.any? { |l| l.links.any? }, unlinked)
@@ -103,7 +112,7 @@ module DeepResearchParse
   end
 
   def none_item?(item, name, diagnostics)
-    return false unless item[:text].match?(NONE_RE)
+    return false unless item[:text].match?(NONE_RE) && !item[:text].match?(TOKEN_RE) && !item[:text].match?(MARKER_RE)
 
     diagnostics << "#{name} section reports none"
     true
@@ -229,12 +238,22 @@ module DeepResearchParse
     out_sources = sources.map { |s| { 'id' => "S#{s[:number]}", 'url' => s[:url], 'title' => s[:title] } }
     by_number = sources.to_h { |s| [ s[:number], "S#{s[:number]}" ] }
     by_ref = {}
-    sources.each { |s| s[:refs].each { |r| by_ref[r] ||= "S#{s[:number]}" } }
+    ref_sources = Hash.new { |h, k| h[k] = [] }
+    sources.each { |s| s[:refs].each { |r| ref_sources[r] << s } }
+    ref_sources.each do |ref, owners|
+      if owners.map { |o| o[:url] }.uniq.size > 1
+        known[:conflict][ref] = owners.map { |o| o[:number] }
+      else
+        by_ref[ref] = "S#{owners.first[:number]}"
+      end
+    end
     findings = []
     citations = []
     all.each_with_index do |item, i|
       id = "F#{i + 1}"
+      before = diagnostics.size
       cites = cite(item[:text], id, 'claim', by_ref, by_number, diagnostics, known)
+      unresolved = diagnostics.size - before
       ids = cites.map { |c| c['source_id'] }
       item[:links].each do |href|
         source = out_sources.find { |s| s['url'] == href } || add_chip(out_sources, href)
@@ -245,14 +264,15 @@ module DeepResearchParse
       end
       citations.concat(cites)
       findings << { 'id' => id, 'claim' => item[:text], 'status' => item[:status] == 'contested' ? 'contested' : 'unverified',
-                    'source_ids' => ids.uniq, 'quote' => item[:text][QUOTE_RE, 1] }
+                    'source_ids' => ids.uniq, 'quote' => item[:text][QUOTE_RE, 1],
+                    'unresolved_citations' => unresolved }
     end
     { findings: findings, sources: out_sources, citations: citations, by_ref: by_ref, by_number: by_number }
   end
 
   # Citations for one text: ref tokens by ref id, `[n]` markers by number. A
   # span is set only when the marker occurs once in the text.
-  def cite(text, finding_id, basis, by_ref, by_number, diagnostics, known = { dup: [], urlless: {} })
+  def cite(text, finding_id, basis, by_ref, by_number, diagnostics, known = { dup: [], urlless: {}, conflict: {} })
     out = []
     text.scan(TOKEN_RE) do |ref, _|
       m = Regexp.last_match
@@ -280,6 +300,8 @@ module DeepResearchParse
   end
 
   def ref_diagnostic(finding_id, ref, known)
+    return "#{finding_id}: ref #{ref} maps to conflicting sources #{known[:conflict][ref].join(', ')}; left unresolved" if known[:conflict][ref]
+
     number = known[:urlless][ref]
     return "#{finding_id}: ref #{ref} has no source entry" unless number
 

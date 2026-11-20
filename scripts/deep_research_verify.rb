@@ -16,7 +16,7 @@ module DeepResearchVerify
     source_ids = report['sources'].map { |s| s['id'] }
     report['findings'].each do |f|
       ids = f['source_ids']
-      f['citation_resolves'] = !ids.empty? && ids.all? { |id| source_ids.include?(id) }
+      f['citation_resolves'] = !ids.empty? && f['unresolved_citations'].zero? && ids.all? { |id| source_ids.include?(id) }
       f['has_quote'] = !f['quote'].to_s.strip.empty?
       f['status'] = 'unverified' unless f['status'] == 'contested'
     end

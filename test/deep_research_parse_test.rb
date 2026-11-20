@@ -137,6 +137,31 @@ class DeepResearchParseTest < Minitest::Test
     assert_equal "version-controlled text.", DeepResearchParse.join(lines.map(&:text))
   end
 
+  def test_negative_claims_with_citations_stay_findings_under_unverified
+    parsed = parse("Unverified", marked(1, "None of the providers publish retention limits. [1]"),
+                   marked(2, "We found no evidence of encryption. [2]"), marked(3, "None."))
+    assert_equal [ "None of the providers publish retention limits. [1]", "We found no evidence of encryption. [2]" ],
+                 parsed[:findings].map { |f| f["claim"] }
+    assert_includes parsed[:diagnostics], "unverified section reports none"
+  end
+
+  def test_a_ref_shared_by_sources_with_different_urls_is_left_unresolved
+    token = "【42†L1-L2】"
+    parsed = parse("Findings", marked(1, "Claim #{token}."), "Sources",
+                   marked(1, "A URL: https://example.org/a #{token}"), marked(2, "B URL: https://example.org/b #{token}"))
+    assert_equal [ [] ], parsed[:findings].map { |f| f["source_ids"] }
+    assert_equal 1, parsed[:findings][0]["unresolved_citations"]
+    assert_includes parsed[:diagnostics], "F1: ref 42 maps to conflicting sources 1, 2; left unresolved"
+  end
+
+  def test_a_partly_unresolved_citation_is_not_marked_resolved
+    parsed = parse("Findings", marked(1, "Claim. [1, 9]"), "Sources", marked(1, "A URL: https://example.org/a"))
+    report = DeepResearchVerify.annotate("sources" => parsed[:sources], "findings" => parsed[:findings])
+    assert_equal [ %w[S1] ], report["findings"].map { |f| f["source_ids"] }
+    assert_equal 1, report["findings"][0]["unresolved_citations"]
+    assert_equal false, report["findings"][0]["citation_resolves"]
+  end
+
   # The real ChatGPT export fixture (Patrick's first manual run). The export
   # holds the report only: no prompt, no run id, no link annotations.
   def test_chatgpt_fixture_matches_its_expected_report

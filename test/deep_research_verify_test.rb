@@ -11,7 +11,7 @@ class DeepResearchVerifyTest < Minitest::Test
   end
 
   def finding(overrides)
-    { "id" => "F1", "claim" => "c", "status" => "unverified", "source_ids" => [ "S1" ], "quote" => "q" }.merge(overrides)
+    { "id" => "F1", "claim" => "c", "status" => "unverified", "source_ids" => [ "S1" ], "quote" => "q", "unresolved_citations" => 0 }.merge(overrides)
   end
 
   def test_a_fabricated_quote_stays_unverified
