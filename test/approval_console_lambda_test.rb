@@ -250,7 +250,7 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     tags = html.scan(/<(?:script|style)\b[^>]*>/)
     refute_empty tags
     assert(tags.all? { |tag| tag.include?(%(nonce="#{nonce}")) }, "every script and style carries the response nonce")
-    %w[type machine_id repo sha request_id created_at expires_at summary pr_url].each { |field| assert_includes html, "<dt>#{field}</dt>" }
+    %w[type machine_id repo sha request_id created_at expires_at summary pr_url].each { |field| assert_includes html, %(data-field="#{field}") }
     assert_includes html, SHA
     assert_includes html, "userVerification:'required'"
   end
@@ -260,7 +260,7 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     _, rid = pending_request
     @now += 3600
     _, html, = call("GET", "/m/#{MID}/r/#{rid}")
-    assert_includes html, "This request is expired."
+    assert_includes html, "This request expired at"
     refute_includes html, 'id="go"'
   end
 
@@ -275,10 +275,10 @@ class ApprovalConsoleLambdaTest < Minitest::Test
 
   def test_the_page_lists_the_signed_files_base_and_title_with_links_from_signed_fields
     html = page_html(request_body)
-    assert_includes html, "<li><code>scripts/a.rb</code></li>"
-    assert_includes html, "<li><code>scripts/b.rb</code></li>"
-    assert_includes html, "<dd>main</dd>"
-    assert_includes html, "<dd>Add a thing</dd>"
+    assert_includes html, %(<li><code data-field="files.0">scripts/a.rb</code></li>)
+    assert_includes html, %(<li><code data-field="files.1">scripts/b.rb</code></li>)
+    assert_includes html, %(<code data-field="base">main</code>)
+    assert_includes html, %(<q data-field="pr_title">Add a thing</q>)
     assert_includes html, 'href="https://github.com/acme/app/commit/' + SHA + '"'
     assert_includes html, 'href="https://github.com/acme/app/pull/9"'
   end
@@ -537,7 +537,7 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_equal 200, signed("POST", "/m/#{MID}/terminal-approve", { "body" => body, "code" => totp })[0]
     assert_equal "approved", @store.get("M##{MID}", "REQ##{rid}")["status"]
     assert_equal "terminal", @store.get("M##{MID}", "REQ##{rid}")["channel"]
-    assert_includes call("GET", "/m/#{MID}/r/#{rid}")[1], "This request is approved."
+    assert_includes call("GET", "/m/#{MID}/r/#{rid}")[1], "Already approved."
     @now += 30
     status, data = approve(body, rid)
     assert_equal [ 409, "not_pending" ], [ status, data["error"] ]

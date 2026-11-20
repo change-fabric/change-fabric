@@ -196,5 +196,9 @@ cream and lilac on dark.
 - Do not introduce a fifth authored color without a stated reason (the
   sanctioned exception is a single `--error` token, if the site ever needs
   one).
+  The approval console adds one `--danger` token for high-risk approvals only,
+  always beside an icon and a word, never as the only signal. Its value is a
+  deep red per color scheme: #b0182c on cream (6.1:1) and #ff9b9b on plum
+  (8.7:1), both above 4.5:1.
 - Do not add cards, gradients, shadows, glows, or colored badges.
 - Do not hardcode a hex value in a component; use the variables.

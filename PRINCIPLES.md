@@ -96,9 +96,9 @@ Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb
 Agents start approvals (`--remote`, `request`; `record <id>` resumes); only a
 phone passkey receipt stands, since the TOTP seed and machine key sit on the
 agent's host. `ApprovalConsole::Recorder` alone writes the four stores. The
-phone shows only signed fields: links, files, base, tag and commit, never agent text.
+phone builds links only from signed fields; agent text shows in a separate unverified zone.
 
-Enforcer: scripts/approval_console/proof_check.rb, scripts/approval_console/recorder.rb, scripts/secrets_read_guard.rb, approval_console/infra/lambda/pages.rb, test/approval_console_lambda_test.rb
+Enforcer: scripts/approval_console/proof_check.rb, scripts/approval_console/recorder.rb, scripts/secrets_read_guard.rb, approval_console/infra/lambda/pages.rb, test/approval_console_lambda_test.rb, test/approval_console_pages_test.rb
 
 ## Approval policy comes from the base or default branch
 

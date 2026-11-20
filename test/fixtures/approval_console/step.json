@@ -1,0 +1,37 @@
+{
+  "type": "step",
+  "machine_id": "4f2a91c0-7b3d-4e58-9a16-2c8d5e0f7b34",
+  "repo": "repo:github.com/example-org/billing-api",
+  "sha": "32def92a41c7b0d5e68f19a3c4b7d20e91f5a6c8",
+  "profile": null,
+  "request_id": "8c03d7e1-52fa-4b96-a0d3-6e1f9b27c845",
+  "created_at": "2026-11-20T21:28:04Z",
+  "expires_at": "2026-11-20T21:43:04Z",
+  "items": [
+    {
+      "step": "migrate",
+      "base_fields": {
+        "rows": 10,
+        "mode": "strict"
+      },
+      "fields": {
+        "rows": 12,
+        "note": "safe AGENTMARK-note \u202e reversed \u200d joined",
+        "nested": {
+          "deep": [
+            "x",
+            "AGENTMARK-deep"
+          ]
+        }
+      }
+    },
+    {
+      "step": "seed",
+      "base_fields": null,
+      "fields": {
+        "count": 3,
+        "label": "AGENTMARK-label"
+      }
+    }
+  ]
+}
