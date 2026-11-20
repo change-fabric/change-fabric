@@ -138,9 +138,8 @@ class IncidentStore
 
     id = "#{stamp.utc.strftime('%Y-%m-%d')}-#{clean}"
     dir = File.join(repo_dir, id)
-    raise Invalid, "incident #{id} already exists for #{@repo}" if File.exist?(dir)
-
     claim_repo_dir!
+    reserve!(dir, id)
     FileUtils.mkdir_p(File.join(dir, 'evidence'))
     write_json(File.join(dir, 'incident.json'), new_record(id, client, severity, at))
     write_json(File.join(dir, 'ops.json'), [])
@@ -241,6 +240,7 @@ class IncidentStore
     locked(id) do |dir|
       file = File.join(dir, 'incident.json')
       inc = read_json(file)
+      refuse_closed!(inc)
       item = { 'title' => title.to_s.strip, 'url' => blank?(url) ? nil : url.to_s.strip }
       item['state'] = item['url'] ? 'tracked' : 'drafted'
       inc['follow_ups'] << item
@@ -260,6 +260,7 @@ class IncidentStore
     locked(id) do |dir|
       file = File.join(dir, 'incident.json')
       inc = read_json(file)
+      refuse_closed!(inc)
       item = inc['follow_ups'][n.to_i - 1] if n.to_i.positive?
       raise Invalid, "no follow-up #{n.inspect} in #{id}" unless item
 
@@ -293,6 +294,13 @@ class IncidentStore
 
   # Two repo names can slug alike (a-b/c and a/b-c), so the first create writes
   # the full name beside the incidents and a different name is refused.
+  # Dir.mkdir is atomic: of two sessions creating the same id, one gets EEXIST.
+  def reserve!(dir, id)
+    Dir.mkdir(dir)
+  rescue Errno::EEXIST
+    raise Invalid, "incident #{id} already exists for #{@repo}"
+  end
+
   def claim_repo_dir!
     FileUtils.mkdir_p(repo_dir)
     marker = File.join(repo_dir, '.repo')
@@ -405,6 +413,10 @@ class IncidentStore
     inc['verified_at'] = stamp
     # Real clock: close compares it with the RCA file's mtime.
     inc['verified_mark'] = Time.now.to_f
+  end
+
+  def refuse_closed!(inc)
+    raise Invalid, "#{inc['id']} is closed; open a new incident instead" if inc['status'] == 'closed'
   end
 
   def verify!(inc)

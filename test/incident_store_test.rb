@@ -85,6 +85,13 @@ class IncidentStoreTest < Minitest::Test
     assert_invalid(/already exists/) { make }
   end
 
+  def test_create_reserves_the_directory_atomically
+    dir = File.join(@root, "acme-web", "2026-03-02-race")
+    FileUtils.mkdir_p(dir)
+    assert_invalid(/already exists/) { store.create(slug: "race", at: T0) }
+    assert_empty Dir.children(dir)
+  end
+
   def test_ids_are_repo_scoped
     make
     other = IncidentStore.new(repo: "acme/api", root: @root).create(slug: "bad-fixture", at: T0)
@@ -524,6 +531,16 @@ class IncidentStoreTest < Minitest::Test
     s = reach_reported(id)
     write_rca(id)
     assert_invalid(/hotfix fields not recorded: pr_url, merge_sha/) { s.close(id, at: T2) }
+  end
+
+  def test_follow_ups_cannot_change_on_a_closed_incident
+    id = make
+    s = reach_reported(id)
+    record_hotfix(s, id)
+    write_rca(id)
+    s.close(id, at: T2)
+    assert_invalid(/is closed/) { s.follow_up_add(id, title: "late", at: T2) }
+    assert_empty inc(id)["follow_ups"]
   end
 
   def test_nothing_changes_after_close
