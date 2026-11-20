@@ -786,4 +786,18 @@ class ChangeFlowCompilerTest < Minitest::Test
                                 base_url: "https://app.example.org").function_module
     assert_includes js, "started before this walk resumed"
   end
+
+  def test_budget_origins_live_in_a_map_so_a_label_cannot_hit_a_prototype_setter
+    js = ChangeFlowCompiler.new([ { "click" => "#a", "label" => "__proto__" },
+                                  { "wait_for_text" => { "text" => "x", "budget_ms" => 1, "budget_from" => "__proto__" } } ],
+                                base_url: "https://app.example.org").function_module
+    assert_includes js, "new Map()"
+    assert_includes js, "startedAtByTag.set(step.tag, startedAt)"
+    refute_includes js, "startedAtByTag["
+  end
+
+  def test_expect_stable_bounds_the_font_wait_by_the_step_timeout
+    js = ChangeFlowCompiler.new([ { "expect_stable" => { "var" => "h", "selector" => "h1" } } ], base_url: "https://app.example.org").function_module
+    assert_includes js, "document.fonts.ready was not settled within"
+  end
 end

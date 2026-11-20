@@ -434,7 +434,14 @@ class ChangeFlowCompiler
     // shift attributed to the element (entries whose sources touched it, minus
     // those right after input) must stay within maxCls.
     async function cfExpectStable(page, step, state, timeoutMs) {
-      await page.evaluate(() => (document.fonts ? document.fonts.ready.then(() => true) : true)).catch(() => true);
+      // Fonts get the step's own deadline: a stalled font request fails the
+      // step by name instead of running the whole browserless call out.
+      const fontsReady = page.evaluate(() => (document.fonts ? document.fonts.ready.then(() => true) : true)).catch(() => true);
+      let fontTimer = null;
+      const fontDeadline = new Promise((resolve) => { fontTimer = setTimeout(() => resolve("timeout"), timeoutMs); });
+      const fontOutcome = await Promise.race([ fontsReady, fontDeadline ]);
+      clearTimeout(fontTimer);
+      if (fontOutcome === "timeout") cfFail(`${step.label}: document.fonts.ready was not settled within ${timeoutMs}ms`);
       await cfWaitIdle(state, 500, timeoutMs, step.label);
       const last = await cfRead(page, step, timeoutMs);
       state.vars[step.var] = last;
@@ -577,7 +584,7 @@ class ChangeFlowCompiler
       // long it ran; a step's `budgetMs` is judged on the span from the start
       // of its `budgetFrom` step (or its own start) to its own end.
       const walkStart = Date.now();
-      const startedAtByTag = {};
+      const startedAtByTag = new Map();
       for (let position = 0; position < pending.length; position += 1) {
         const step = pending[position];
         const next = pending[position + 1];
@@ -587,7 +594,7 @@ class ChangeFlowCompiler
         const record = { index: step.index, verb: step.verb, label: step.label, raw: step.raw === true, ok: true, error: null };
         const startedAt = Date.now();
         record.startedAtMs = startedAt - walkStart;
-        if (step.tag) { record.tag = step.tag; startedAtByTag[step.tag] = startedAt; }
+        if (step.tag) { record.tag = step.tag; startedAtByTag.set(step.tag, startedAt); }
         try {
           const detail = await cfRunStep(page, step, state);
           if (detail) Object.assign(record, detail);
@@ -598,8 +605,8 @@ class ChangeFlowCompiler
         const endedAt = Date.now();
         record.durationMs = endedAt - startedAt;
         if (record.ok && step.budgetMs !== undefined) {
-          const known = step.budgetFrom === undefined || startedAtByTag[step.budgetFrom] !== undefined;
-          const from = step.budgetFrom !== undefined && known ? startedAtByTag[step.budgetFrom] : startedAt;
+          const known = step.budgetFrom === undefined || startedAtByTag.has(step.budgetFrom);
+          const from = step.budgetFrom !== undefined && known ? startedAtByTag.get(step.budgetFrom) : startedAt;
           const span = endedAt - from;
           record.spanMs = span;
           if (!known) {
