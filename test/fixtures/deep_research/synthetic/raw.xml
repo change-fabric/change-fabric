@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">
+
+<pdf2xml producer="poppler" version="26.07.0">
+<page number="1" position="absolute" top="0" left="0" height="1188" width="918">
+	<fontspec id="0" size="21" family="Helvetica" color="#000000"/>
+	<fontspec id="1" size="20" family="Helvetica" color="#000000"/>
+	<fontspec id="2" size="17" family="Helvetica" color="#000000"/>
+<text top="33" left="75" width="825" height="19" font="0">Deep research [dr-00000000-0000-4000-8000-000000000001]: Synthetic skeleton report</text>
+<text top="100" left="75" width="83" height="18" font="1">Summary</text>
+<text top="135" left="75" width="518" height="15" font="2">Synthetic sources agree that a small example report parses cleanly. [1]</text>
+<text top="199" left="75" width="74" height="18" font="1">Findings</text>
+<text top="234" left="75" width="535" height="15" font="2">1. Specs written in plain text diff well in review. [1] &#34;plain text diffs cleanly&#34;</text>
+<text top="267" left="75" width="457" height="15" font="2">2. Generated diagrams stay traceable to their source file. [2, 3]</text>
+<text top="300" left="75" width="381" height="15" font="2">3. Readers retain more after a short guided walk. [3]</text>
+<text top="364" left="75" width="72" height="18" font="1">Sources</text>
+<text top="399" left="75" width="389" height="15" font="2"><a href="https://example.org/spec">1. Example Spec Handbook https://example.org/spec</a></text>
+<text top="432" left="75" width="407" height="15" font="2"><a href="https://example.org/diagram">2. Example Diagram Guide https://example.org/diagram</a></text>
+<text top="465" left="75" width="318" height="15" font="2"><a href="https://example.org/study">3. Example Study https://example.org/study</a></text>
+<text top="529" left="75" width="88" height="18" font="1">Unverified</text>
+<text top="564" left="75" width="302" height="15" font="2">- Adoption figures were not confirmed. [3]</text>
+<text top="628" left="75" width="89" height="18" font="1">Contested</text>
+<text top="663" left="75" width="377" height="15" font="2">- Whether guided walks beat self-paced reading. [2]</text>
+</page>
+</pdf2xml>

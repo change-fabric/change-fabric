@@ -1,0 +1,58 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R 7 0 R 8 0 R] >>
+endobj
+4 0 obj
+<< /Length 1110 >>
+stream
+BT /F1 14 Tf 50 760 Td (Deep research [dr-00000000-0000-4000-8000-000000000001]: Synthetic skeleton report) Tj ET
+BT /F1 13 Tf 50 716 Td (Summary) Tj ET
+BT /F1 11 Tf 50 694 Td (Synthetic sources agree that a small example report parses cleanly. [1]) Tj ET
+BT /F1 13 Tf 50 650 Td (Findings) Tj ET
+BT /F1 11 Tf 50 628 Td (1. Specs written in plain text diff well in review. [1] "plain text diffs cleanly") Tj ET
+BT /F1 11 Tf 50 606 Td (2. Generated diagrams stay traceable to their source file. [2, 3]) Tj ET
+BT /F1 11 Tf 50 584 Td (3. Readers retain more after a short guided walk. [3]) Tj ET
+BT /F1 13 Tf 50 540 Td (Sources) Tj ET
+BT /F1 11 Tf 50 518 Td (1. Example Spec Handbook https://example.org/spec) Tj ET
+BT /F1 11 Tf 50 496 Td (2. Example Diagram Guide https://example.org/diagram) Tj ET
+BT /F1 11 Tf 50 474 Td (3. Example Study https://example.org/study) Tj ET
+BT /F1 13 Tf 50 430 Td (Unverified) Tj ET
+BT /F1 11 Tf 50 408 Td (- Adoption figures were not confirmed. [3]) Tj ET
+BT /F1 13 Tf 50 364 Td (Contested) Tj ET
+BT /F1 11 Tf 50 342 Td (- Whether guided walks beat self-paced reading. [2]) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Link /Rect [50 515 320 529] /Border [0 0 0] /A << /S /URI /URI (https://example.org/spec) >> >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Link /Rect [50 493 336 507] /Border [0 0 0] /A << /S /URI /URI (https://example.org/diagram) >> >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Link /Rect [50 471 281 485] /Border [0 0 0] /A << /S /URI /URI (https://example.org/study) >> >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000269 00000 n 
+0000001430 00000 n 
+0000001500 00000 n 
+0000001637 00000 n 
+0000001777 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1915
+%%EOF
