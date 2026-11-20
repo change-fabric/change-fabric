@@ -111,6 +111,9 @@ module DeepResearch
     def refuse_sensitive(text)
       hits = SensitiveTerms.matched([ text ], SensitiveTerms.load)
       raise Refusal, "prompt contains a sensitive term (#{hits.join(', ')}); nothing written" unless hits.empty?
+
+      kinds = IncidentReport::SECRET_PATTERNS.select { |_kind, re| text.match?(re) }.keys
+      raise Refusal, "prompt contains a secret pattern (#{kinds.join(', ')}); nothing written" unless kinds.empty?
     end
 
     def write_pending(question, contexts, slug, key, opts)

@@ -32,6 +32,18 @@ class DeepResearchCliTest < Minitest::Test
     refute File.exist?(ENV["CF_RESEARCH_ROOT"])
   end
 
+  def test_prompt_refuses_a_secret_in_the_question_or_a_context_file
+    secret = "ghp_#{"c" * 30}"
+    code, _out, err = cli("prompt", "--question", "Why #{secret}?", "--slug", "s")
+    assert_equal 2, code
+    assert_includes err, "provider token"
+    refute_includes err, secret
+    ctx = File.join(@tmp, "ctx.txt")
+    File.write(ctx, "key: #{secret}")
+    assert_equal 2, cli("prompt", "--question", "Q", "--slug", "s", "--context", ctx, "--copy")[0]
+    refute File.exist?(ENV["CF_RESEARCH_ROOT"])
+  end
+
   def test_prompt_cache_hit_prints_the_report_and_creates_nothing
     _code, id = prompt_run
     dir = DeepResearchStore.run_dir("s", id)
