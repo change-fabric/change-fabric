@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "id": "dr-00000000-0000-4000-8000-000000000001",
+  "question": "Synthetic skeleton report",
+  "backend": "manual",
+  "model": "chatgpt-web",
+  "created_at": "2026-11-20T00:00:00Z",
+  "prompt_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "summary": "Synthetic sources agree that a small example report parses cleanly. [1]",
+  "findings": [
+    {
+      "id": "F1",
+      "claim": "Specs written in plain text diff well in review. [1] \"plain text diffs cleanly\"",
+      "status": "unverified",
+      "source_ids": [
+        "S1"
+      ],
+      "quote": "plain text diffs cleanly",
+      "unresolved_citations": 0,
+      "citation_resolves": true,
+      "has_quote": true
+    },
+    {
+      "id": "F2",
+      "claim": "Generated diagrams stay traceable to their source file. [2, 3]",
+      "status": "unverified",
+      "source_ids": [
+        "S2",
+        "S3"
+      ],
+      "quote": null,
+      "unresolved_citations": 0,
+      "citation_resolves": true,
+      "has_quote": false
+    },
+    {
+      "id": "F3",
+      "claim": "Readers retain more after a short guided walk. [3]",
+      "status": "unverified",
+      "source_ids": [
+        "S3"
+      ],
+      "quote": null,
+      "unresolved_citations": 0,
+      "citation_resolves": true,
+      "has_quote": false
+    },
+    {
+      "id": "F4",
+      "claim": "Adoption figures were not confirmed. [3]",
+      "status": "unverified",
+      "source_ids": [
+        "S3"
+      ],
+      "quote": null,
+      "unresolved_citations": 0,
+      "citation_resolves": true,
+      "has_quote": false
+    },
+    {
+      "id": "F5",
+      "claim": "Whether guided walks beat self-paced reading. [2]",
+      "status": "contested",
+      "source_ids": [
+        "S2"
+      ],
+      "quote": null,
+      "unresolved_citations": 0,
+      "citation_resolves": true,
+      "has_quote": false
+    }
+  ],
+  "sources": [
+    {
+      "id": "S1",
+      "url": "https://example.org/spec",
+      "title": "Example Spec Handbook"
+    },
+    {
+      "id": "S2",
+      "url": "https://example.org/diagram",
+      "title": "Example Diagram Guide"
+    },
+    {
+      "id": "S3",
+      "url": "https://example.org/study",
+      "title": "Example Study"
+    }
+  ],
+  "citations": [
+    {
+      "finding_id": "F1",
+      "source_id": "S1",
+      "span": {
+        "basis": "claim",
+        "start": 49,
+        "end": 52
+      }
+    },
+    {
+      "finding_id": "F2",
+      "source_id": "S2",
+      "span": {
+        "basis": "claim",
+        "start": 56,
+        "end": 62
+      }
+    },
+    {
+      "finding_id": "F2",
+      "source_id": "S3",
+      "span": {
+        "basis": "claim",
+        "start": 56,
+        "end": 62
+      }
+    },
+    {
+      "finding_id": "F3",
+      "source_id": "S3",
+      "span": {
+        "basis": "claim",
+        "start": 47,
+        "end": 50
+      }
+    },
+    {
+      "finding_id": "F4",
+      "source_id": "S3",
+      "span": {
+        "basis": "claim",
+        "start": 37,
+        "end": 40
+      }
+    },
+    {
+      "finding_id": "F5",
+      "source_id": "S2",
+      "span": {
+        "basis": "claim",
+        "start": 46,
+        "end": 49
+      }
+    },
+    {
+      "finding_id": "summary",
+      "source_id": "S1",
+      "span": {
+        "basis": "summary",
+        "start": 68,
+        "end": 71
+      }
+    }
+  ],
+  "diagnostics": [],
+  "output_text": null,
+  "cost": {
+    "subscription": true
+  },
+  "provenance": {
+    "prompt_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "backend": "manual",
+    "model": "chatgpt-web",
+    "pdf_sha256": "2602eb5c4a147a22d463b1455a26f2b9e4ddc79b432b6aebeafb5996b0550b1c",
+    "response_id": null,
+    "from_run": null,
+    "date": "2026-11-20T00:00:00Z",
+    "script_version": "1",
+    "link_annotations": "full"
+  }
+}

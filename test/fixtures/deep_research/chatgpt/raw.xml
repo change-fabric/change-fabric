@@ -1,0 +1,440 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">
+
+<pdf2xml producer="poppler" version="26.07.0">
+<page number="1" position="absolute" top="0" left="0" height="1188" width="918">
+	<fontspec id="0" size="20" family="SDIUIR+Noto-Sans" color="#000000"/>
+	<fontspec id="1" size="14" family="HUHQIP+Noto-Sans" color="#000000"/>
+	<fontspec id="2" size="14" family="JRLKGN+Noto-Sans-CJK-JP" color="#000000"/>
+	<fontspec id="3" size="14" family="SDIUIR+Noto-Sans" color="#000000"/>
+	<fontspec id="4" size="14" family="YTJAVO+Noto-Mono" color="#000000"/>
+	<fontspec id="5" size="14" family="HUHQIP+Noto-Sans" color="#6e6e6e"/>
+<text top="171" left="117" width="97" height="27" font="0"><b>Summary</b></text>
+<text top="218" left="117" width="635" height="18" font="1">Technical presentations built from code (Slidev, Marp, Mermaid, PlantUML, etc.) are typically version-</text>
+<text top="238" left="117" width="661" height="18" font="1">controlled text (Markdown or DSL), so content can live alongside source code. Slidev can include external</text>
+<text top="259" left="117" width="424" height="18" font="1">code snippets and render Mermaid/PlantUML diagrams via servers</text>
+<text top="259" left="541" width="14" height="18" font="2">【</text>
+<text top="259" left="554" width="87" height="18" font="1">42†L101-L109</text>
+<text top="259" left="641" width="27" height="18" font="2">】【</text>
+<text top="259" left="668" width="87" height="18" font="1">47†L154-L162</text>
+<text top="259" left="756" width="14" height="18" font="2">】</text>
+<text top="259" left="769" width="4" height="18" font="1">.</text>
+<text top="279" left="117" width="677" height="18" font="1">Marp itself has no built-in Mermaid support – diagrams must be pre-rendered or processed via CLI engines</text>
+<text top="300" left="117" width="358" height="18" font="1">(e.g. Kroki) because Marp relies on server-side rendering</text>
+<text top="300" left="475" width="14" height="18" font="2">【</text>
+<text top="300" left="488" width="72" height="18" font="1">27†L12-L20</text>
+<text top="300" left="560" width="27" height="18" font="2">】【</text>
+<text top="300" left="587" width="87" height="18" font="1">72†L178-L186</text>
+<text top="300" left="674" width="14" height="18" font="2">】</text>
+<text top="300" left="688" width="92" height="18" font="1">. Mermaid and</text>
+<text top="320" left="117" width="673" height="18" font="1">PlantUML promote the “diagram-as-code” approach: diagrams are just text, stored and reviewed with code</text>
+<text top="341" left="117" width="197" height="18" font="1">so they “never drift out of date”</text>
+<text top="341" left="314" width="14" height="18" font="2">【</text>
+<text top="341" left="328" width="64" height="18" font="1">39†L6-L10</text>
+<text top="341" left="392" width="27" height="18" font="2">】【</text>
+<text top="341" left="419" width="87" height="18" font="1">37†L120-L128</text>
+<text top="341" left="506" width="14" height="18" font="2">】</text>
+<text top="341" left="520" width="244" height="18" font="1">. Drift between docs and code must be</text>
+<text top="362" left="117" width="530" height="18" font="1">caught with external tools or processes (e.g. docdiff flags docs stale if code changes</text>
+<text top="362" left="647" width="14" height="18" font="2">【</text>
+<text top="362" left="660" width="87" height="18" font="1">35†L199-L207</text>
+<text top="362" left="747" width="14" height="18" font="2">】</text>
+<text top="362" left="761" width="26" height="18" font="1">). To</text>
+<text top="382" left="117" width="680" height="18" font="1">measure rapid comprehension of a technical change, teams should use objective user-testing methods: ask</text>
+<text top="403" left="117" width="581" height="18" font="1">users to paraphrase key points immediately, or perform a relevant task while thinking aloud</text>
+<text top="403" left="698" width="14" height="18" font="2">【</text>
+<text top="403" left="712" width="57" height="18" font="1">81†L192-</text>
+<text top="424" left="117" width="30" height="18" font="1">L194</text>
+<text top="424" left="147" width="27" height="18" font="2">】【</text>
+<text top="424" left="174" width="72" height="18" font="1">79†L92-L99</text>
+<text top="424" left="246" width="14" height="18" font="2">】</text>
+<text top="424" left="259" width="512" height="18" font="1">. Success is judged by accuracy and speed, not by self-reported understanding or</text>
+<text top="445" left="117" width="81" height="18" font="1">reading time</text>
+<text top="445" left="198" width="14" height="18" font="2">【</text>
+<text top="445" left="212" width="87" height="18" font="1">18†L192-L200</text>
+<text top="445" left="299" width="27" height="18" font="2">】【</text>
+<text top="445" left="326" width="72" height="18" font="1">55†L25-L34</text>
+<text top="445" left="397" width="14" height="18" font="2">】</text>
+<text top="445" left="411" width="344" height="18" font="1">. Small, iterative tests (often ~5–8 users) usually suffice</text>
+<text top="466" left="117" width="14" height="18" font="2">【</text>
+<text top="466" left="131" width="72" height="18" font="1">60†L75-L84</text>
+<text top="466" left="202" width="27" height="18" font="2">】【</text>
+<text top="466" left="229" width="87" height="18" font="1">62†L106-L113</text>
+<text top="466" left="316" width="14" height="18" font="2">】</text>
+<text top="466" left="330" width="7" height="18" font="1">. </text>
+<text top="509" left="117" width="86" height="27" font="0"><b>Findings</b></text>
+<text top="555" left="162" width="312" height="18" font="1">Slidev slides are plain Markdown; developers can </text>
+<text top="555" left="474" width="109" height="18" font="3"><b>import live code</b></text>
+<text top="555" left="583" width="134" height="18" font="1"> from source files via </text>
+<text top="557" left="723" width="49" height="16" font="4">&lt;&lt;&lt; @/</text>
+<text top="579" left="162" width="121" height="16" font="4">path/to/file.js</text>
+<text top="577" left="289" width="308" height="18" font="1"> so slide content always reflects the current code</text>
+<text top="577" left="597" width="14" height="18" font="2">【</text>
+<text top="577" left="610" width="87" height="18" font="1">42†L101-L109</text>
+<text top="577" left="698" width="14" height="18" font="2">】</text>
+<text top="577" left="711" width="7" height="18" font="1">. </text>
+<text top="598" left="162" width="235" height="18" font="1">In Slidev, fenced Mermaid blocks are </text>
+<text top="598" left="397" width="250" height="18" font="3"><b>automatically converted to diagrams</b></text>
+<text top="598" left="647" width="83" height="18" font="1"> at build time</text>
+<text top="598" left="730" width="14" height="18" font="2">【</text>
+<text top="598" left="744" width="57" height="18" font="1">24†L230-</text>
+<text top="619" left="162" width="30" height="18" font="1">L238</text>
+<text top="619" left="192" width="14" height="18" font="2">】</text>
+<text top="619" left="206" width="532" height="18" font="1">, and PlantUML blocks are rendered by sending code to PlantUML’s server by default</text>
+<text top="640" left="162" width="109" height="18" font="1">(configurable via </text>
+<text top="642" left="277" width="113" height="16" font="4">plantUmlServer</text>
+<text top="640" left="396" width="4" height="18" font="1">)</text>
+<text top="640" left="400" width="14" height="18" font="2">【</text>
+<text top="640" left="413" width="87" height="18" font="1">47†L154-L162</text>
+<text top="640" left="500" width="14" height="18" font="2">】</text>
+<text top="640" left="514" width="7" height="18" font="1">. </text>
+<text top="661" left="162" width="207" height="18" font="1">Marp (Markdown Presentations) </text>
+<text top="661" left="369" width="229" height="18" font="3"><b>does not natively render Mermaid</b></text>
+<text top="661" left="599" width="18" height="18" font="1">: a </text>
+<text top="663" left="623" width="57" height="16" font="4">mermaid</text>
+<text top="661" left="685" width="110" height="18" font="1"> block appears as</text>
+<text top="683" left="162" width="499" height="18" font="1">literal code unless the diagram is pre-rendered or passed through a CLI engine</text>
+<text top="683" left="661" width="14" height="18" font="2">【</text>
+<text top="683" left="674" width="72" height="18" font="1">27†L12-L20</text>
+<text top="683" left="746" width="14" height="18" font="2">】</text>
+<text top="683" left="759" width="31" height="18" font="1">. The</text>
+<text top="703" left="162" width="575" height="18" font="1">Marp team notes that Marp Core “does not support mermaid.js” (since it is SSR-based), and</text>
+<text top="724" left="162" width="526" height="18" font="1">recommends using an external rendering service (like Kroki) for Mermaid diagrams</text>
+<text top="724" left="688" width="14" height="18" font="2">【</text>
+<text top="724" left="702" width="57" height="18" font="1">72†L178-</text>
+<text top="745" left="162" width="30" height="18" font="1">L186</text>
+<text top="745" left="192" width="27" height="18" font="2">】【</text>
+<text top="745" left="219" width="87" height="18" font="1">72†L194-L198</text>
+<text top="745" left="306" width="14" height="18" font="2">】</text>
+<text top="745" left="320" width="7" height="18" font="1">. </text>
+<text top="765" left="162" width="171" height="18" font="1">Mermaid’s design motto is </text>
+<text top="765" left="333" width="128" height="18" font="3"><b>“diagrams as code”</b></text>
+<text top="765" left="461" width="339" height="18" font="1">: “Your diagram is just text… The diagram lives next to</text>
+<text top="786" left="162" width="332" height="18" font="1">the thing it describes — and never drifts out of date”</text>
+<text top="786" left="494" width="14" height="18" font="2">【</text>
+<text top="786" left="508" width="64" height="18" font="1">39†L6-L10</text>
+<text top="786" left="572" width="14" height="18" font="2">】</text>
+<text top="786" left="585" width="199" height="18" font="1">. This means Mermaid source is</text>
+<text top="806" left="162" width="270" height="18" font="1">version-controlled alongside system code. </text>
+<text top="826" left="162" width="288" height="18" font="1">PlantUML likewise treats diagrams as code: a </text>
+<text top="828" left="456" width="41" height="16" font="4">.puml</text>
+<text top="826" left="502" width="296" height="18" font="1"> file is kept in the source repo and regenerated</text>
+<text top="847" left="162" width="591" height="18" font="1">by CI. According to PlantUML docs, the diagram “cannot silently drift out of date on some wiki</text>
+<text top="868" left="162" width="316" height="18" font="1">nobody edits, because it is part of the change set”</text>
+<text top="868" left="478" width="14" height="18" font="2">【</text>
+<text top="868" left="491" width="87" height="18" font="1">37†L120-L128</text>
+<text top="868" left="578" width="14" height="18" font="2">】</text>
+<text top="868" left="592" width="204" height="18" font="1">. Version-control and CI building</text>
+<text top="888" left="162" width="256" height="18" font="1">ensure diagrams stay synced with code. </text>
+<text top="908" left="162" width="86" height="18" font="1">Tools exist to </text>
+<text top="908" left="248" width="311" height="18" font="3"><b>detect drift between code and documentation</b></text>
+<text top="908" left="558" width="238" height="18" font="1">: e.g. docdiff lets developers annotate</text>
+<text top="929" left="162" width="65" height="18" font="1">code with </text>
+<text top="930" left="233" width="32" height="16" font="4">@doc</text>
+<text top="929" left="271" width="488" height="18" font="1"> links, then flags docs as stale if related code changes without updating them</text>
+<text top="950" left="162" width="14" height="18" font="2">【</text>
+<text top="950" left="176" width="87" height="18" font="1">35†L199-L207</text>
+<text top="950" left="263" width="14" height="18" font="2">】</text>
+<text top="950" left="276" width="490" height="18" font="1">. This ensures no claims in slides/docs are left unreviewed after code evolves. </text>
+<text top="970" left="162" width="570" height="18" font="1">Comprehension depends on user background, so it must be tested empirically (not just by</text>
+<text top="991" left="162" width="630" height="18" font="1">readability formulas). Nielsen Norman notes that factors like IQ and education matter, so one “must</text>
+<text top="1011" left="162" width="460" height="18" font="1">test with real users” from the target audience to measure understanding</text>
+<text top="1011" left="622" width="14" height="18" font="2">【</text>
+<text top="1011" left="635" width="87" height="18" font="1">50†L108-L112</text>
+<text top="1011" left="723" width="14" height="18" font="2">】</text>
+<text top="1011" left="736" width="7" height="18" font="1">. </text>
+<text top="555" left="147" width="15" height="18" font="1">1. </text>
+<text top="598" left="147" width="15" height="18" font="1">2. </text>
+<text top="661" left="147" width="15" height="18" font="1">3. </text>
+<text top="765" left="147" width="15" height="18" font="1">4. </text>
+<text top="826" left="147" width="15" height="18" font="1">5. </text>
+<text top="908" left="147" width="15" height="18" font="1">6. </text>
+<text top="970" left="147" width="15" height="18" font="1">7. </text>
+<text top="1125" left="455" width="8" height="18" font="5">1</text>
+</page>
+<page number="2" position="absolute" top="0" left="0" height="1188" width="918">
+	<fontspec id="6" size="14" family="IDIOZN+Noto-Sans" color="#000000"/>
+<text top="110" left="162" width="12" height="18" font="1">A </text>
+<text top="110" left="174" width="64" height="18" font="3"><b>cloze test</b></text>
+<text top="110" left="238" width="386" height="18" font="1"> (fill-in-the-blank) is one empirical measure: if participants fill </text>
+<text top="110" left="624" width="14" height="18" font="2">≥</text>
+<text top="110" left="637" width="138" height="18" font="1">60% of missing words</text>
+<text top="131" left="162" width="474" height="18" font="1">correctly, the text is deemed “reasonably comprehensible” to that audience</text>
+<text top="131" left="636" width="14" height="18" font="2">【</text>
+<text top="131" left="650" width="87" height="18" font="1">50†L124-L132</text>
+<text top="131" left="737" width="14" height="18" font="2">】</text>
+<text top="131" left="750" width="33" height="18" font="1">. This</text>
+<text top="151" left="162" width="281" height="18" font="1">sets a benchmark for quick comprehension. </text>
+<text top="171" left="162" width="252" height="18" font="1">Immediately after reading, ask users to </text>
+<text top="171" left="414" width="184" height="18" font="3"><b>paraphrase or “teach back”</b></text>
+<text top="171" left="598" width="187" height="18" font="1"> the content. For example: “In</text>
+<text top="192" left="162" width="251" height="18" font="1">your own words, what does this mean?”</text>
+<text top="192" left="413" width="14" height="18" font="2">【</text>
+<text top="192" left="427" width="87" height="18" font="1">81†L192-L194</text>
+<text top="192" left="514" width="14" height="18" font="2">】</text>
+<text top="192" left="528" width="246" height="18" font="1">. If they can restate the key meaning, it</text>
+<text top="213" left="162" width="287" height="18" font="1">proves they built the intended understanding</text>
+<text top="213" left="449" width="14" height="18" font="2">【</text>
+<text top="213" left="463" width="72" height="18" font="1">79†L92-L99</text>
+<text top="213" left="535" width="14" height="18" font="2">】</text>
+<text top="213" left="548" width="7" height="18" font="1">. </text>
+<text top="233" left="162" width="27" height="18" font="1">Use </text>
+<text top="233" left="189" width="123" height="18" font="3"><b>task-based checks</b></text>
+<text top="233" left="312" width="445" height="18" font="1">: have users perform a relevant task based on the change and observe</text>
+<text top="253" left="162" width="602" height="18" font="1">success. Task-based comprehension is defined as “whether the user acts correctly on what they</text>
+<text top="274" left="162" width="79" height="18" font="1">understood”</text>
+<text top="274" left="241" width="14" height="18" font="2">【</text>
+<text top="274" left="255" width="72" height="18" font="1">79†L92-L99</text>
+<text top="274" left="326" width="14" height="18" font="2">】</text>
+<text top="274" left="340" width="433" height="18" font="1">. If the user completes the task as intended (per pre-written criteria),</text>
+<text top="295" left="162" width="262" height="18" font="1">they have likely understood the material. </text>
+<text top="315" left="162" width="116" height="18" font="1">Observe users via </text>
+<text top="315" left="278" width="138" height="18" font="3"><b>think-aloud protocol</b></text>
+<text top="315" left="416" width="324" height="18" font="1"> to catch hidden misunderstandings. By verbalizing</text>
+<text top="336" left="162" width="404" height="18" font="1">thoughts, users expose any “misconceptions” about the content</text>
+<text top="336" left="566" width="14" height="18" font="2">【</text>
+<text top="336" left="579" width="79" height="18" font="1">62†L97-L105</text>
+<text top="336" left="659" width="14" height="18" font="2">】</text>
+<text top="336" left="672" width="103" height="18" font="1">. This qualitative</text>
+<text top="356" left="162" width="612" height="18" font="1">insight often reveals exactly which part of the explanation was unclear. (Think-aloud tests require</text>
+<text top="377" left="162" width="317" height="18" font="1">only a few participants to yield actionable findings</text>
+<text top="377" left="479" width="14" height="18" font="2">【</text>
+<text top="377" left="493" width="87" height="18" font="1">62†L106-L113</text>
+<text top="377" left="580" width="14" height="18" font="2">】</text>
+<text top="377" left="593" width="11" height="18" font="1">.) </text>
+<text top="397" left="162" width="622" height="18" font="1">Measure performance (speed and accuracy) not just declared understanding. Real comprehension</text>
+<text top="418" left="162" width="527" height="18" font="1">shows up in how quickly and correctly users act, not in click analytics or self-reports</text>
+<text top="418" left="689" width="14" height="18" font="2">【</text>
+<text top="418" left="702" width="72" height="18" font="1">52†L90-L99</text>
+<text top="418" left="774" width="14" height="18" font="2">】</text>
+<text top="439" left="162" width="14" height="18" font="2">【</text>
+<text top="439" left="176" width="87" height="18" font="1">52†L106-L108</text>
+<text top="439" left="263" width="14" height="18" font="2">】</text>
+<text top="439" left="276" width="278" height="18" font="1">. For example, one practitioner notes that if </text>
+<text top="439" left="554" width="14" height="18" font="2">≥</text>
+<text top="439" left="567" width="233" height="18" font="1">90% of users complete a task in ~3–4</text>
+<text top="460" left="162" width="367" height="18" font="1">minutes with minimal errors, comprehension is likely high</text>
+<text top="460" left="529" width="14" height="18" font="2">【</text>
+<text top="460" left="543" width="72" height="18" font="1">52†L90-L99</text>
+<text top="460" left="615" width="14" height="18" font="2">】</text>
+<text top="460" left="628" width="7" height="18" font="1">. </text>
+<text top="480" left="162" width="229" height="18" font="3"><b>Avoid self-report and time proxies</b></text>
+<text top="480" left="391" width="401" height="18" font="1">. Studies show self-reported reading time greatly overestimates</text>
+<text top="501" left="162" width="467" height="18" font="1">actual time (by ~4× in one trial) and correlates poorly with comprehension</text>
+<text top="501" left="629" width="14" height="18" font="2">【</text>
+<text top="501" left="643" width="87" height="18" font="1">18†L192-L200</text>
+<text top="501" left="730" width="14" height="18" font="2">】</text>
+<text top="501" left="743" width="4" height="18" font="1">.</text>
+<text top="521" left="162" width="636" height="18" font="1">Likewise, natural clickstream reading times have no meaningful correlation with text comprehension</text>
+<text top="542" left="162" width="14" height="18" font="2">【</text>
+<text top="542" left="176" width="72" height="18" font="1">55†L25-L34</text>
+<text top="542" left="247" width="14" height="18" font="2">】</text>
+<text top="542" left="261" width="479" height="18" font="1">. Relying on subjective or time-based metrics alone is therefore misleading. </text>
+<text top="562" left="162" width="393" height="18" font="1">Use iterative small-sample testing. For rapid validation, only a </text>
+<text top="562" left="555" width="110" height="18" font="3"><b>handful of users</b></text>
+<text top="562" left="664" width="103" height="18" font="1"> (often ~5–8) are</text>
+<text top="583" left="162" width="115" height="18" font="1">needed per round</text>
+<text top="583" left="277" width="14" height="18" font="2">【</text>
+<text top="583" left="290" width="72" height="18" font="1">60†L75-L84</text>
+<text top="583" left="362" width="27" height="18" font="2">】【</text>
+<text top="583" left="389" width="87" height="18" font="1">62†L106-L113</text>
+<text top="583" left="476" width="14" height="18" font="2">】</text>
+<text top="583" left="490" width="256" height="18" font="1">. Multiple small rounds (testing, revising,</text>
+<text top="604" left="162" width="415" height="18" font="1">retesting) catch recurring confusion faster than a single large test</text>
+<text top="604" left="577" width="14" height="18" font="2">【</text>
+<text top="604" left="591" width="72" height="18" font="1">60†L75-L84</text>
+<text top="604" left="662" width="14" height="18" font="2">】</text>
+<text top="604" left="676" width="7" height="18" font="1">. </text>
+<text top="641" left="117" width="78" height="27" font="0"><b>Sources</b></text>
+<text top="688" left="162" width="51" height="18" font="1">Slidev – </text>
+<text top="688" left="213" width="129" height="18" font="6"><i>Import Code Snippets</i></text>
+<text top="688" left="342" width="7" height="18" font="1">, </text>
+<text top="688" left="349" width="75" height="18" font="3"><b>Slidev Docs</b></text>
+<text top="688" left="424" width="289" height="18" font="1">: instructions for including code in slides (e.g. </text>
+<text top="690" left="719" width="49" height="16" font="4">&lt;&lt;&lt; @/</text>
+<text top="711" left="162" width="130" height="16" font="4">snippets/file.js</text>
+<text top="710" left="297" width="287" height="18" font="1">). URL: https://sli.dev/features/import-snippet</text>
+<text top="710" left="584" width="14" height="18" font="2">【</text>
+<text top="710" left="598" width="87" height="18" font="1">42†L101-L109</text>
+<text top="710" left="685" width="17" height="18" font="2">】 </text>
+<text top="730" left="162" width="51" height="18" font="1">Slidev – </text>
+<text top="730" left="213" width="116" height="18" font="6"><i>Mermaid Diagrams</i></text>
+<text top="730" left="329" width="7" height="18" font="1">, </text>
+<text top="730" left="336" width="75" height="18" font="3"><b>Slidev Docs</b></text>
+<text top="730" left="411" width="162" height="18" font="1">: “Code blocks marked as </text>
+<text top="732" left="578" width="57" height="16" font="4">mermaid</text>
+<text top="730" left="641" width="128" height="18" font="1"> will be converted to</text>
+<text top="752" left="162" width="317" height="18" font="1">diagrams…” URL: https://sli.dev/features/mermaid</text>
+<text top="752" left="479" width="14" height="18" font="2">【</text>
+<text top="752" left="493" width="87" height="18" font="1">24†L230-L238</text>
+<text top="752" left="580" width="17" height="18" font="2">】 </text>
+<text top="772" left="162" width="51" height="18" font="1">Slidev – </text>
+<text top="772" left="213" width="120" height="18" font="6"><i>PlantUML Diagrams</i></text>
+<text top="772" left="333" width="7" height="18" font="1">, </text>
+<text top="772" left="340" width="75" height="18" font="3"><b>Slidev Docs</b></text>
+<text top="772" left="415" width="385" height="18" font="1">: “The source code will be sent to https://www.plantuml.com/</text>
+<text top="793" left="162" width="518" height="18" font="1">plantuml to render the diagram by default.” URL: https://sli.dev/features/plantuml</text>
+<text top="793" left="680" width="14" height="18" font="2">【</text>
+<text top="793" left="693" width="87" height="18" font="1">47†L154-L162</text>
+<text top="793" left="780" width="17" height="18" font="2">】 </text>
+<text top="813" left="162" width="162" height="18" font="1">Ekrem Çetinkaya (2026) – </text>
+<text top="813" left="324" width="397" height="18" font="6"><i>“Mermaid diagrams in Marp: a working engine for HTML and PDF”</i></text>
+<text top="813" left="721" width="4" height="18" font="1">,</text>
+<text top="833" left="162" width="441" height="18" font="1">lecture.studio blog (Sep 13, 2026): “Marp does not render Mermaid; a </text>
+<text top="835" left="608" width="57" height="16" font="4">mermaid</text>
+<text top="833" left="671" width="114" height="18" font="1"> fence is shown as</text>
+<text top="855" left="162" width="309" height="18" font="1">code… pre-render to SVG or use marp-cli engine”</text>
+<text top="855" left="471" width="14" height="18" font="2">【</text>
+<text top="855" left="484" width="72" height="18" font="1">27†L12-L20</text>
+<text top="855" left="556" width="14" height="18" font="2">】</text>
+<text top="855" left="570" width="7" height="18" font="1">. </text>
+<text top="875" left="162" width="248" height="18" font="1">yhatt et al. (Marp Team) – GitHub issue </text>
+<text top="875" left="410" width="205" height="18" font="6"><i>“Add support for mermaidjs #139”</i></text>
+<text top="875" left="615" width="183" height="18" font="1"> (Dec 2019): “Marp Core does</text>
+<text top="895" left="162" width="580" height="18" font="1">not support mermaid.js… Marp is designed for reliable slide rendering based on server-side</text>
+<text top="916" left="162" width="103" height="18" font="1">rendering (SSR)”</text>
+<text top="916" left="265" width="14" height="18" font="2">【</text>
+<text top="916" left="278" width="87" height="18" font="1">72†L178-L186</text>
+<text top="916" left="365" width="14" height="18" font="2">】</text>
+<text top="916" left="379" width="360" height="18" font="1"> (advises using external services like Kroki/mermaid.ink). </text>
+<text top="937" left="162" width="174" height="18" font="6"><i>Mermaid.ai – Build with code</i></text>
+<text top="937" left="336" width="457" height="18" font="1">: product page (2025): “Your diagram is just text… The diagram lives next</text>
+<text top="957" left="162" width="604" height="18" font="1">to the thing it describes — and never drifts out of date.” URL: https://mermaid.ai/products/code</text>
+<text top="978" left="162" width="14" height="18" font="2">【</text>
+<text top="978" left="176" width="64" height="18" font="1">39†L6-L10</text>
+<text top="978" left="240" width="17" height="18" font="2">】 </text>
+<text top="998" left="162" width="178" height="18" font="1">PlantUML Documentation – </text>
+<text top="998" left="340" width="109" height="18" font="6"><i>Diagrams as Code</i></text>
+<text top="998" left="449" width="347" height="18" font="1">: “With PlantUML the source of truth is a short, human-</text>
+<text top="1018" left="162" width="59" height="18" font="1">readable </text>
+<text top="1020" left="227" width="41" height="16" font="4">.puml</text>
+<text top="1018" left="273" width="492" height="18" font="1"> file… The diagram cannot silently drift out of date on some wiki nobody edits,</text>
+<text top="1039" left="162" width="571" height="18" font="1">because it is part of the change set.” URL: https://plantuml.joor.net/help/diagrams-as-code</text>
+<text top="1060" left="162" width="14" height="18" font="2">【</text>
+<text top="1060" left="176" width="87" height="18" font="1">37†L120-L128</text>
+<text top="1060" left="263" width="17" height="18" font="2">】 </text>
+<text top="109" left="147" width="15" height="18" font="1">8. </text>
+<text top="171" left="147" width="15" height="18" font="1">9. </text>
+<text top="233" left="139" width="23" height="18" font="1">10. </text>
+<text top="315" left="139" width="23" height="18" font="1">11. </text>
+<text top="397" left="139" width="23" height="18" font="1">12. </text>
+<text top="480" left="139" width="23" height="18" font="1">13. </text>
+<text top="562" left="139" width="23" height="18" font="1">14. </text>
+<text top="688" left="147" width="15" height="18" font="1">1. </text>
+<text top="730" left="147" width="15" height="18" font="1">2. </text>
+<text top="772" left="147" width="15" height="18" font="1">3. </text>
+<text top="813" left="147" width="15" height="18" font="1">4. </text>
+<text top="875" left="147" width="15" height="18" font="1">5. </text>
+<text top="937" left="147" width="15" height="18" font="1">6. </text>
+<text top="998" left="147" width="15" height="18" font="1">7. </text>
+<text top="1125" left="455" width="8" height="18" font="5">2</text>
+</page>
+<page number="3" position="absolute" top="0" left="0" height="1188" width="918">
+<text top="109" left="162" width="90" height="18" font="1">Steven Bock – </text>
+<text top="109" left="252" width="41" height="18" font="6"><i>docdiff</i></text>
+<text top="109" left="294" width="471" height="18" font="1">: GitHub repo for a CLI tool (2025): “docdiff tracks the relationship between</text>
+<text top="129" left="162" width="638" height="18" font="1">source code and documentation... When code changes but its associated documentation hasn’t been</text>
+<text top="150" left="162" width="492" height="18" font="1">updated, docdiff flags it as stale.” URL: https://github.com/StevenBock/docdiff</text>
+<text top="150" left="654" width="14" height="18" font="2">【</text>
+<text top="150" left="668" width="87" height="18" font="1">35†L199-L207</text>
+<text top="150" left="755" width="17" height="18" font="2">】 </text>
+<text top="171" left="162" width="161" height="18" font="1">Nielsen Norman Group – </text>
+<text top="171" left="323" width="239" height="18" font="6"><i>“Cloze Test for Reading Comprehension”</i></text>
+<text top="171" left="561" width="190" height="18" font="1"> (Jakob Nielsen, Feb 2011): “To</text>
+<text top="191" left="162" width="631" height="18" font="1">measure comprehension, you must test with real users… If users get 60% or more right on average,</text>
+<text top="211" left="162" width="619" height="18" font="1">you can assume the text is reasonably comprehensible for the specified user profile.” URL: https://</text>
+<text top="232" left="162" width="399" height="18" font="1">www.nngroup.com/articles/cloze-test-reading-comprehension/</text>
+<text top="232" left="561" width="14" height="18" font="2">【</text>
+<text top="232" left="574" width="87" height="18" font="1">50†L108-L112</text>
+<text top="232" left="661" width="27" height="18" font="2">】【</text>
+<text top="232" left="688" width="87" height="18" font="1">50†L124-L132</text>
+<text top="232" left="775" width="17" height="18" font="2">】 </text>
+<text top="252" left="162" width="42" height="18" font="1">Uxia – </text>
+<text top="252" left="204" width="351" height="18" font="6"><i>Comprehension Testing for UX: Methods, Tasks and Metrics</i></text>
+<text top="252" left="555" width="187" height="18" font="1"> (UXia blog): table of methods</text>
+<text top="272" left="162" width="625" height="18" font="1">including “Paraphrase prompt – whether the user can restate the meaning in their own words” and</text>
+<text top="293" left="162" width="593" height="18" font="1">“Task-based comprehension – whether the user acts correctly on what they understood.” URL:</text>
+<text top="314" left="162" width="322" height="18" font="1">https://www.uxia.app/blog/comprehension-testing</text>
+<text top="314" left="484" width="14" height="18" font="2">【</text>
+<text top="314" left="497" width="72" height="18" font="1">79†L92-L99</text>
+<text top="314" left="569" width="17" height="18" font="2">】 </text>
+<text top="334" left="162" width="42" height="18" font="1">Uxia – </text>
+<text top="334" left="204" width="180" height="18" font="6"><i>Comprehension Testing for UX</i></text>
+<text top="334" left="384" width="395" height="18" font="1"> (continued): session script step 3: “Ask for a paraphrase. Use a</text>
+<text top="354" left="162" width="631" height="18" font="1">neutral prompt such as, in your own words, what does this mean?” URL: https://www.uxia.app/blog/</text>
+<text top="375" left="162" width="148" height="18" font="1">comprehension-testing</text>
+<text top="375" left="310" width="14" height="18" font="2">【</text>
+<text top="375" left="323" width="87" height="18" font="1">81†L192-L194</text>
+<text top="375" left="410" width="17" height="18" font="2">】 </text>
+<text top="395" left="162" width="161" height="18" font="1">Nielsen Norman Group – </text>
+<text top="395" left="323" width="231" height="18" font="6"><i>“Thinking Aloud: The #1 Usability Tool”</i></text>
+<text top="395" left="553" width="241" height="18" font="1"> (Jan 2012): “The method has a host of</text>
+<text top="415" left="162" width="623" height="18" font="1">advantages… letting you discover what users really think about your design. In particular, you hear</text>
+<text top="436" left="162" width="622" height="18" font="1">their misconceptions.” and “it takes about a day to collect data from a handful of users, which is all</text>
+<text top="456" left="162" width="612" height="18" font="1">that’s needed for the most important insights.” URL: https://www.nngroup.com/articles/thinking-</text>
+<text top="477" left="162" width="164" height="18" font="1">aloud-the-1-usability-tool/</text>
+<text top="477" left="326" width="14" height="18" font="2">【</text>
+<text top="477" left="340" width="79" height="18" font="1">62†L97-L105</text>
+<text top="477" left="419" width="27" height="18" font="2">】【</text>
+<text top="477" left="446" width="87" height="18" font="1">62†L106-L113</text>
+<text top="477" left="534" width="17" height="18" font="2">】 </text>
+<text top="497" left="162" width="180" height="18" font="1">LREC 2026 – van Vaals et al.: </text>
+<text top="497" left="342" width="432" height="18" font="6"><i>“Reading Time in the Wild: …based on naturally-observed reading times”</i></text>
+<text top="517" left="162" width="620" height="18" font="1">(Feb 2026): “clickstream reading time must be considered with caution as a proxy for readability or</text>
+<text top="538" left="162" width="322" height="18" font="1">comprehension” (no meaningful correlation found)</text>
+<text top="538" left="484" width="14" height="18" font="2">【</text>
+<text top="538" left="498" width="72" height="18" font="1">55†L25-L34</text>
+<text top="538" left="569" width="14" height="18" font="2">】</text>
+<text top="538" left="583" width="7" height="18" font="1">. </text>
+<text top="558" left="162" width="214" height="18" font="1">PLOS ONE 2026 – Brossette et al.: </text>
+<text top="558" left="376" width="419" height="18" font="6"><i>“Measuring reading time: comparing logged and self-reported data…”</i></text>
+<text top="558" left="795" width="4" height="18" font="1">:</text>
+<text top="579" left="162" width="629" height="18" font="1">self-reported reading time overestimates actual (6.26 vs 2.11 hrs/week) and is a weaker predictor of</text>
+<text top="599" left="162" width="222" height="18" font="1">reading skill than logged measures</text>
+<text top="599" left="384" width="14" height="18" font="2">【</text>
+<text top="599" left="398" width="87" height="18" font="1">18†L192-L200</text>
+<text top="599" left="485" width="14" height="18" font="2">】</text>
+<text top="599" left="499" width="7" height="18" font="1">. </text>
+<text top="620" left="162" width="109" height="18" font="1">UsabilityHouse – </text>
+<text top="620" left="271" width="233" height="18" font="6"><i>“How Many Participants Do You Need?”</i></text>
+<text top="620" left="504" width="219" height="18" font="1"> (2026): “For formative studies, 5–8</text>
+<text top="640" left="162" width="605" height="18" font="1">participants per user group per round is the working standard… Multiple small rounds beat one</text>
+<text top="661" left="162" width="554" height="18" font="1">large round.” URL: https://www.usabilityhouse.com/insights/usability-study-sample-size</text>
+<text top="661" left="716" width="14" height="18" font="2">【</text>
+<text top="661" left="729" width="49" height="18" font="1">60†L75-</text>
+<text top="682" left="162" width="23" height="18" font="1">L84</text>
+<text top="682" left="185" width="14" height="18" font="2">】</text>
+<text top="682" left="198" width="7" height="18" font="1">. </text>
+<text top="719" left="117" width="106" height="27" font="0"><b>Unverified</b></text>
+<text top="766" left="162" width="402" height="18" font="1">No evidence was found of any slide/diagram tool automatically </text>
+<text top="766" left="564" width="98" height="18" font="3"><b>detecting drift</b></text>
+<text top="766" left="662" width="97" height="18" font="1"> or mismatches</text>
+<text top="786" left="162" width="627" height="18" font="1">between slide content and code beyond using general version-control or external tools. In practice,</text>
+<text top="806" left="162" width="589" height="18" font="1">teams must audit changes manually or use annotations (as in docdiff) to avoid stale content. </text>
+<text top="827" left="162" width="635" height="18" font="1">It is assumed (but not documented) that other diagrams-as-code tools (e.g. Graphviz, D2, etc.) follow</text>
+<text top="847" left="162" width="615" height="18" font="1">similar patterns of living in repos; we did not find specific claims on their drift-detection features. </text>
+<text top="885" left="117" width="103" height="27" font="0"><b>Contested</b></text>
+<text top="931" left="162" width="609" height="18" font="1">We found no direct contradictions among sources. Different experts (e.g. Nielsen vs. practitioner</text>
+<text top="951" left="162" width="615" height="18" font="1">blogs) set different “passing” thresholds (e.g. 60% correct in cloze vs. 90% task success), but these</text>
+<text top="972" left="162" width="311" height="18" font="1">reflect context rather than factual disagreement. </text>
+<text top="109" left="147" width="15" height="18" font="1">8. </text>
+<text top="171" left="147" width="15" height="18" font="1">9. </text>
+<text top="252" left="139" width="23" height="18" font="1">10. </text>
+<text top="334" left="139" width="23" height="18" font="1">11. </text>
+<text top="395" left="139" width="23" height="18" font="1">12. </text>
+<text top="497" left="139" width="23" height="18" font="1">13. </text>
+<text top="558" left="139" width="23" height="18" font="1">14. </text>
+<text top="620" left="139" width="23" height="18" font="1">15. </text>
+<text top="766" left="153" width="9" height="18" font="1">• </text>
+<text top="827" left="153" width="9" height="18" font="1">• </text>
+<text top="931" left="153" width="9" height="18" font="1">• </text>
+<text top="1125" left="455" width="8" height="18" font="5">3</text>
+</page>
+<outline>
+<item page="1">Summary</item>
+<item page="1">Findings</item>
+<item page="2">Sources</item>
+<item page="3">Unverified</item>
+<item page="3">Contested</item>
+</outline>
+</pdf2xml>
