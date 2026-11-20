@@ -22,6 +22,13 @@ class ChangeProdRequestTest < Minitest::Test
 
   def teardown = FileUtils.remove_entry(@dir)
 
+  def test_create_prints_the_class_notice
+    code, out, = create
+    assert_equal 0, code
+    assert_includes out, "is class contracts_and_auth"
+    assert_includes out, "Needs passkey and TOTP"
+  end
+
   def create(*extra, out: StringIO.new, err: StringIO.new)
     argv = [ "create", "--op", "rotate_tenant_key", "--param", "tenant_id=t_101", "--profile", "staging", "--config", FIXTURE,
              "--repo", @dir, "--no-push" ] + extra

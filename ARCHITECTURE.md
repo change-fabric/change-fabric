@@ -62,7 +62,8 @@ its digest (`change_prod_approve.rb`); `change_prod_runner_gen.rb` generates
 the cf-prod workflow, whose jobs verify the approval offline through
 `change_prod_gate.rb` and claim it once (a conditional put in the approval console's table, never a git ref) before any credential. This release
 emits staging only and has no op executor; `prod_approval_guard.rb` denies the
-agent the approval paths.
+agent the approval paths. `change_prod_classes.rb` reports op classes for doctor
+and the request notice, and links them to `one_way_doors` paths.
 Rubric skills are matched to edited files by `skill_detect.rb` and
 `skill_inject.rb`, queued, and reviewed at Stop by `skill_review.rb`.
 
