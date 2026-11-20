@@ -35,7 +35,7 @@ class ApprovalConsolePreview
   SCENARIOS = {
     "success" => "200:ok", "elsewhere" => "409:not_pending", "locked" => "423:locked", "code-refused" => "401:totp_invalid",
     "passkey-refused" => "401:assertion_invalid", "busy" => "503:busy", "other" => "500:boom", "cancelled" => nil,
-    "waiting" => nil, "code-complete" => nil, "unsupported" => nil, "client-expired" => nil
+    "waiting" => nil, "code-complete" => nil, "unsupported" => nil, "client-expired" => nil, "in-app" => nil
   }.freeze
 
   FRAGMENT_JS = <<~'JS'
@@ -48,10 +48,11 @@ class ApprovalConsolePreview
       const get=st==='cancelled'?async()=>{throw new DOMException('cancelled','NotAllowedError')}:st==='waiting'?()=>new Promise(()=>{}):async()=>({rawId:buf(),response:{authenticatorData:buf(),clientDataJSON:buf(),signature:buf()}});
       Object.defineProperty(navigator,'credentials',{value:{get},configurable:true});
       if(st==='unsupported')window.PublicKeyCredential=undefined;
+      if(st==='in-app')Object.defineProperty(navigator,'userAgent',{value:'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/450.0]',configurable:true});
       if(st==='client-expired'){const now=Date.now;Date.now=()=>now()+17*60000}
       addEventListener('DOMContentLoaded',()=>{
         const t=document.getElementById('totp'),g=document.getElementById('go');
-        if(!t||st==='unsupported'||st==='client-expired')return;
+        if(!t||st==='unsupported'||st==='client-expired'||st==='in-app')return;
         t.value='482913';t.dispatchEvent(new Event('input'));
         if(st!=='code-complete')g.click()});
     })();

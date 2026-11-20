@@ -166,6 +166,91 @@ class ApprovalConsolePagesTest < Minitest::Test
     assert_includes zone(html, "verified"), "a[U+200B]b.rb"
   end
 
+  def agent_fields(**changes) = fields(zone(render("carve-out", **changes), "agent")).to_h
+
+  def test_neutralization_covers_every_listed_range_and_its_edges
+    codes = [ 0x200B, 0x200F, 0x202A, 0x202E, 0x2066, 0x2069, 0xFEFF ]
+    text = codes.map { |code| [ code ].pack("U") }.join
+    shown = agent_fields(summary: "a#{text}b")["summary"]
+    assert_equal "a#{codes.map { |code| format('[U+%04X]', code) }.join}b", shown
+    outside = [ 0x200A, 0x2010, 0x2029, 0x202F, 0x2065, 0x206A, 0xFEFE ].map { |code| [ code ].pack("U") }.join
+    assert_equal outside, agent_fields(summary: outside)["summary"], "code points next to the ranges are left alone"
+  end
+
+  def test_markers_at_string_boundaries_and_adjacent
+    assert_equal "[U+202E]x[U+200D]", agent_fields(summary: "\u202Ex\u200D")["summary"]
+    assert_equal "[U+200B][U+200B][U+200B]", agent_fields(summary: "\u200B\u200B\u200B")["summary"]
+    assert_equal "[U+FEFF]", agent_fields(pr_title: "\uFEFF")["pr_title"]
+  end
+
+  def test_hash_keys_and_nested_agent_values_are_neutralized_at_any_depth
+    items = [ { "step" => "s", "base_fields" => nil, "fields" => { "k\u202Ey" => { "d\u200Dp" => [ "v\u2066", [ "w\u200F" ], {} ], "e" => "" } } } ]
+    html = render("step", items: items)
+    refute_match HIDDEN, without_island(html)
+    agent = zone(html, "agent")
+    assert_includes agent, "k[U+202E]y.d[U+200D]p.0"
+    assert_equal "v[U+2066]", fields(agent).to_h["items.0.fields.k[U+202E]y.d[U+200D]p.0"]
+    assert_equal "w[U+200F]", fields(agent).to_h["items.0.fields.k[U+202E]y.d[U+200D]p.1.0"]
+    assert_equal "", fields(agent).to_h["items.0.fields.k[U+202E]y.e"]
+  end
+
+  def test_the_signed_text_pre_neutralizes_the_whole_body_and_notes_it_only_when_needed
+    html = render("carve-out", summary: "x\u202Ey")
+    assert_includes zone(html, "signed"), "x[U+202E]y"
+    assert_includes zone(html, "signed"), "Hidden characters are shown"
+    refute_includes zone(render("carve-out"), "signed"), "Hidden characters are shown"
+  end
+
+  # ----- long agent text -------------------------------------------------
+
+  def test_a_long_agent_leaf_shows_600_characters_and_keeps_the_rest_in_the_dom
+    text = "AGENTMARK-" + ("0123456789" * 70)
+    html = render("carve-out", summary: text)
+    agent = zone(html, "agent")
+    assert_equal text[0, 600], agent[%r{<q data-field="summary">(.*?)</q>}m, 1]
+    rest = text[600..]
+    assert_includes agent, %(<details class="more" data-rest="summary"><summary>Show the rest (#{rest.length} more characters)</summary><q>#{rest}</q></details>)
+    assert_equal text, agent[%r{<q data-field="summary">(.*?)</q>}m, 1] + agent[%r{data-rest="summary"><summary>[^<]*</summary><q>(.*?)</q>}m, 1]
+    assert_equal 1, html.scan(%(data-field="summary")).size
+  end
+
+  def test_the_collapse_boundary_is_exactly_600_characters
+    exact = "a" * 600
+    refute_includes agent_zone_of(exact), "Show the rest"
+    over = agent_zone_of("a" * 601)
+    assert_includes over, "Show the rest (1 more characters)"
+  end
+
+  def agent_zone_of(text) = zone(render("carve-out", summary: text), "agent")
+
+  def test_the_collapse_cuts_before_neutralizing_so_a_marker_is_never_split
+    text = ("a" * 599) + "\u202E" + "tail"
+    html = render("carve-out", summary: text)
+    agent = zone(html, "agent")
+    assert_includes agent, %(<q data-field="summary">#{'a' * 599}[U+202E]</q>)
+    assert_includes agent, "<q>tail</q>"
+    refute_match HIDDEN, without_island(html)
+  end
+
+  def test_long_text_in_a_nested_step_value_collapses_too_and_verified_values_never_do
+    long = "z" * 700
+    html = render("step", items: [ { "step" => "s", "base_fields" => { "k" => long }, "fields" => { "k" => long } } ])
+    assert_includes zone(html, "agent"), "Show the rest (100 more characters)"
+    refute_includes zone(html, "verified"), "Show the rest"
+    assert_includes zone(html, "verified"), long
+  end
+
+  # ----- in-app browser hint ---------------------------------------------
+
+  def test_the_in_app_browser_hint_is_hidden_markup_the_script_reveals_above_the_form
+    html = render("carve-out")
+    assert_includes html, '<p id="inapp" class="hint" hidden>Open in Safari for passkeys</p>'
+    assert_operator html.index('id="inapp"'), :<, html.index('<form id="approve">')
+    refute_includes render("carve-out", status: "expired"), "Open in Safari for passkeys"
+    js = ConsolePages::APPROVE_JS
+    [ "FBAN", "Instagram", "MicroMessenger", "hint.hidden=false" ].each { |needle| assert_includes js, needle }
+  end
+
   # ----- 4. data island --------------------------------------------------
 
   def test_the_data_island_holds_the_stored_body_byte_for_byte
