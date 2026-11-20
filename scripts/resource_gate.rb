@@ -151,7 +151,8 @@ module ResourceGate
     def free_gb(info)
       return @disk.free_gb(info['DockerRootDir'].to_s) if @platform == 'linux'
 
-      out = @runner.call('docker_vm_df', 'docker', 'run', '--rm', DOCKER_DF_IMAGE, 'df', '-Pk', '/var/lib/docker')
+      # /var/lib/docker is not mounted in a fresh container; its root sits on the VM disk.
+      out = @runner.call('docker_vm_df', 'docker', 'run', '--rm', DOCKER_DF_IMAGE, 'df', '-Pk', '/')
       avail = out.lines.last.to_s.split[3]
       raise MeasurementError.new('docker_vm_df', 'df output did not parse') unless avail&.match?(/\A\d+\z/)
 

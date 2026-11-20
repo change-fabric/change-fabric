@@ -476,6 +476,8 @@ class ResourceGateTest < Minitest::Test
     assert_in_delta 3.0, d[:reclaimable_gb], 0.01
     run = runner.argvs.find { |a| a[1] == "run" }
     assert_includes run.join(" "), "alpine@sha256:"
+    # /var/lib/docker does not exist inside the container; the overlay root sits on the VM disk.
+    assert_equal [ "df", "-Pk", "/" ], run.last(3)
   end
 
   def test_docker_reader_on_linux_reads_the_docker_root_volume
