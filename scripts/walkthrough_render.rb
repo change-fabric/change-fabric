@@ -1467,7 +1467,7 @@ if __FILE__ == $PROGRAM_NAME
             allow_fidelity: ARGV.include?('--allow-fidelity-findings'), fidelity_targets: fidelity_targets }
   key_cwd = Dir.pwd
   begin
-    key_cwd = KeyProject.resolve(argv_project: project) unless ARGV.include?('--estimate-only') && !project
+    key_cwd = KeyProject.resolve_lazily(argv_project: project)
     WalkthroughRender::Run.new(dir, scene: scene, key_cwd: key_cwd, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'),
                                final_only: ARGV.include?('--final-only'))

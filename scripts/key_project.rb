@@ -63,6 +63,16 @@ module KeyProject
     raise Unresolved.new(cwd: real, session: env[SESSION_ENV], reason: 'no session record is read yet')
   end
 
+  # resolve for a run that may never pay (a render whose cache already holds
+  # every asset). An unresolved scratchpad falls back to the cwd, so the first
+  # paid call fails loudly with the --project fix and a fully cached run stays
+  # free. A bad --project still raises.
+  def resolve_lazily(argv_project: nil, cwd: Dir.pwd, env: ENV)
+    resolve(argv_project: argv_project, cwd: cwd, env: env)
+  rescue Unresolved
+    cwd
+  end
+
   def explicit(dir)
     expanded = File.expand_path(dir.to_s)
     raise Invalid, "cf: --project #{dir} is not a directory" unless File.directory?(expanded)

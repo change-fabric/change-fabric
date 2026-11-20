@@ -7,12 +7,14 @@ require "tmpdir"
 require_relative "../scripts/walkthrough_render"
 require_relative "support/png_fixture"
 require_relative "enroll_helpers"
+require_relative "key_project_helpers"
 
 # These tests drive the API path; the default backend would try the host's real codex.
 ENV["CF_ROAST_BACKEND"] = "api"
 
 class WalkthroughRenderTest < Minitest::Test
   include EnrollHelpers
+  include KeyProjectHelpers
 
   LOUDNORM_OUT = "{\n \"input_i\" : \"-20.0\", \"input_tp\" : \"-2.0\", \"input_lra\" : \"5.0\",\n" \
                  " \"input_thresh\" : \"-30.0\", \"target_offset\" : \"0.1\"\n}\n"
@@ -1476,5 +1478,19 @@ end
     seen.each { |name, dirs| assert_equal [ project ], dirs.uniq, "#{name} must receive the resolved project" }
   ensure
     FileUtils.rm_rf(project) if project
+  end
+
+  def test_a_scratchpad_key_cwd_stops_at_the_first_paid_call_with_the_fix
+    scratch = make_scratchpad!
+    prov = providers.merge(tts: ->(**kw) { WalkthroughEnv.elevenlabs_key!(cwd: kw[:key_cwd]) })
+    err = assert_raises(WalkthroughEnv::NeedsEnrollment) do
+      WalkthroughRender::Run.new(@root, providers: prov, out: StringIO.new, key_cwd: scratch, gates: { roast: false }).call
+    end
+    out = StringIO.new
+    assert_equal 4, WalkthroughEnv.enroll(err, out: out)
+    assert_empty enroll_lines(out.string)
+    assert_includes out.string, "Fix: re-run with --project <repo root>"
+  ensure
+    remove_scratchpad!
   end
 end

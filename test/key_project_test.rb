@@ -102,4 +102,10 @@ class KeyProjectTest < Minitest::Test
     assert_nil KeyProject.take_option(%w[c])
     assert_raises(KeyProject::Invalid) { KeyProject.take_option(%w[--project]) }
   end
+
+  def test_resolve_lazily_falls_back_to_the_scratchpad_so_the_first_paid_call_fails_loudly
+    assert_equal @scratch, KeyProject.resolve_lazily(cwd: @scratch, env: {})
+    assert_equal @repo, KeyProject.resolve_lazily(argv_project: @repo, cwd: @scratch, env: {})
+    assert_raises(KeyProject::Invalid) { KeyProject.resolve_lazily(argv_project: @scratch, cwd: @scratch, env: {}) }
+  end
 end
