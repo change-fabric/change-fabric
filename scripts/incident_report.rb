@@ -30,6 +30,12 @@ module IncidentReport
                 File.join(Dir.home, '.claude', 'skills', 'cf:incident', 'reference') ]
               .find { |dir| File.file?(File.join(dir, 'evidence-pdf.typ')) } || File.expand_path('../skills/incident/reference', __dir__)
   ROAST_SCRIPT = File.join(__dir__, 'roast.rb')
+  # roast.rb refuses a review with no audience or no purpose outcome.
+  AUDIENCE = "the client's stakeholders reading an incident report"
+  PURPOSES = {
+    'summary' => [ 'State what was affected and for how long', 'State what was fixed and what now prevents a repeat' ],
+    'pdf' => [ 'Show that production now serves the fixed version, read-only', 'Show which pages and viewports were checked' ]
+  }.freeze
   SECTIONS = %w[impact timeline fix prevention].freeze
   # The pinned OCR image: tesseract 5.5.4. Runs with no network.
   OCR_IMAGE = ChangeDocker::TESSERACT_IMAGE
@@ -505,6 +511,7 @@ module IncidentReport
       brief = File.join(out_dir, 'brief.txt')
       File.write(brief, brief_for(name))
       argv = [ RbConfig.ruby, ROAST_SCRIPT, '--repo', repo_dir, '--brief', brief, '--out-dir', out_dir, '--kind', 'doc' ]
+      argv += [ '--audience', AUDIENCE ] + PURPOSES.fetch(name).flat_map { |outcome| [ '--purpose', outcome ] }
       argv += [ '--max-usd', max_usd.to_s ] if max_usd
       argv += name == 'summary' ? [ '--text', draft['path'] ] : roast_pages(m, sha).flat_map { |page| [ '--shot', page ] }
       out, ok = @shell.run(argv)

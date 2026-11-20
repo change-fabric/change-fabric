@@ -53,6 +53,9 @@ class IncidentReportTest < Minitest::Test
     def settings = [ "roast settings: auto true, target 8, rounds 5, max_usd 0.50, model x\n", true ]
 
     def roast(argv)
+      return [ "roast refused: no audience", false ] unless argv.include?("--audience")
+      return [ "roast refused: no purpose", false ] unless argv.include?("--purpose")
+
       dir = argv[argv.index("--out-dir") + 1]
       FileUtils.mkdir_p(dir)
       issues = Array.new(@p0) { { "priority" => "P0", "where" => "x", "problem" => "p", "fix" => "f" } }
@@ -541,6 +544,25 @@ class IncidentReportTest < Minitest::Test
     refute_includes summary, "--shot"
     assert_equal 2, pdf.count("--shot")
     assert(@shell.roast_calls.all? { |c| c.include?("--kind") && c.include?("--brief") })
+  end
+
+  # Keeps the fake honest: the argv built here must satisfy the real roast.rb.
+  def test_the_roast_argv_satisfies_the_real_roast_scripts_review_contract
+    require_relative "../scripts/roast"
+    rep = report
+    capture!
+    rep.draft(at: T1, sections: sections, title: "t")
+    rep.ocr_screens(at: T1)
+    rep.scan(at: T1)
+    rep.roast(at: T1, repo_dir: @tmp)
+    @shell.roast_calls.each do |argv|
+      opts = Roast::Cli.parse(argv[2..] + [ "--estimate-only" ])
+      review = Roast.resolve_review(flags: opts[:flags], storyboard: nil, config: opts[:config_review])
+      Roast.check_review!(review)
+      assert_equal IncidentReport::AUDIENCE, review[:audience]
+      refute_empty review[:purpose]
+      assert_includes Roast::KINDS, opts[:flags][:kind]
+    end
   end
 
   def test_roast_needs_a_scan_first_scan_and_roast_come_after_drafting
