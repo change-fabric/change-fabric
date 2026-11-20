@@ -178,8 +178,8 @@ change_policy:
     # needed for the ready bar; the carve-outs are policy, not code.
     allowed: true
     require_change_pass: true
-    # The carve-out files, read from the PR base. Nothing enforces the list
-    # yet; the merge guard classifies PRs by it in a later release.
+    # The carve-out files, read from the PR base. The merge guard classifies
+    # a PR by this list and merges a carve-out only at a phone-approved head.
     carve_out_paths:
       - CHANGE.md
       - PRINCIPLES.md

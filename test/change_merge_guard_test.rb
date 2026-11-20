@@ -357,3 +357,182 @@ class ChangeMergeGuardTest < Minitest::Test
     path
   end
 end
+
+require_relative "support/phone_console"
+
+# Carve-out classification and the exact-head merge (P4): the real console in
+# process mints the passkey receipts; gh is a fake runner.
+class ChangeMergeGuardCarveOutTest < Minitest::Test
+  include PhoneConsole
+
+  PR_URL = "https://github.com/acme/widgets/pull/612"
+  REPO = "repo:github.com/acme/widgets"
+  HEAD = "b" * 40
+  CARVE = [ "scripts/change_merge_guard.rb" ].freeze
+
+  # The guard with gh's file list and the proof store supplied.
+  class Guard < StubMergeGuard
+    def initialize(event, files:, proof_store:, **opts)
+      super(event, **opts)
+      @files = files
+      @proof_store = proof_store
+    end
+
+    private
+
+    def changed_files(url) = @files.respond_to?(:call) ? @files.call(url) : @files
+    def proof_store = @proof_store
+  end
+
+  def setup
+    @home = File.realpath(Dir.mktmpdir)
+    @prev = ENV["HOME"]
+    ENV["HOME"] = @home
+    ENV.delete("CF_ALLOW_UNGATED_MERGE")
+    @root = Dir.mktmpdir
+    start_phone_console
+  end
+
+  def teardown
+    ENV["HOME"] = @prev
+    FileUtils.remove_entry(@home)
+    FileUtils.remove_entry(@root)
+  end
+
+  def policy(paths: [ "scripts/*guard*.rb", "CHANGE.md" ])
+    ChangePolicy.new({ "approval_pins" => authoritative_pins, "admin_bypass" => { "carve_out_paths" => paths },
+                       "promotion" => { "main" => { "require_change_pass" => false } } }, nil)
+  end
+
+  def attrs(files: CARVE, base: "main", sha: HEAD)
+    { "type" => "carve-out", "repo" => REPO, "sha" => sha, "profile" => nil, "summary" => "merge #612", "pr_url" => PR_URL,
+      "pr_title" => "Guard change", "base" => base, "files" => files }
+  end
+
+  def approve(files: CARVE, base: "main", sha: HEAD)
+    proof = phone_proof(attrs(files: files, base: base, sha: sha))
+    ChangeCarveOutStore.new.record(repo: REPO, pr: "612", sha: sha, proof: proof, policy_sha: POLICY_SHA, recorded_by: "t")
+  end
+
+  def verdict(command = "gh pr merge 612 --squash --match-head-commit #{HEAD}", files: CARVE, head: HEAD, base: "main")
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    Guard.new(event, root: @root, pr: [ base, head, PR_URL ], base_policy: policy, files: files, proof_store: @store).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason")
+  end
+
+  def test_a_carve_out_without_a_record_is_denied
+    assert_match(/no phone-approved carve-out is recorded for head #{HEAD[0, 12]}/, verdict)
+  end
+
+  def test_a_carve_out_at_the_approved_head_with_match_head_commit_is_allowed
+    approve
+    assert_nil verdict
+    assert_nil verdict("gh pr merge 612 --squash --match-head-commit=#{HEAD}")
+  end
+
+  def test_a_new_head_needs_a_new_approval
+    approve
+    new_head = "d" * 40
+    assert_match(/no phone-approved carve-out is recorded for head #{new_head[0, 12]}/,
+                 verdict("gh pr merge 612 --squash --match-head-commit #{new_head}", head: new_head))
+  end
+
+  def test_a_stale_receipt_is_denied_at_use
+    @now -= 90_000
+    approve
+    assert_match(/24h old or older/, verdict)
+  end
+
+  def test_signed_files_must_equal_the_recomputed_list
+    approve
+    assert_match(/files does not match/, verdict(files: CARVE + [ "README.md" ]))
+  end
+
+  def test_signed_base_must_equal_the_prs_base
+    approve(base: "release")
+    assert_match(/base does not match/, verdict)
+  end
+
+  def test_a_merge_without_match_head_commit_is_denied_even_with_a_record
+    approve
+    assert_match(/must carry --match-head-commit #{HEAD}/, verdict("gh pr merge 612 --squash"))
+    assert_match(/must carry --match-head-commit/, verdict("gh pr merge 612 --squash --match-head-commit #{'d' * 40}"))
+  end
+
+  def test_a_deferred_auto_merge_is_denied_even_with_a_record
+    approve
+    assert_match(/not with --auto/, verdict("gh pr merge 612 --squash --auto --match-head-commit #{HEAD}"))
+  end
+
+  def test_a_gh_failure_while_classifying_is_denied
+    failing = ->(_url) { raise ChangePrFacts::Unreadable, "gh api failed" }
+    assert_match(/could not be classified \(gh api failed\)/, verdict(files: failing))
+  end
+
+  def fake_gh(count:, entries:)
+    lambda do |*args|
+      args.include?("--jq") ? "#{count}\n" : JSON.generate([ entries ])
+    end
+  end
+
+  def test_three_thousand_files_and_a_truncated_page_are_denied
+    entry = { "filename" => "docs/a.md" }
+    big = ->(url) { ChangePrFacts.files(url, runner: fake_gh(count: 3000, entries: [ entry ])) }
+    cut = ->(url) { ChangePrFacts.files(url, runner: fake_gh(count: 2, entries: [ entry ])) }
+    assert_match(/at most 3000/, verdict(files: big))
+    assert_match(/truncated/, verdict(files: cut))
+  end
+
+  def test_a_rename_into_a_carve_out_path_is_caught_by_its_previous_name
+    entries = [ { "filename" => "docs/old.md", "previous_filename" => "CHANGE.md" } ]
+    renamed = ->(url) { ChangePrFacts.files(url, runner: fake_gh(count: 1, entries: entries)) }
+    assert_match(/carve-out \(CHANGE.md\)/, verdict(files: renamed))
+  end
+
+  def test_a_pr_outside_the_carve_out_paths_is_unchanged
+    assert_nil verdict("gh pr merge 612 --squash", files: [ "docs/a.md" ])
+  end
+
+  def test_a_repo_without_a_carve_out_list_is_unaffected
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "gh pr merge 612 --squash" } }
+    io = StringIO.new
+    Guard.new(event, root: @root, pr: [ "main", HEAD, PR_URL ], base_policy: policy(paths: []), files: CARVE, proof_store: @store).emit(io)
+    assert_empty io.string
+  end
+
+  def test_the_escape_hatch_still_suppresses_the_guard
+    ENV["CF_ALLOW_UNGATED_MERGE"] = "1"
+    assert_nil verdict("gh pr merge 612 --squash")
+  end
+
+  def test_a_bare_merge_with_match_head_commit_resolves_the_current_branch_pr
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "gh pr merge --squash --match-head-commit #{HEAD}" } }
+    guard = ChangeMergeGuard.new(event)
+    seen = []
+    stub = lambda do |*args|
+      seen << args
+      [ "main\t#{HEAD}\t#{PR_URL}\n", Struct.new(:success?).new(true) ]
+    end
+    original = Open3.method(:capture2e)
+    Open3.define_singleton_method(:capture2e, &stub)
+    begin
+      assert_equal [ "main", HEAD, PR_URL ], guard.send(:pr_facts)
+    ensure
+      Open3.define_singleton_method(:capture2e, original)
+    end
+    refute_includes seen.first, HEAD
+    assert_equal %w[gh pr view --json], seen.first.first(4)
+  end
+
+  def test_merge_ref_skips_flag_values_and_still_finds_the_selector
+    guard = ChangeMergeGuard.new({})
+    assert_nil guard.send(:merge_ref, "gh pr merge --squash --match-head-commit #{HEAD}")
+    assert_equal "612", guard.send(:merge_ref, "gh pr merge --match-head-commit #{HEAD} 612 --squash")
+    assert_equal "612", guard.send(:merge_ref, "gh pr merge 612 --body note --match-head-commit #{HEAD}")
+  end
+
+  def test_the_denial_hint_carries_the_summary_the_request_needs
+    assert_match(/--type carve-out --pr-url #{Regexp.escape(PR_URL)} --summary /, verdict)
+  end
+end

@@ -121,16 +121,16 @@ separate plan.
 
 Enforcer: advisory
 
-## Agents merge at the ready bar; carve-outs escalate
+## Agents merge at the ready bar; carve-outs need a phone-approved head
 
 The coordinating agent squash-merges a PR only when it is rebased on main, CI
 is green, `mergeStateStatus` is CLEAN, it has 0 unresolved review threads, and
 a comprehensive `cf:change` run passed for the exact head SHA. A PR touching
 the merge or tag guards, the review gate, the sensitive-term or secret hooks,
-the `change_policy` block, these merge rules, or a release workflow escalates
-to the maintainer; the full path list is in `CHANGE.md`. Only Patrick's phone
-approves `change_approve` and `change_override`; tags go in a script under
-`~/.claude/cf/manual/`. No hook checks threads or carve-out paths yet.
+the `change_policy` block, these merge rules, or a release workflow is a
+carve-out (paths in `CHANGE.md`): the merge guard merges it only at the head
+Patrick's phone approved, with `--match-head-commit <sha>`, failing closed on
+a gh error. Tags go in a `~/.claude/cf/manual/` script.
 
 Enforcer: scripts/change_merge_guard.rb, CHANGE.md
 

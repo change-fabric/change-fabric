@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.27.0
+Schema version: 0.28.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -1061,7 +1061,7 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
-| `change_policy.admin_bypass.carve_out_paths` | list of globs | no (default empty) | (0.26.0) Files whose change makes a PR a carve-out, matched with `File.fnmatch` (`FNM_PATHNAME`: `*` stays in one directory; a trailing `/**` covers everything below). Read from the PR base branch's policy. |
+| `change_policy.admin_bypass.carve_out_paths` | list of globs | no (default empty) | (0.26.0) Files whose change makes a PR a carve-out, matched with `File.fnmatch` (`FNM_PATHNAME`: `*` stays in one directory; a trailing `/**` covers everything below). Read from the PR base branch's policy. (0.28.0) The merge guard enforces it: a PR matching a glob (a rename on either name) merges only at a phone-approved head with `--match-head-commit`. |
 
 ### change_policy.trackers (0.19.0): the tracker workflow
 
@@ -1911,3 +1911,6 @@ root `RELEASING.md`.
   is now 8 to 10 (default 8), `roast_rounds` 1 to 5 (default 5), and the
   triage diagnosis roast gate `min_score` floor is 8. Open P1s at the stop go
   through the local P1 pass, not another roast.
+- 0.28.0: additive. The merge guard enforces
+  `change_policy.admin_bypass.carve_out_paths`: a carve-out PR merges only at
+  a phone-approved head with `--match-head-commit`. No new field.

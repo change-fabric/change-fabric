@@ -18,6 +18,18 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.28.0] - 2026-11-20
+
+Carve-out enforcement. Additive for CHANGE.md: no new field.
+
+### Changed
+
+- The merge guard enforces `change_policy.admin_bypass.carve_out_paths`. A PR
+  with a changed file (either name of a rename) in the list, read from the PR
+  base, merges only with a phone-approved carve-out receipt for its exact head
+  and `--match-head-commit <sha>`. A gh error or a PR of 3000 or more files
+  fails closed.
+
 ## [0.27.0] - 2026-11-19
 
 Outbound roast floor lowered to 8. Additive for CHANGE.md: every value valid

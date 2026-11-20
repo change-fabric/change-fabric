@@ -106,11 +106,20 @@ module ChangePrFacts
     nil
   end
 
+  # `gh pr merge` flags whose next token is a value, never the PR selector.
+  VALUE_FLAGS = %w[--match-head-commit --body -b --body-file -F --subject -t --author-email -A].freeze
+
   def merge_ref(command)
     tokens = command.to_s.split
     idx = tokens.index('merge')
     return nil unless idx
 
-    tokens[(idx + 1)..].find { |token| !token.start_with?('-') }
+    previous = nil
+    tokens[(idx + 1)..].each do |token|
+      return token unless token.start_with?('-') || VALUE_FLAGS.include?(previous)
+
+      previous = token
+    end
+    nil
   end
 end
