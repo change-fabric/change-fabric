@@ -204,9 +204,9 @@ Architecture lives in `ARCHITECTURE.md`, rules here, agent instructions in
 `AGENTS.md`, the release runbook in `RELEASING.md`. A new markdown file outside
 the allowlist in `scripts/docs_check.rb` fails `rake test`. Decision records,
 RCAs, and review logs go in the PR and git history, and any lasting lesson
-becomes a principle here with an enforcer. Incident RCAs live outside git.
+becomes a principle here with an enforcer. Incident RCAs live outside git. A client incident report is drafted, scanned and roasted, and only a human sends it.
 
-Enforcer: scripts/docs_check.rb, test/docs_check_test.rb, scripts/incident_store.rb
+Enforcer: scripts/docs_check.rb, test/docs_check_test.rb, scripts/incident_store.rb, scripts/incident_report.rb, test/incident_report_test.rb
 
 ## A walkthrough tells a story before it spends money
 

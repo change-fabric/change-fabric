@@ -85,9 +85,25 @@ work tree or under the repo checkout or any path in `CF_KNOWN_REPO_ROOTS`
    `gh issue create` command, or the repo's tracker) for Patrick, roast the
    body first, and never file it yourself. `follow-up update --n K --url U`
    tracks it, or `--accepted-untracked --by <who>` records Patrick's acceptance.
-8. **Report.** The client summary and evidence PDF arrive in a later phase.
-   Until then, tell Patrick the incident is ready to report. After he sends
-   whatever he sends, `set --status reported`.
+8. **Report.** Drafted for Patrick to send; this skill never sends it. Each
+   command is `ruby ~/.claude/cf/bin/incident_report.rb <command> --repo
+   <slug> --id <id> --at <iso>`. Capture read-only screenshots first:
+   `capture --url <https prod URL> --routes /a,/b --suite <cf:qa suite>
+   [--version V]`. Only routes from the suite's read-only cases are allowed,
+   every non-GET and off-host request is aborted, an off-host redirect fails
+   the capture, and a privileged session needs `--session NAME
+   --session-approved-by <who>`. Then `ocr`, then `draft --title T
+   --impact-file F --timeline-file F --fix-file F --prevention-file F` (plain
+   language, per `reference/client-summary-template.md`; the PDF follows
+   `reference/evidence-pdf.typ`), then `scan`, then `roast` (the bar comes
+   from `roast.rb settings`), then `finalize`. Scan and roast always come
+   after drafting. States run draft, scanned, roasted, ready, each bound to
+   the file's SHA-256, so a later edit drops that draft back to draft. With
+   no OCR the PDF needs `finalize --attest-no-ocr "<Patrick's reason>"`; a
+   score under the bar needs `--accept-below-bar "<reason>"`. Drafts go to
+   `CF_INCIDENT_CLIENT_DIR` (a template with `<client>` and `<date>`), else
+   `report/out/` in the incident directory. Hand Patrick the paths. After he
+   sends whatever he sends, `set --status reported`.
 9. **Close.** Update `rca.md` after the verified transition, then `close`. It
    refuses unless status is `reported`, every follow-up is tracked or accepted
    untracked, `hotfix.pr_url`, `hotfix.merge_sha` and `hotfix.serving_version`

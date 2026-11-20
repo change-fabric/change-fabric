@@ -37,6 +37,9 @@ module ChangeDocker
   #   docker run --rm jrottenberg/ffmpeg:7.1.2-ubuntu2404 -hide_banner -buildconf | grep -E 'libass|libx264'
   # and pinned from `docker buildx imagetools inspect`.
   FFMPEG_IMAGE = 'jrottenberg/ffmpeg:7.1.2-ubuntu2404@sha256:292a972c60356abd651d9a4f9c808c13e7473f65ad400b7eb99215f4e571931d'
+  # The tesseract 5.5.4 image cf:incident OCRs screenshots and report pages
+  # with (run with no network), pinned from `docker buildx imagetools inspect`.
+  TESSERACT_IMAGE = 'jitesoft/tesseract-ocr@sha256:c40c545e752b7d033994600d873a74b3a9adc3521962a81a1c553b4f24acb65b'
   # Icon packages fetched by `npm pack` inside NODE_IMAGE and checked against
   # these sha512 integrity values; a mismatch fails, never falls back.
   PHOSPHOR_PKG = {
