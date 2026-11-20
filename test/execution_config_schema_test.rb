@@ -54,8 +54,15 @@ class ExecutionConfigSchemaTest < Minitest::Test
     assert_empty ExecutionConfigSchema.errors({})
   end
 
+  def test_new_floor_and_cap_are_accepted
+    cfg = example
+    cfg["outbound"]["roast_target"] = 8
+    cfg["outbound"]["roast_rounds"] = 5
+    assert_empty ExecutionConfigSchema.errors(cfg)
+  end
+
   def test_fixed_limits_cannot_be_loosened
-    { "roast_target" => [ 8, /from 9 to 10/ ], "roast_rounds" => [ 5, /from 1 to 4/ ],
+    { "roast_target" => [ 7, /from 8 to 10/ ], "roast_rounds" => [ 6, /from 1 to 5/ ],
       "spend_usd_cap" => [ 2.5, /at most 2.0/ ], "hold_flush_minutes" => [ 30, /from 1 to 15/ ],
       "stale_hold_hours" => [ 0, /positive integer/ ] }.each do |key, (value, message)|
       cfg = example

@@ -18,6 +18,20 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.27.0] - 2026-11-19
+
+Outbound roast floor lowered to 8. Additive for CHANGE.md: every value valid
+before stays valid.
+
+### Changed
+
+- `change_config.outbound.roast_target` is now from 8 to 10 (default 8, was 9
+  to 10), and `roast_rounds` from 1 to 5 (default 5, was 1 to 4).
+- The triage diagnosis roast gate (`on_breach.triage.gate.min_score`) floor is
+  now 8 (was 9). The default stays 9.
+- A held outbound message's open P1s go through the local P1 pass and the
+  message is scanned again, never roasted again.
+
 ## [0.26.0] - 2026-11-19
 
 Passkey approvals and a pinned trust root. Additive for CHANGE.md.

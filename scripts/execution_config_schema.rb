@@ -27,8 +27,8 @@ module ExecutionConfigSchema
   TRACKER_KEYS = %w[kind site provider project].freeze
 
   SPEND_CAP_MAX = 2.0
-  ROAST_TARGET_MIN = 9
-  ROAST_ROUNDS = (1..4)
+  ROAST_TARGET_MIN = 8
+  ROAST_ROUNDS = (1..5)
   HOLD_FLUSH_MINUTES = (1..15)
 
   NAME = /\A[a-z0-9][a-z0-9_-]{0,62}\z/
@@ -121,7 +121,7 @@ module ExecutionConfigSchema
     if outbound.key?('roast_target') && !(target.is_a?(Numeric) && target.between?(ROAST_TARGET_MIN, 10))
       errors << "#{field}.roast_target must be a number from #{ROAST_TARGET_MIN} to 10 (the minimum is schema-fixed)"
     end
-    errors << "#{field}.roast_rounds must be an integer from 1 to 4" if outbound.key?('roast_rounds') && !int_in?(outbound['roast_rounds'], ROAST_ROUNDS)
+    errors << "#{field}.roast_rounds must be an integer from 1 to 5" if outbound.key?('roast_rounds') && !int_in?(outbound['roast_rounds'], ROAST_ROUNDS)
     if outbound.key?('hold_flush_minutes') && !int_in?(outbound['hold_flush_minutes'], HOLD_FLUSH_MINUTES)
       errors << "#{field}.hold_flush_minutes must be an integer from 1 to 15"
     end

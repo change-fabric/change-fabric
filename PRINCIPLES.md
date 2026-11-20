@@ -46,9 +46,10 @@ Enforcer: advisory
 cf:roast and the fidelity loop share one stop rule: a P0 continues until the
 cap, the cap stops with the P0 reported as blocking, a score of 8 or more with
 no P0 stops, otherwise continue. Open P1s become local follow-ups, never
-another paid round.
+another paid round. The outbound roast floor is 8 (`roast_target` 8 to 10, up
+to 5 rounds).
 
-Enforcer: scripts/roast.rb, scripts/roast_followups.rb, scripts/walkthrough_roast.rb, test/roast_test.rb, test/roast_followups_test.rb, test/walkthrough_roast_test.rb, skills/roast/SKILL.md, test/roast_p1_pass_test.rb
+Enforcer: scripts/execution_config_schema.rb, test/execution_config_schema_test.rb, scripts/roast.rb, scripts/roast_followups.rb, scripts/walkthrough_roast.rb, test/roast_test.rb, test/roast_followups_test.rb, test/walkthrough_roast_test.rb, skills/roast/SKILL.md, test/roast_p1_pass_test.rb
 
 ## Push is gated on a design review
 
