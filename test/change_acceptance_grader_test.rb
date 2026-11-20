@@ -233,4 +233,44 @@ class ChangeAcceptanceGraderTest < Minitest::Test
     assert_includes ci, "fails closed"
     assert_includes ci, "refuses without a real terminal"
   end
+
+  def captured_observation(secrets: [])
+    OBSERVATION.merge(
+      captured: [ { var: "header_total", value: "69", kind: "number", read_at: "2026-11-20T10:00:00.000Z" },
+                  { var: "token", value: "s3cret-value", kind: "text", read_at: "2026-11-20T10:00:01.000Z" } ],
+      secrets: secrets, text: "Total 69 for s3cret-value"
+    )
+  end
+
+  def test_the_prompt_carries_captured_values_with_their_read_time
+    prompt = grader(runner: ->(_p) { "[]" }).prompt_for([ captured_observation ])
+
+    assert_includes prompt, "\"var\": \"header_total\""
+    assert_includes prompt, "\"value\": \"69\""
+    assert_includes prompt, "\"read_at\": \"2026-11-20T10:00:00.000Z\""
+    assert_includes prompt, "\"kind\": \"number\""
+  end
+
+  def test_a_secret_value_is_redacted_from_captured_values_and_page_text
+    prompt = grader(runner: ->(_p) { "[]" }).prompt_for([ captured_observation(secrets: [ "s3cret-value" ]) ])
+
+    refute_includes prompt, "s3cret-value"
+    assert_includes prompt, "Total 69 for [redacted]"
+    assert_includes prompt, "\"value\": \"[redacted]\""
+  end
+
+  def test_an_observation_without_captures_sends_an_empty_list
+    assert_includes grader(runner: ->(_p) { "[]" }).prompt_for([ OBSERVATION ]), "\"captured\": []"
+  end
+
+  def test_overlapping_secrets_are_masked_whole
+    observation = OBSERVATION.merge(
+      captured: [ { var: "k", value: "token-prefix-long-suffix", kind: "text", read_at: "" } ],
+      secrets: [ "token-prefix", "token-prefix-long-suffix" ], text: "none"
+    )
+    prompt = grader(runner: ->(_p) { "[]" }).prompt_for([ observation ])
+
+    refute_includes prompt, "long-suffix"
+    assert_includes prompt, "\"value\": \"[redacted]\""
+  end
 end

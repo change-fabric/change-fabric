@@ -120,4 +120,23 @@ class ChangeTestcasesReportTest < Minitest::Test
     dashed = ChangeTestcasesReport.ledger_path("app", repo: "/code/a", app: "customer-portal")
     refute_equal underscored, dashed
   end
+
+  def test_quarantine_shows_in_the_report_and_as_a_junit_property
+    held = ChangeCaseResult.new(key: "checkout/pay", suite: "checkout", id: "pay", status: "fail", run_id: "r3",
+                                quarantined: true, quarantine_reason: "flaky font load")
+    open_case = ChangeCaseResult.new(key: "checkout/browse", suite: "checkout", id: "browse", status: "pass", run_id: "r3")
+    with_run do |run_dir, ledger|
+      report = ChangeTestcasesReport.new(run_dir: run_dir, records: [ held, open_case ], ledger: ledger)
+      paths = report.write
+      html = File.read(paths[:html])
+      doc = REXML::Document.new(File.read(paths[:junit]))
+
+      assert_includes html, "<th>Quarantine</th>"
+      assert_includes html, "flaky font load"
+      props = REXML::XPath.match(doc, "//testcase[@name='pay']/properties/property")
+      assert_equal [ [ "quarantined", "true" ], [ "quarantine_reason", "flaky font load" ] ],
+                   props.map { |p| [ p.attributes["name"], p.attributes["value"] ] }
+      assert_empty REXML::XPath.match(doc, "//testcase[@name='browse']/properties")
+    end
+  end
 end

@@ -351,6 +351,26 @@ For each passing flow:
 5. If the file is new, say that `CHANGE.md` needs `lanes.testcases.suites` to
    name a glob covering it, or the case is committed and never runs.
 
+### Handoff comment for a human tester
+
+A suite can render its own QA handoff comment, so a tester gets one paste-ready
+template per case instead of a hand-written checklist:
+
+```
+ruby ~/.claude/cf/bin/change_suite_render.rb --handoff <suite>.cf-testcases.yml
+```
+
+Per case it lists what the case measures (its acceptance sentence), the
+figures it captures, the verdict buckets (pass, fail, drift, blocked meaning
+not verified), and blanks for the observed values with their as-of time and
+the tester's notes. It prints Markdown to stdout and writes nothing.
+
+`cf:change --doctor` also warns when a captured figure is never compared by an
+`expect_equal`, and when a case asserts only static text, since both pass on a
+page that shows the right words and the wrong numbers. The acceptance grader
+receives each captured figure with its read time, with env-sourced secrets
+redacted as everywhere else.
+
 ## Unattended gates
 
 | ID | Action | Requires | When unmet |

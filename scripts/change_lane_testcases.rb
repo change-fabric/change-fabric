@@ -118,7 +118,8 @@ class ChangeLaneTestcases < ChangeLane
         status: record_status(result), attempts: result[:attempt_log],
         duration_ms: result[:duration_ms], started_at: result[:started_at], commit: commit,
         run_id: run_id, evidence_dir: result[:record]&.dig('evidenceDir'),
-        acceptance_verdict: result[:verdict]&.verdict, step_durations: step_durations(result[:record])
+        acceptance_verdict: result[:verdict]&.verdict, step_durations: step_durations(result[:record]),
+        quarantined: item.quarantined?(today), quarantine_reason: item.quarantined?(today) ? item.quarantine.reason : nil
       )
     end
   end
@@ -742,7 +743,26 @@ class ChangeLaneTestcases < ChangeLane
     record = result[:record] || {}
     observed = record['observation'] || {}
     { id: result[:case].qualified_id, acceptance: result[:case].acceptance, ok: true,
-      steps: Array(record['steps']), url: observed['url'], title: observed['title'], text: observed['text'] }
+      steps: Array(record['steps']), url: observed['url'], title: observed['title'], text: observed['text'],
+      captured: captured_values(record), secrets: secret_values(result[:case]) }
+  end
+
+  # The figures a case's `capture` steps read, in step order, each with the
+  # value and time of that very read: a variable captured twice reports both
+  # readings, never the later value under the earlier time.
+  def captured_values(record)
+    Array(record['steps']).filter_map do |step|
+      next unless step['captured']
+
+      { var: step['captured'], value: step['found'], kind: step['kind'], read_at: step['readAt'] }
+    end
+  end
+
+  # The values the case read from env vars: the lane's redaction rule says
+  # they travel to the container only, so the grader's payload masks them.
+  def secret_values(item)
+    ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms).compile
+                      .filter_map { |step| step[:value] if step[:secret] }
   end
 
   # The verdict-to-status mapping, and the one place the "can fail the gate"

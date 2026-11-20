@@ -15,7 +15,7 @@ class ChangeCaseResult
   FAILURE_STATUSES = %w[fail auth_interrupted partial_evidence].freeze
 
   FIELDS = %i[key suite id persona status attempts duration_ms started_at commit run_id evidence_dir
-              acceptance_verdict step_durations].freeze
+              acceptance_verdict step_durations quarantined quarantine_reason].freeze
 
   attr_reader(*FIELDS)
 
@@ -28,6 +28,8 @@ class ChangeCaseResult
     @status = @status.to_s
     @attempts = Array(@attempts)
     @step_durations = Array(@step_durations)
+    @quarantined = @quarantined == true
+    @quarantine_reason = @quarantine_reason.to_s unless @quarantine_reason.nil?
   end
 
   def self.from_h(hash)
@@ -37,6 +39,10 @@ class ChangeCaseResult
   def to_h = FIELDS.to_h { |field| [ field.to_s, public_send(field) ] }
 
   def to_json(*) = JSON.generate(to_h)
+
+  # Whether a live quarantine was shielding this case from the gate in this
+  # run. The result still says what happened; this says it was not gating.
+  def quarantined? = quarantined
 
   def failure? = FAILURE_STATUSES.include?(status)
 

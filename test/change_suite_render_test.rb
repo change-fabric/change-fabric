@@ -104,4 +104,40 @@ class ChangeSuiteRenderTest < Minitest::Test
                                                       suite: "s", id: "c", acceptance: "It saves."))
     assert_equal 4, doc["suite_version"]
   end
+
+  def handoff_suite
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "orders.cf-testcases.yml")
+      File.write(path, <<~YAML)
+        suite_version: 5
+        suite: orders
+        cases:
+          - id: header-total
+            acceptance: The header total equals the list count.
+            steps:
+              - goto: /orders
+              - capture: { var: header_total, selector: ".total", kind: number }
+              - expect_equal: { var: header_total, selector: ".rows", kind: count }
+          - id: title
+            acceptance: The page is titled Orders.
+            steps:
+              - goto: /orders
+              - expect_text: { selector: "h1", equals: "Orders" }
+      YAML
+      ChangeSuite.load_file(path)
+    end
+  end
+
+  def test_handoff_lists_each_case_with_figures_buckets_and_blanks
+    text = ChangeSuiteRender.handoff(handoff_suite)
+
+    assert_includes text, "## QA handoff: orders"
+    assert_includes text, "### orders/header-total"
+    assert_includes text, "- Measures: The header total equals the list count."
+    assert_includes text, "- Figures: header_total"
+    assert_includes text, "- Figures: none captured"
+    assert_includes text, "pass / fail / drift / blocked (not verified)"
+    assert_includes text, "Tester: ____"
+    assert_equal 2, text.scan("### ").size
+  end
 end

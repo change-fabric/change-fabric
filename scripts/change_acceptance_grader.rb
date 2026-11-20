@@ -4,6 +4,7 @@
 require 'json'
 require 'open3'
 require_relative 'model_roles'
+require_relative 'change_flow_compiler'
 
 # Grades a test case's human-prose `acceptance` criterion against what the run
 # actually observed, and returns a verdict the lane turns into a Finding.
@@ -48,6 +49,8 @@ class ChangeAcceptanceGrader
   # unbounded page would make the prompt (and the cost) a function of whatever
   # the app happens to render.
   TEXT_LIMIT = 4_000
+
+  REDACTED = ChangeFlowCompiler::REDACTED
 
   Verdict = Struct.new(:id, :verdict, :rationale, keyword_init: true) do
     def pass? = verdict == 'pass'
@@ -176,8 +179,30 @@ class ChangeAcceptanceGrader
       'steps' => Array(observation[:steps]).map { |step| step_payload(step) },
       'final_url' => observation[:url].to_s,
       'page_title' => observation[:title].to_s,
-      'page_text' => observation[:text].to_s[0, TEXT_LIMIT]
+      'page_text' => scrub(observation[:text].to_s[0, TEXT_LIMIT], observation),
+      'captured' => captured_payload(observation)
     }
+  end
+
+  # The figures the run measured, with when each was read, so the grader can
+  # judge a criterion about a number against the number and its freshness
+  # rather than against prose. The redaction rule is the compiler's own: a
+  # value that came from an env var (a `fill` secret) never travels, so it is
+  # masked here wherever it appears, in a figure as in the page text.
+  def captured_payload(observation)
+    Array(observation[:captured]).map do |entry|
+      { 'var' => entry[:var].to_s, 'value' => scrub(entry[:value].to_s, observation),
+        'kind' => entry[:kind].to_s, 'read_at' => entry[:read_at].to_s }
+    end
+  end
+
+  def scrub(text, observation)
+    secrets = Array(observation[:secrets]).map(&:to_s).reject(&:empty?).sort_by { |secret| -secret.length }
+    return text if secrets.empty?
+
+    # One pass over the original text, longest first, so a secret that
+    # contains another is masked whole rather than leaving its suffix behind.
+    text.gsub(Regexp.union(secrets), REDACTED)
   end
 
   def step_payload(step)
