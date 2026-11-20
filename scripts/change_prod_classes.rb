@@ -88,8 +88,7 @@ module ChangeProdClasses
   # A trailing /** is every descendant at any depth; otherwise File.fnmatch with
   # ** crossing directories, as the one-way-door classifier reads globs.
   def match?(pattern, path)
-    return path.start_with?(pattern.delete_suffix('**')) if pattern.end_with?('/**')
-
+    pattern = "#{pattern}/*" if pattern.end_with?('/**')
     File.fnmatch?(pattern, path, File::FNM_PATHNAME | File::FNM_EXTGLOB)
   end
 
