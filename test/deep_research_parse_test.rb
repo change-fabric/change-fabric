@@ -182,6 +182,12 @@ class DeepResearchParseTest < Minitest::Test
     assert_equal({ "finding_id" => "summary", "source_id" => "S1", "span" => nil }, cite)
   end
 
+  def test_a_labeled_url_beats_an_earlier_unrelated_link
+    parsed = parse("Sources", { frags: [ [ "1. ", 10 ], [ "Publisher profile", "https://example.org/profile", 40 ] ] },
+                   "Report URL: https://example.org/report")
+    assert_equal [ "https://example.org/report" ], parsed[:sources].map { |src| src["url"] }
+  end
+
   def test_balanced_parentheses_in_a_url_survive_and_prose_punctuation_is_stripped
     parsed = parse("Sources", marked(1, "Ruby https://en.wikipedia.org/wiki/Ruby_(programming_language)."),
                    marked(2, "(see https://example.org/a)"))

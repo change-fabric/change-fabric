@@ -184,7 +184,7 @@ module DeepResearchParse
     dup.each { |n| diagnostics << "duplicate source number: #{n}" }
     urlless = {}
     kept = entries.reject { |e| dup.include?(e[:number]) }.filter_map do |e|
-      url = e[:links].first || source_url(e[:text])
+      url = labeled_url(e[:text]) || e[:links].first || source_url(e[:text])
       unless url
         diagnostics << "source #{e[:number]} has no URL"
         e[:text].scan(TOKEN_RE) { |ref, _| urlless[ref] = e[:number] }
@@ -197,10 +197,11 @@ module DeepResearchParse
     [ kept, entries.empty? || entries.any? { |e| e[:links].empty? }, dup, urlless ]
   end
 
-  # The URL after a `URL:` label wins over any other link in the entry text.
-  def source_url(text)
-    trim_url(text[/URL:\s*(#{URL_RE})/, 1] || text[URL_RE])
-  end
+  # The URL after a `URL:` label wins over annotation targets and any other
+  # address in the entry text.
+  def labeled_url(text) = trim_url(text[/URL:\s*(#{URL_RE})/, 1])
+
+  def source_url(text) = trim_url(text[URL_RE])
 
   # Strips trailing prose punctuation, and a closing parenthesis only when it
   # has no opening one in the URL.

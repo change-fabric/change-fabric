@@ -46,6 +46,17 @@ class DeepResearchCliTest < Minitest::Test
     assert_equal 6, cli("prompt", "--question", "A question", "--slug", "s", "--refresh")[0]
   end
 
+  def test_prompt_cache_hit_still_honors_out_dir
+    _code, id = prompt_run
+    dir = DeepResearchStore.run_dir("s", id)
+    DeepResearchStore.transition(dir, "ingested")
+    DeepResearchStore.transition(dir, "done")
+    File.write(DeepResearchStore.report_path(dir), "{}")
+    out_dir = File.join(@tmp, "plan")
+    assert_equal 0, cli("prompt", "--question", "A question", "--slug", "s", "--out-dir", out_dir)[0]
+    assert File.exist?(File.join(out_dir, "report.json")) && File.exist?(File.join(out_dir, "prompt.md"))
+  end
+
   def test_prompt_cache_miss_past_max_age
     _code, id = prompt_run
     dir = DeepResearchStore.run_dir("s", id)

@@ -97,12 +97,13 @@ module DeepResearch
       key = DeepResearchPrompt.cache_key(question: question, contexts: contexts, backend: 'manual', model: MANUAL_MODEL)
       unless opts[:refresh]
         hit = DeepResearchStore.cached(key, max_age_days: opts[:max_age])
-        return cached(hit) if hit
+        return cached(hit, opts[:out_dir]) if hit
       end
       write_pending(question, contexts, slug, key, opts)
     end
 
-    def cached(path)
+    def cached(path, out_dir)
+      DeepResearchStore.copy_out(File.dirname(path), out_dir, %w[report.json prompt.md]) if out_dir
       @out.puts("Cached report: #{path}")
       OK
     end
