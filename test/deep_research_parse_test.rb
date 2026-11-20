@@ -169,6 +169,19 @@ class DeepResearchParseTest < Minitest::Test
                  parsed[:sources].map { |src| src["url"] }
   end
 
+  def test_inline_and_marker_numbered_sources_can_mix_in_one_section
+    parsed = parse("Sources", "1. First https://example.org/first", marked(2, "Second https://example.org/second"),
+                   "2011): wrapped line that starts with digits")
+    assert_equal %w[S1 S2], parsed[:sources].map { |src| src["id"] }
+    assert_includes parsed[:sources][1]["title"], "Second"
+  end
+
+  def test_a_linked_summary_keeps_its_citation
+    parsed = parse("Summary", [ "Linked summary.", "https://example.org/a" ], "Sources", marked(1, "A https://example.org/a"))
+    cite = parsed[:citations].find { |c| c["finding_id"] == "summary" }
+    assert_equal({ "finding_id" => "summary", "source_id" => "S1", "span" => nil }, cite)
+  end
+
   def test_balanced_parentheses_in_a_url_survive_and_prose_punctuation_is_stripped
     parsed = parse("Sources", marked(1, "Ruby https://en.wikipedia.org/wiki/Ruby_(programming_language)."),
                    marked(2, "(see https://example.org/a)"))

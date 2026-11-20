@@ -105,6 +105,7 @@ module DeepResearchParse
     result = build(all, sources, known, diagnostics)
     summary = normalize_tokens(join(sections['summary'].map(&:text)))
     result[:citations].concat(cite(summary, 'summary', 'summary', result[:by_ref], result[:by_number], diagnostics, known))
+    result[:citations].concat(link_citations('summary', sections['summary'].flat_map(&:links), result[:sources], result[:citations]))
     result.except(:by_ref, :by_number).merge(
       summary: summary, diagnostics: diagnostics,
       link_annotations: annotation_level(all_lines.any? { |l| l.links.any? }, unlinked)
@@ -141,12 +142,12 @@ module DeepResearchParse
     marked = lines.any?(&:marker)
     out = []
     lines.each do |line|
-      _number, rest = start_of_item(line, marked)
+      number, rest = item_start(line, ITEM_RE, marked, out.last&.dig(:number))
       if rest
-        out << { parts: [ rest ], links: line.links.dup }
+        out << { number: number, parts: [ rest ], links: line.links.dup }
       elsif out.empty?
         diagnostics << 'ambiguous finding boundary' if ordered
-        out << { parts: [ line.text ], links: line.links.dup }
+        out << { number: nil, parts: [ line.text ], links: line.links.dup }
       else
         out.last[:parts] << line.text
         out.last[:links].concat(line.links)
@@ -155,11 +156,18 @@ module DeepResearchParse
     out
   end
 
-  def start_of_item(line, marked)
+  # [number, text] when the line opens an item, else nil. A separate marker
+  # fragment always does. An inline numeral does too, but in a section that
+  # also has marker fragments only when it is the next number in sequence, so
+  # a wrapped line that happens to start with digits is not taken for one.
+  def item_start(line, pattern, marked, last_number)
     return [ line.marker.is_a?(Integer) ? line.marker : 0, line.text ] if line.marker
-    return nil if marked
 
-    (m = line.text.match(ITEM_RE)) ? [ m[1].to_i, m[2] ] : nil
+    m = line.text.match(pattern)
+    return unless m
+    return [ m[1].to_i, m[2] ] unless marked
+
+    [ m[1].to_i, m[2] ] if m[1] && m[1].to_i == last_number.to_i + 1
   end
 
   def items(lines, diagnostics, ordered:)
@@ -207,7 +215,7 @@ module DeepResearchParse
     marked = lines.any?(&:marker)
     entries = []
     lines.each do |line|
-      number, rest = source_start(line, marked)
+      number, rest = item_start(line, SOURCE_RE, marked, entries.last&.dig(:number))
       if number && (!rest.empty? || marked)
         entries << { number: number, parts: [ rest ], links: line.links.dup }
       elsif entries.any?
@@ -216,13 +224,6 @@ module DeepResearchParse
       end
     end
     entries.each { |e| e[:text] = normalize_tokens(join(e[:parts])) }
-  end
-
-  def source_start(line, marked)
-    return [ line.marker.is_a?(Integer) ? line.marker : 0, line.text ] if line.marker
-    return nil if marked
-
-    (m = line.text.match(SOURCE_RE)) ? [ m[1].to_i, m[2] ] : nil
   end
 
   def title_of(text, url)
@@ -264,13 +265,8 @@ module DeepResearchParse
       cites = cite(item[:text], id, 'claim', by_ref, by_number, diagnostics, known)
       unresolved = diagnostics.size - before
       ids = cites.map { |c| c['source_id'] }
-      item[:links].each do |href|
-        source = out_sources.find { |s| s['url'] == href } || add_chip(out_sources, href)
-        next if ids.include?(source['id'])
-
-        ids << source['id']
-        cites << { 'finding_id' => id, 'source_id' => source['id'], 'span' => nil }
-      end
+      cites.concat(link_citations(id, item[:links], out_sources, cites))
+      ids = cites.map { |c| c['source_id'] }
       citations.concat(cites)
       findings << { 'id' => id, 'claim' => item[:text], 'status' => item[:status] == 'contested' ? 'contested' : 'unverified',
                     'source_ids' => ids.uniq, 'quote' => item[:text][QUOTE_RE, 1],
@@ -321,6 +317,18 @@ module DeepResearchParse
     unique = text.scan(match[0]).size == 1
     span = unique ? { 'basis' => basis, 'start' => match.begin(0), 'end' => match.end(0) } : nil
     { 'finding_id' => finding_id, 'source_id' => source_id, 'span' => span }
+  end
+
+  # Citations from hyperlink annotations: the link names a source already in
+  # the list or becomes a new one. Skips a source the text already cites.
+  def link_citations(finding_id, links, out_sources, existing)
+    cited = existing.select { |c| c['finding_id'] == finding_id }.map { |c| c['source_id'] }
+    links.each_with_object([]) do |href, out|
+      source = out_sources.find { |s| s['url'] == href } || add_chip(out_sources, href)
+      next if cited.include?(source['id']) || out.any? { |c| c['source_id'] == source['id'] }
+
+      out << { 'finding_id' => finding_id, 'source_id' => source['id'], 'span' => nil }
+    end
   end
 
   # An inline link chip names a source that is not in the Sources list; give it
