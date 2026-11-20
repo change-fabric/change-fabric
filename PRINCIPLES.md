@@ -87,8 +87,9 @@ one-use TOTP code and refuse without a TTY or in an agent harness. Prod ops run
 only via the generated cf-prod workflow: the runner verifies approval offline, a
 terminal proof is staging only, and `prod_approval_guard.rb` denies agents the
 approval, environment and refs/cf-prod paths. An admin token can bypass hooks.
+cf:incident never runs a prod command or pushes a tag; it drafts a manual script.
 
-Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb, scripts/prod_approval_guard.rb, scripts/change_prod_gate.rb
+Enforcer: scripts/approval_console/local_store.rb, scripts/secrets_read_guard.rb, scripts/prod_approval_guard.rb, scripts/change_prod_gate.rb, test/incident_skill_test.rb
 
 ## Only Patrick's phone approves; one Recorder writes every approval store
 
@@ -203,9 +204,9 @@ Architecture lives in `ARCHITECTURE.md`, rules here, agent instructions in
 `AGENTS.md`, the release runbook in `RELEASING.md`. A new markdown file outside
 the allowlist in `scripts/docs_check.rb` fails `rake test`. Decision records,
 RCAs, and review logs go in the PR and git history, and any lasting lesson
-becomes a principle here with an enforcer.
+becomes a principle here with an enforcer. Incident RCAs live outside git.
 
-Enforcer: scripts/docs_check.rb, test/docs_check_test.rb
+Enforcer: scripts/docs_check.rb, test/docs_check_test.rb, scripts/incident_store.rb
 
 ## A walkthrough tells a story before it spends money
 
