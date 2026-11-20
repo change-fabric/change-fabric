@@ -748,14 +748,13 @@ class ChangeLaneTestcases < ChangeLane
   end
 
   # The figures a case's `capture` steps read, in step order, each with the
-  # time it was read. The value is what the run's vars hold at the end, so a
-  # re-read of the same name reports its latest value.
+  # value and time of that very read: a variable captured twice reports both
+  # readings, never the later value under the earlier time.
   def captured_values(record)
-    vars = record['vars'] || {}
     Array(record['steps']).filter_map do |step|
-      next unless step['captured'] && vars.key?(step['captured'])
+      next unless step['captured']
 
-      { var: step['captured'], value: vars[step['captured']], kind: step['kind'], read_at: step['readAt'] }
+      { var: step['captured'], value: step['found'], kind: step['kind'], read_at: step['readAt'] }
     end
   end
 

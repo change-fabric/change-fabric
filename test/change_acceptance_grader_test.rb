@@ -262,4 +262,15 @@ class ChangeAcceptanceGraderTest < Minitest::Test
   def test_an_observation_without_captures_sends_an_empty_list
     assert_includes grader(runner: ->(_p) { "[]" }).prompt_for([ OBSERVATION ]), "\"captured\": []"
   end
+
+  def test_overlapping_secrets_are_masked_whole
+    observation = OBSERVATION.merge(
+      captured: [ { var: "k", value: "token-prefix-long-suffix", kind: "text", read_at: "" } ],
+      secrets: [ "token-prefix", "token-prefix-long-suffix" ], text: "none"
+    )
+    prompt = grader(runner: ->(_p) { "[]" }).prompt_for([ observation ])
+
+    refute_includes prompt, "long-suffix"
+    assert_includes prompt, "\"value\": \"[redacted]\""
+  end
 end

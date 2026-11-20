@@ -544,6 +544,25 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  def test_a_variable_captured_twice_reaches_the_grader_as_two_readings
+    with_suite do |dir|
+      result = ok_result(2)
+      reads = [ [ "10", "2026-11-20T10:00:00.000Z" ], [ "20", "2026-11-20T10:00:05.000Z" ] ]
+      result[0] = result[0].merge(
+        "vars" => { "total" => "20" },
+        "steps" => reads.each_with_index.map do |(value, at), index|
+          { "index" => index, "verb" => "capture", "ok" => true, "captured" => "total", "found" => value,
+            "kind" => "number", "readAt" => at }
+        end
+      )
+      grader = FakeGrader.new
+      lane(dir, {}, session: FakeSession.new(result), grader: grader).run
+      first = grader.observations.find { |item| item[:id] == "checkout/happy-path" }
+
+      assert_equal %w[10 20], first[:captured].map { |entry| entry[:value] }
+    end
+  end
+
   def test_a_live_quarantine_is_recorded_on_the_case_result
     with_suite(quarantined_suite("2026-09-30")) do |dir|
       runner = lane(dir, {}, session: FakeSession.new(ok_result(2)), today: TODAY)

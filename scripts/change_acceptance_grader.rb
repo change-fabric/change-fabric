@@ -197,7 +197,12 @@ class ChangeAcceptanceGrader
   end
 
   def scrub(text, observation)
-    Array(observation[:secrets]).map(&:to_s).reject(&:empty?).reduce(text) { |acc, secret| acc.gsub(secret, REDACTED) }
+    secrets = Array(observation[:secrets]).map(&:to_s).reject(&:empty?).sort_by { |secret| -secret.length }
+    return text if secrets.empty?
+
+    # One pass over the original text, longest first, so a secret that
+    # contains another is masked whole rather than leaving its suffix behind.
+    text.gsub(Regexp.union(secrets), REDACTED)
   end
 
   def step_payload(step)
