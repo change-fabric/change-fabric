@@ -374,6 +374,7 @@ module IncidentReport
 
       captures = JSON.parse(File.read(captures_file))
       work = File.join(report_dir, 'work')
+      require_typst!
       FileUtils.rm_rf(work)
       FileUtils.mkdir_p(work)
       stage_work(work, captures, title)
@@ -381,7 +382,7 @@ module IncidentReport
       pages = File.join(report_dir, 'pages')
       FileUtils.rm_rf(pages)
       FileUtils.mkdir_p(pages)
-      build!(%w[typstrb build] + [ File.join(work, 'evidence.typ'), '-o', pdf ])
+      build!([ 'typst', 'compile', File.join(work, 'evidence.typ'), pdf ])
       build!([ 'typst', 'compile', '--format', 'png', '--ppi', '110', File.join(work, 'evidence.typ'), File.join(pages, 'page-{0p}.png') ])
       files = Dir[File.join(pages, 'page-*.png')].sort
       raise Error, 'the evidence PDF rendered no pages' if files.empty?
@@ -398,6 +399,11 @@ module IncidentReport
       footer = "production #{captures['version']} - #{captures['host']} - captured #{captures['captured_at'][0, 10]} - read-only"
       File.write(File.join(work, 'evidence.json'), JSON.pretty_generate('title' => title, 'footer' => footer, 'shots' => shots))
       FileUtils.cp(File.join(TEMPLATES, 'evidence-pdf.typ'), File.join(work, 'evidence.typ'))
+    end
+
+    def require_typst!
+      _out, ok = @shell.run([ 'typst', '--version' ])
+      raise Error, 'typst is not installed or not on PATH: install typst (https://typst.app, `brew install typst`) to build the evidence PDF' unless ok
     end
 
     def build!(argv)

@@ -24,11 +24,11 @@ class IncidentReportTest < Minitest::Test
   end
   NODE = Open3.capture2e("node", "--version").then { |_, s| s.success? } rescue false
 
-  # Stands in for roast.rb, typstrb and typst. Roast writes a round file with
+  # Stands in for roast.rb and typst. Roast writes a round file with
   # the configured score and P0 count; builds write placeholder files.
   class FakeShell
     attr_reader :calls
-    attr_accessor :score, :p0
+    attr_accessor :score, :p0, :no_typst
 
     def initialize
       @calls = []
@@ -40,8 +40,8 @@ class IncidentReportTest < Minitest::Test
       @calls << argv
       return settings if argv.include?("settings")
       return roast(argv) if argv.any? { |a| a.end_with?("roast.rb") }
-      return pdf(argv) if argv.first == "typstrb"
-      return png(argv) if argv.first == "typst"
+      return [ "typst 0.13\n", !@no_typst ] if argv == %w[typst --version]
+      return (argv.include?("--format") ? png(argv) : pdf(argv)) if argv.first(2) == %w[typst compile]
 
       [ "unexpected #{argv.inspect}", false ]
     end
@@ -64,7 +64,7 @@ class IncidentReportTest < Minitest::Test
     end
 
     def pdf(argv)
-      File.binwrite(argv[argv.index("-o") + 1], "%PDF-fake #{File.read(argv[2]).bytesize}")
+      File.binwrite(argv.last, "%PDF-fake #{File.read(argv[2]).bytesize}")
       [ "", true ]
     end
 
@@ -685,6 +685,21 @@ class IncidentReportTest < Minitest::Test
     assert_equal "production v1.2.1 - app.example.test - captured 2026-03-02 - read-only", data["footer"]
     assert_equal [ "desktop: /status", "mobile: /status" ], data["shots"].map { |s| s["caption"] }
     assert_includes File.read(File.join(IncidentReport::TEMPLATES, "evidence-pdf.typ")), "#data.footer"
+  end
+
+  def test_a_missing_typst_is_refused_up_front_with_an_install_hint
+    @shell.no_typst = true
+    capture!
+    err = assert_raises(IncidentReport::Error) { report.draft(at: T1, sections: sections, title: "t") }
+    assert_match(/install typst/, err.message)
+    refute(@shell.calls.any? { |c| c.first(2) == %w[typst compile] })
+  end
+
+  def test_the_pdf_is_built_with_plain_typst_compile
+    capture!
+    report.draft(at: T1, sections: sections, title: "t")
+    assert(@shell.calls.any? { |c| c.first(2) == %w[typst compile] && c.last.end_with?("evidence.pdf") })
+    refute(@shell.calls.flatten.include?("typstrb"))
   end
 
   def test_without_screenshots_only_the_summary_is_drafted
