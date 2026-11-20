@@ -10,10 +10,10 @@ only with its enforcer; prefer a rule that a machine checks.
 
 A hook parses stdin through `HookEvent.read` and never crashes the session. A
 missing gem, file, or credential means the hook does nothing, not that it
-raises. Human-run provisioning tools (`cf_team_*`) are the exception: they
-raise on a missing credential rather than half-finish.
+raises. `cf_team_*` tools raise instead. Resource gates fail closed; the spawn
+hook only warns.
 
-Enforcer: scripts/hook_event.rb
+Enforcer: scripts/hook_event.rb, scripts/resource_gate.rb
 
 ## Containers, not host daemons
 

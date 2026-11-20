@@ -172,6 +172,20 @@ class InstallerTest < Minitest::Test
     end
   end
 
+  # The gate reads its shipped defaults from its own ../config. The copy is named
+  # *.defaults.yml so an install never overwrites the user's resource_floors.yml.
+  def test_installs_resource_floor_defaults_beside_both_script_copies_without_touching_the_user_file
+    user_file = File.join(@home, ".claude", "cf", "config", "resource_floors.yml")
+    FileUtils.mkdir_p(File.dirname(user_file))
+    File.write(user_file, "floors:\n  ram_mb: 8192\n")
+    paths = install
+    [ paths.bin, paths.runtime_bin ].each do |bin|
+      copy = File.expand_path("../config/resource_floors.defaults.yml", bin)
+      assert_equal File.read(paths.resource_floors), File.read(copy), "defaults missing beside #{bin}"
+    end
+    assert_equal "floors:\n  ram_mb: 8192\n", File.read(user_file)
+  end
+
   def test_copies_the_vendored_run_time_assets_beside_the_scripts
     paths = install
     refute_empty paths.vendor_glob, "the repo should carry at least one vendored asset"
