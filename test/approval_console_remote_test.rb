@@ -107,7 +107,8 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     [ result, out.string, status ]
   end
 
-  def pending_request_body = @db.items.values.find { |item| item["sk"].to_s.start_with?("REQ#") }["body"]
+  # Newest request first: a test that approves twice must answer the second.
+  def pending_request_body = @db.items.values.reverse.find { |item| item["sk"].to_s.start_with?("REQ#") }["body"]
 
   def terminal(attrs, typed: code)
     stdin = StringIO.new("#{typed}\n")
@@ -406,9 +407,18 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     assert_match(/rpId pin/, wrong.trust_clause)
   end
 
-  def scoped_gate(scope, profile: nil)
-    ChangeGateCheck.new(sha: SHA, profile: profile, root: @repo, proof_level: "passkey", proof_store: @store,
-                        proof_pins: authoritative_pins, scope: scope)
+  # The gate builds its own ProofCheck on the wall clock, so pin Time.now to
+  # the test clock (just after the receipt) or a fixed-date receipt ages out
+  # as real days pass. Verdicts are computed inside the pinned window.
+  def scoped_gate(scope, profile: nil, at: @now + 60)
+    original = Time.method(:now)
+    Time.define_singleton_method(:now) { |*| at }
+    gate = ChangeGateCheck.new(sha: SHA, profile: profile, root: @repo, proof_level: "passkey", proof_store: @store,
+                               proof_pins: authoritative_pins, scope: scope)
+    gate.overridden?
+    gate
+  ensure
+    Time.define_singleton_method(:now, original)
   end
 
   def test_a_merge_scoped_phone_override_unlocks_the_merge_gate_only
@@ -426,6 +436,13 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     fresh, = remote_approve(override_attrs(reason: LONG_REASON))
     ChangeOverrideStore.new(SHA).record(reason: LONG_REASON, recorded_by: "t", proof: fresh.proof)
     assert scoped_gate("merge").overridden?
+  end
+
+  def test_a_phone_override_is_judged_on_the_pinned_clock_not_the_wall_clock
+    result, = remote_approve(override_attrs(reason: LONG_REASON))
+    ChangeOverrideStore.new(SHA).record(reason: LONG_REASON, recorded_by: "t", proof: result.proof)
+    assert scoped_gate("merge", at: @now + 60).overridden?
+    refute scoped_gate("merge", at: @now + 90_000).overridden?, "a receipt past 24h no longer unlocks the gate"
   end
 
   def test_an_unscoped_phone_override_unlocks_both_gates
