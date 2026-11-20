@@ -47,6 +47,18 @@ On `"reason":"expired"`, paste the `snippet` to renew the key at `owner_root`. I
 
 On `"reason":"revoked"`, the provider answered 401 or 403: the key at `owner_root` was revoked or is invalid. Paste the `snippet` so the user can enroll a new key, then re-run. It is never retried.
 
+## Scratchpad runs
+
+A paid script run from a Claude Code session scratchpad has no enrollment of its own, and a scratchpad is never enrolled. Every paid script takes `--project DIR` (the repo root) and looks the key up there, through the normal owning-level rules: the project's own key first, then a confirmed or tree ancestor. Without it, a scratchpad run exits 4 with no `cf_enroll` line:
+
+```
+cf: paid key lookup refused: <cwd> is a Claude Code session scratchpad, and the
+session record for <session id or unknown session> has no project (<reason>).
+Fix: re-run with --project <repo root>
+```
+
+`--project` naming a scratchpad, or a missing directory, exits 2. Orchestrators (walkthrough_render, incident_report) resolve the project once and hand it to every paid call. There is no env var override. The flag works on every host; other hosts' scratch dirs are not special-cased.
+
 ## Provider failures
 
 Every paid client (roast, image, b-roll, narrate, music) names an HTTP failure from the provider with one shared class (`scripts/cf_provider_error.rb`). Each message is scrubbed of the key and of anything shaped like a provider key, and each class carries a next step.

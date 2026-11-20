@@ -9,10 +9,13 @@ require "tmpdir"
 require_relative "../scripts/image_plate"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
+require_relative "key_project_helpers"
+require_relative "../scripts/key_project"
 
 class ImagePlateTest < Minitest::Test
   include ImagegenHelpers
   include EnrollHelpers
+  include KeyProjectHelpers
 
   # Answers run_function with canned shots, or an overflow list, and keeps the JS.
   class FakeSession
@@ -298,5 +301,27 @@ class ImagePlateTest < Minitest::Test
     prompt = run_for(spec_hash).plate_prompt(:landscape)
     assert_includes prompt, "No text, letters, logos, or watermarks"
     assert_match(/keep the \d+% to \d+% across, \d+% to \d+% down region calm/, prompt)
+  end
+
+  # The cwd's own project has no key; only the --project repo does.
+  def enroll_only_a_project_repo
+    unenroll!("openai")
+    repo = make_repo!(File.join(@dir, "plate-app"))
+    CfSecretStore.write_key(CfProjectIdentity.for(repo).slug, "openai", "sk-project-key")
+    repo
+  end
+
+  def test_heavy_plates_use_the_project_key
+    repo = enroll_only_a_project_repo
+    http = ImagegenHelpers::FakeHttp.new
+    assert_equal 0, cli(write_spec(spec_hash), http: http, project: repo), @out.string
+    assert_equal "Bearer sk-project-key", http.requests.first["Authorization"]
+  end
+
+  def test_heavy_plates_without_the_project_key_exit_4
+    enroll_only_a_project_repo
+    http = ImagegenHelpers::FakeHttp.new
+    assert_equal 4, cli(write_spec(spec_hash), http: http)
+    assert_empty http.requests
   end
 end

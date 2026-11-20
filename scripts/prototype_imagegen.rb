@@ -119,12 +119,12 @@ module PrototypeImagegen
 
   # Generates (or returns the cached) image path. The attempt is counted only
   # when a paid call actually runs.
-  def generate(prompt:, size:, quality:, cache_root:, refs: [], edit: nil, mask: nil, screen: 'default', attempts: Attempts.new, http: nil, model: MODEL)
+  def generate(prompt:, size:, quality:, cache_root:, refs: [], edit: nil, mask: nil, screen: 'default', attempts: Attempts.new, http: nil, model: MODEL, key_cwd: Dir.pwd)
     key = asset_key(prompt: prompt, size: size, quality: quality, refs: refs, edit: edit, mask: mask, model: model)
     WalkthroughCache.fetch(cache_root, :images, key, 'png') do |tmp|
       attempts.record!(screen)
       request = build_request(prompt: prompt, size: size, quality: quality, refs: refs, edit: edit, mask: mask, model: model)
-      File.binwrite(tmp, decode(post(request, http)))
+      File.binwrite(tmp, decode(post(request, http, key_cwd: key_cwd)))
     end
   end
 
@@ -135,9 +135,9 @@ module PrototypeImagegen
 
   # A non-2xx answer raises a named CfProviderError::Failure (scrubbed, with a
   # next step); rate_limited is retried a bounded number of times.
-  def post(request, http, sleeper: nil)
+  def post(request, http, sleeper: nil, key_cwd: Dir.pwd)
     uri = URI(request[:url])
-    key = WalkthroughEnv.openai_key!
+    key = WalkthroughEnv.openai_key!(cwd: key_cwd)
     req = Net::HTTP::Post.new(uri)
     req['Authorization'] = "Bearer #{key}"
     if request[:files]

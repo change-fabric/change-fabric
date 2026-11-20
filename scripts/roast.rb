@@ -15,6 +15,7 @@ require_relative 'roast_image_fit'
 require_relative 'roast_codex'
 require_relative 'roast_followups'
 require_relative 'roast_lens'
+require_relative 'key_project'
 require_relative 'sensitive_terms'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
@@ -63,7 +64,7 @@ module Roast
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--backend auto|codex|api] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... [--project DIR] | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
   # arch, code and infra are CLI-only: CHANGE.md still validates against
@@ -372,9 +373,9 @@ module Roast
 
   # A non-2xx answer raises a named CfProviderError::Failure (scrubbed, with a
   # next step); rate_limited is retried a bounded number of times.
-  def post(request, http, sleeper: nil)
+  def post(request, http, sleeper: nil, key_cwd: Dir.pwd)
     uri = URI(request[:url])
-    key = WalkthroughEnv.openai_key!
+    key = WalkthroughEnv.openai_key!(cwd: key_cwd)
     req = Net::HTTP::Post.new(uri)
     req['Authorization'] = "Bearer #{key}"
     req['Content-Type'] = 'application/json'
@@ -454,15 +455,15 @@ module Roast
   # One paid call, retried once at RETRY_OUTPUT_TOKENS when the answer stops at
   # the output cap. retry_usd prices the retry; it is printed before the call
   # and held to max_usd. A second truncation fails by name.
-  def call_critic(request, http, raw:, out:, retry_usd:, max_usd: nil)
-    body = post(request, http)
+  def call_critic(request, http, raw:, out:, retry_usd:, max_usd: nil, key_cwd: Dir.pwd)
+    body = post(request, http, key_cwd: key_cwd)
     if truncated?(body)
       keep_raw(raw, body, '')
       usd = retry_usd.call
       out.puts("roast: truncated at max_output_tokens (#{request[:body][:max_output_tokens]}), retrying once at #{RETRY_OUTPUT_TOKENS}: about $#{format('%.2f', usd)} more")
       raise CeilingError, "the retry's $#{format('%.2f', usd)} would pass the $#{format('%.2f', max_usd)} ceiling" if max_usd && usd > max_usd + 1e-9
 
-      body = post({ url: request[:url], body: request[:body].merge(max_output_tokens: RETRY_OUTPUT_TOKENS) }, http)
+      body = post({ url: request[:url], body: request[:body].merge(max_output_tokens: RETRY_OUTPUT_TOKENS) }, http, key_cwd: key_cwd)
     end
     parse_critic(body, raw: raw)
   end
@@ -514,11 +515,11 @@ module Roast
   # backend that answered and any subscription_tokens.
   def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, lenses: [], http: nil, model: MODEL, effort: DEFAULT_EFFORT,
                allow_sensitive: false, raw_dir: nil, out: $stdout, docker: RoastImageFit::DEFAULT_DOCKER, max_usd: nil,
-               backend: 'api', pin: {}, codex_runner: nil, env: ENV, info: nil, probed: false)
+               backend: 'api', pin: {}, codex_runner: nil, env: ENV, info: nil, probed: false, key_cwd: Dir.pwd)
     check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, lenses: lenses, history: history, allow: allow_sensitive)
     inputs = { brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses,
                model: model, effort: effort }
-    run = { cache_root: cache_root, http: http, raw_dir: raw_dir, out: out, docker: docker, max_usd: max_usd }
+    run = { cache_root: cache_root, http: http, raw_dir: raw_dir, out: out, docker: docker, max_usd: max_usd, key_cwd: key_cwd }
     return api_critique(inputs, run, info) if backend == 'api'
 
     codex = { pin: pin, runner: codex_runner, env: env, probed: probed }
@@ -540,7 +541,7 @@ module Roast
         sent = RoastImageFit.fit_all(inputs[:shots], tmp_dir: fit_dir, out: run[:out], docker: run[:docker])
         request = build_request(**inputs, shots: sent)
         retry_usd = -> { estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses, :model), max_output: RETRY_OUTPUT_TOKENS)[:usd] }
-        critic = call_critic(request, run[:http], raw: raw_path(run[:raw_dir], inputs[:round]), out: run[:out], retry_usd: retry_usd, max_usd: run[:max_usd])
+        critic = call_critic(request, run[:http], raw: raw_path(run[:raw_dir], inputs[:round]), out: run[:out], retry_usd: retry_usd, max_usd: run[:max_usd], key_cwd: run[:key_cwd])
         File.write(tmp, JSON.generate(critic))
       end
     end
@@ -794,7 +795,7 @@ module Roast
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
-      WalkthroughEnv.key_error(e, out: out)
+      WalkthroughEnv.key_error(e, out: out, cwd: opts&.dig(:key_cwd) || Dir.pwd)
     rescue RoastCodex::Error => e
       out.puts(e.message)
       1
@@ -875,6 +876,7 @@ module Roast
         o.on('--purpose OUTCOME') { |v| opts[:flags][:purpose] << v }
         o.on('--lens NAME') { |v| opts[:lens_names] << v }
         o.on('--pair PROTO=REF') { |v| (opts[:pairs] ||= []) << Roast.parse_pair(v) }
+        KeyProject.add_option(o, opts)
       end.parse!(args)
       opts[:shots] += args
       opts[:backend] = Roast.backend_for(flag: opts[:backend_flag])
@@ -998,11 +1000,20 @@ module Roast
       end
       return if opts[:estimate_only]
 
-      critic = Roast.critique(**inputs, cache_root: opts[:cache], http: http, allow_sensitive: opts[:allow_sensitive], raw_dir: opts[:out_dir], out: out,
+      opts[:key_cwd] = key_cwd_for(opts, inputs)
+      critic = Roast.critique(**inputs, cache_root: opts[:cache], http: http, key_cwd: opts[:key_cwd], allow_sensitive: opts[:allow_sensitive], raw_dir: opts[:out_dir], out: out,
                                         docker: docker, max_usd: opts[:max_usd], backend: effective == 'codex' ? opts[:backend] : 'api',
                                         pin: opts[:pin] || {}, codex_runner: codex_runner, probed: true)
       Roast.write_round(opts[:out_dir], inputs[:round], critic)
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{inputs[:round]}.json")} score #{critic['score']}/10")
+    end
+
+    # The directory the API key is looked up against. A cached round and a
+    # codex-only run make no paid call, so they need no project unless one was
+    # named.
+    def key_cwd_for(opts, inputs)
+      free = opts[:backend] == 'codex' || Roast.cached?(opts[:cache], **inputs)
+      free && !opts[:project] ? Dir.pwd : KeyProject.resolve(argv_project: opts[:project])
     end
 
     def inputs_for(opts, out)

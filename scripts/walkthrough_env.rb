@@ -37,11 +37,11 @@ module WalkthroughEnv
 
   module_function
 
-  def elevenlabs_key! = key!('elevenlabs')
+  def elevenlabs_key!(cwd: Dir.pwd) = key!('elevenlabs', cwd: cwd)
 
-  def openai_key! = key!('openai')
+  def openai_key!(cwd: Dir.pwd) = key!('openai', cwd: cwd)
 
-  def gemini_key! = key!('gemini')
+  def gemini_key!(cwd: Dir.pwd) = key!('gemini', cwd: cwd)
 
   # In order, before any network call: (1) an active deferral prints one note
   # and raises Deferred (exit 5); (2) resolve the key, missing raises
@@ -69,6 +69,8 @@ module WalkthroughEnv
   # question. Returns the exit code, for CLIs whose run returns a status.
   def enroll(err, out: $stdout)
     details = err.to_h
+    return scratchpad(err, out) if scratchpad?(details)
+
     out.puts(JSON.generate(cf_enroll: details))
     return expired(details, out) if details[:reason] == 'expired'
 
@@ -80,6 +82,19 @@ module WalkthroughEnv
                "ruby ~/.claude/cf/bin/cf_keys.rb confirm-inherit #{details[:provider]} " \
                "--dir #{Shellwords.escape(details[:project_root].to_s)}")
     end
+    ENROLL_EXIT
+  end
+
+  # A scratchpad is never enrolled, so no cf_enroll line and no snippet: the
+  # loud error names the --project fix instead.
+  def scratchpad?(details)
+    require_relative 'key_project'
+    details[:reason] == 'scratchpad' || KeyProject.scratch_root?(details[:project_root])
+  end
+
+  def scratchpad(err, out)
+    details = err.to_h
+    out.puts(details[:reason] == 'scratchpad' ? err.message : KeyProject.unresolved_message(cwd: details[:project_root], reason: 'no project was named'))
     ENROLL_EXIT
   end
 
@@ -98,18 +113,18 @@ module WalkthroughEnv
   # auth_revoked is an enrollment problem, so a cf_enroll line with reason
   # revoked and exit 4; every other class a cf_key_error line and exit 1.
   # Both lines carry the next step and never a key value.
-  def key_error(err, out: $stdout)
-    return revoked(err, out) if err.is_a?(CfProviderError::AuthRevoked)
+  def key_error(err, out: $stdout, cwd: Dir.pwd)
+    return revoked(err, out, cwd) if err.is_a?(CfProviderError::AuthRevoked)
 
     out.puts(JSON.generate(cf_key_error: err.to_h))
     out.puts("error: #{err.message}. Next: #{err.next_step}")
     1
   end
 
-  def key_error_exit!(err, out: $stdout) = exit(key_error(err, out: out))
+  def key_error_exit!(err, out: $stdout, cwd: Dir.pwd) = exit(key_error(err, out: out, cwd: cwd))
 
-  def revoked(err, out)
-    project = CfProjectIdentity.for(Dir.pwd)
+  def revoked(err, out, cwd = Dir.pwd)
+    project = CfProjectIdentity.for(cwd)
     owner = CfSecrets.owning_level(project, err.provider) || { root: project.root }
     snippet = CfKeys.snippet(err.provider, owner[:root])
     out.puts(JSON.generate(cf_enroll: { provider: err.provider, project_root: project.root, project_id: project.id,

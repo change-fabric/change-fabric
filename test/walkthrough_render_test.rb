@@ -1449,4 +1449,32 @@ end
     assert_includes draft_lines(out.string).first, "provisional timing (pre-narration)"
     refute_includes draft_lines(out.string).last, "provisional"
   end
+
+  # --- --project: the resolved dir reaches every paid provider ---
+
+  def test_every_paid_provider_gets_the_resolved_project_as_key_cwd
+    write_broll_board
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][0]["images"] = [ { "prompt" => "a hero", "size" => "1024x1024" } ]
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    project = File.realpath(Dir.mktmpdir)
+    seen = Hash.new { |h, k| h[k] = [] }
+    spy = lambda do |name, inner|
+      lambda do |**kw|
+        seen[name] << kw[:key_cwd]
+        inner.call(**kw)
+      end
+    end
+    image = lambda do |**kw|
+      WalkthroughCache.fetch(kw[:cache_root], :images, PrototypeImagegen.asset_key(**kw.slice(:prompt, :size, :quality)), "png") { |tmp| File.binwrite(tmp, "png") }
+    end
+    base = providers
+    prov = base.merge(tts: spy.call(:tts, base[:tts]), music: spy.call(:music, base[:music]), image: spy.call(:image, image),
+                      broll: spy.call(:broll, broll_provider("generated")), roast: spy.call(:roast, base[:roast]))
+    WalkthroughRender::Run.new(@root, providers: prov, out: StringIO.new, key_cwd: project).call
+    assert_equal %i[broll image music roast tts], seen.keys.sort
+    seen.each { |name, dirs| assert_equal [ project ], dirs.uniq, "#{name} must receive the resolved project" }
+  ensure
+    FileUtils.rm_rf(project) if project
+  end
 end

@@ -10,6 +10,7 @@ require 'base64'
 require 'rbconfig'
 require 'tmpdir'
 require_relative 'incident_store'
+require_relative 'key_project'
 require_relative 'sensitive_terms'
 require_relative 'change_suite'
 require_relative 'change_docker'
@@ -501,7 +502,7 @@ module IncidentReport
       target.to_f
     end
 
-    def roast(at:, repo_dir: Dir.pwd, max_usd: nil)
+    def roast(at:, repo_dir: Dir.pwd, max_usd: nil, project: nil)
       m = manifest
       raise Error, 'nothing to roast: run draft first' if m['drafts'].empty?
 
@@ -515,13 +516,13 @@ module IncidentReport
       names.each do |name|
         draft = m['drafts'][name]
         sha = IncidentReport.sha256_file(draft['path'])
-        m['roast'][name] = roast_one(name, draft, sha, m, repo_dir: repo_dir, at: at, target: target, max_usd: max_usd)
+        m['roast'][name] = roast_one(name, draft, sha, m, repo_dir: repo_dir, at: at, target: target, max_usd: max_usd, project: project)
       end
       save(m)
       m['roast']
     end
 
-    def roast_one(name, draft, sha, m, repo_dir:, at:, target:, max_usd:)
+    def roast_one(name, draft, sha, m, repo_dir:, at:, target:, max_usd:, project: nil)
       out_dir = File.join(report_dir, 'roast', name)
       FileUtils.mkdir_p(out_dir)
       brief = File.join(out_dir, 'brief.txt')
@@ -529,6 +530,7 @@ module IncidentReport
       argv = [ RbConfig.ruby, ROAST_SCRIPT, '--repo', repo_dir, '--brief', brief, '--out-dir', out_dir, '--kind', 'doc' ]
       argv += [ '--audience', AUDIENCE ] + PURPOSES.fetch(name).flat_map { |outcome| [ '--purpose', outcome ] }
       argv += [ '--max-usd', max_usd.to_s ] if max_usd
+      argv += [ '--project', project ] if project
       argv += name == 'summary' ? [ '--text', draft['path'] ] : roast_pages(m, sha).flat_map { |page| [ '--shot', page ] }
       out, ok = @shell.run(argv)
       raise Error, "roast failed for #{name}: #{out.lines.last(3).join.strip}" unless ok
@@ -649,7 +651,7 @@ module IncidentReport
         draft --at ISO --title T --impact-file F --timeline-file F --fix-file F --prevention-file F
         ocr --at ISO
         scan --at ISO
-        roast --at ISO [--repo-dir DIR] [--max-usd N]
+        roast --at ISO [--repo-dir DIR] [--max-usd N] [--project DIR]
         finalize --at ISO [--attest-no-ocr REASON] [--accept-below-bar REASON]
         status
       A client report is drafted, scanned and roasted, and only a human sends it. Nothing here sends.
@@ -673,6 +675,12 @@ module IncidentReport
       @opts = parse(@argv)
       @report = build_report
       send("cmd_#{command}")
+    rescue KeyProject::Invalid => e
+      @err.puts("incident_report: #{e.message}")
+      2
+    rescue KeyProject::Unresolved => e
+      @err.puts(e.message)
+      WalkthroughEnv::ENROLL_EXIT
     rescue Error, IncidentStore::Invalid, ChangeSuite::Error, KeyError, Errno::ENOENT => e
       @err.puts("incident_report: #{e.message}")
       1
@@ -741,8 +749,11 @@ module IncidentReport
       result.values.all? { |scan| scan['ok'] } ? 0 : 1
     end
 
+    # The project whose key the roast children use, resolved once here and
+    # forwarded to each as --project; a child never re-derives it from its cwd.
     def cmd_roast
-      @report.roast(at: opt('at'), repo_dir: @opts['repo-dir'] || Dir.pwd, max_usd: @opts['max-usd']).each do |name, r|
+      project = KeyProject.resolve(argv_project: @opts['project'])
+      @report.roast(at: opt('at'), repo_dir: @opts['repo-dir'] || Dir.pwd, max_usd: @opts['max-usd'], project: project).each do |name, r|
         @out.puts("roast #{name}: #{r['score']}/10 (target #{r['target']}), P0 open #{r['p0_open']}")
       end
       0

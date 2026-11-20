@@ -8,10 +8,13 @@ require "tmpdir"
 require_relative "../scripts/image"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
+require_relative "key_project_helpers"
+require_relative "../scripts/key_project"
 
 class ImageTest < Minitest::Test
   include ImagegenHelpers
   include EnrollHelpers
+  include KeyProjectHelpers
 
   def setup
     @dir = Dir.mktmpdir
@@ -199,5 +202,53 @@ class ImageTest < Minitest::Test
     refute called
   ensure
     ImagePlate::Cli.define_singleton_method(:run, original)
+  end
+
+  # The cwd's own project has no key; only the --project repo does.
+  def enroll_only_a_project_repo
+    unenroll!("openai")
+    repo = make_repo!(File.join(@dir, "app"))
+    CfSecretStore.write_key(CfProjectIdentity.for(repo).slug, "openai", "sk-project-key")
+    repo
+  end
+
+  def test_project_flag_forwards_the_project_key_to_the_paid_call
+    repo = enroll_only_a_project_repo
+    code, text, http = run_cli("a candid kitchen", "--project", repo)
+    assert_equal 0, code, text
+    assert_equal "Bearer sk-project-key", http.requests.first["Authorization"]
+  end
+
+  def test_a_cached_image_needs_no_project
+    run_cli("same prompt")
+    enroll_only_a_project_repo
+    @out.truncate(0)
+    @out.rewind
+    code, _text, http = run_cli("same prompt")
+    assert_equal 0, code
+    assert_empty http.requests
+  end
+
+  def test_project_naming_a_scratchpad_exits_2_with_no_enroll_line
+    scratch = make_scratchpad!
+    code, text, http = run_cli("a candid kitchen", "--project", scratch)
+    assert_equal 2, code
+    assert_includes text, "is a Claude Code session scratchpad"
+    assert_empty enroll_lines(text)
+    assert_empty http.requests
+  ensure
+    remove_scratchpad!
+  end
+
+  def test_a_scratchpad_run_without_project_exits_4_with_the_fix_and_no_enroll_line
+    scratch = make_scratchpad!
+    code, text, http = Dir.chdir(scratch) { run_cli("a candid kitchen") }
+    assert_equal 4, code
+    assert_empty enroll_lines(text)
+    assert_includes text, "session record"
+    assert_includes text, "--project <repo root>"
+    assert_empty http.requests
+  ensure
+    remove_scratchpad!
   end
 end

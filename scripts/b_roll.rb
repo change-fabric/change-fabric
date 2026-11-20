@@ -9,6 +9,7 @@ require 'open3'
 require 'openssl'
 require 'uri'
 require_relative 'change_docker'
+require_relative 'key_project'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
 
@@ -117,12 +118,12 @@ module BRoll
   end
 
   def generate(source_image:, prompt:, seconds:, cache_root:, model: MODEL, http: nil, budget: Budget.new, validator: nil,
-               sleeper: ->(s) { sleep(s) }, poll_interval: POLL_INTERVAL, poll_timeout: POLL_TIMEOUT)
+               sleeper: ->(s) { sleep(s) }, poll_interval: POLL_INTERVAL, poll_timeout: POLL_TIMEOUT, key_cwd: Dir.pwd)
     check_model!(model)
     key = asset_key(source_image: source_image, prompt: prompt, seconds: seconds, model: model)
     validator ||= ->(path) { probe!(path) }
     WalkthroughCache.fetch(cache_root, :broll, key, 'mp4') do |tmp|
-      api_key = WalkthroughEnv.gemini_key!
+      api_key = WalkthroughEnv.gemini_key!(cwd: key_cwd)
       pending = pending_path(cache_root, key)
       state = File.file?(pending) ? JSON.parse(File.read(pending)) : nil
       state ||= start_job(source_image, prompt, seconds, model, api_key, http, budget, tmp, pending)
@@ -324,7 +325,12 @@ module BRoll
 end
 
 if __FILE__ == $PROGRAM_NAME
-  usage = 'usage: b_roll.rb <image> <prompt> <cache-root> [--seconds N] [--max-usd X] [--model ID] [--estimate-only]'
+  usage = 'usage: b_roll.rb <image> <prompt> <cache-root> [--seconds N] [--max-usd X] [--model ID] [--estimate-only] [--project DIR]'
+  begin
+    project = KeyProject.take_option(ARGV)
+  rescue KeyProject::Invalid => e
+    abort(e.message)
+  end
   image, prompt, cache = ARGV
   abort(usage) unless image && prompt && cache && !image.start_with?('--')
   flag = ->(name, default) { ARGV.include?(name) ? ARGV[ARGV.index(name) + 1] : default }
@@ -333,13 +339,17 @@ if __FILE__ == $PROGRAM_NAME
   exit if ARGV.include?('--estimate-only')
 
   budget = BRoll::Budget.new(flag.call('--max-usd', BRoll::DEFAULT_CEILING_USD).to_f)
+  key_cwd = Dir.pwd
   begin
+    key_cwd = KeyProject.resolve(argv_project: project)
     puts BRoll.generate(source_image: image, prompt: prompt, seconds: seconds, cache_root: cache,
-                        model: flag.call('--model', BRoll::MODEL), budget: budget)
+                        model: flag.call('--model', BRoll::MODEL), budget: budget, key_cwd: key_cwd)
+  rescue KeyProject::Invalid => e
+    abort(e.message)
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)
   rescue CfProviderError::Failure => e
-    WalkthroughEnv.key_error_exit!(e)
+    WalkthroughEnv.key_error_exit!(e, cwd: key_cwd)
   end
   puts "spent about $#{format('%.2f', budget.spent)}"
 end

@@ -7,6 +7,7 @@ require 'json'
 require_relative 'change_docker'
 require_relative 'design_config'
 require_relative 'diagram_palette'
+require_relative 'key_project'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
@@ -138,10 +139,11 @@ module ImagePlate
   # One heavy-mode run: plates, overlay, crop. Returns the written paths.
   class Run
     attr_reader :spec, :prompt
+    attr_writer :key_cwd
 
     def initialize(spec:, prompt:, quality: PrototypeImagegen::QUALITY_DRAFT, cache: '.cache', out_dir: DEFAULT_OUT, repo: Dir.pwd,
                    imagegen: PrototypeImagegen, http: nil, browser: nil, available: -> { ChangeDocker.available? },
-                   version: IMAGE_PLATE_VERSION)
+                   version: IMAGE_PLATE_VERSION, key_cwd: nil)
       @spec = spec
       @prompt = prompt
       @quality = quality
@@ -153,6 +155,7 @@ module ImagePlate
       @browser = browser || ->(&blk) { ChangeDocker.with_browserless(network: nil, &blk) }
       @available = available
       @version = version
+      @key_cwd = key_cwd
     end
 
     def families = spec.families
@@ -276,13 +279,17 @@ module ImagePlate
       plate_requests.to_h do |req|
         refs = first ? [ first ] : []
         path = @imagegen.generate(prompt: req[:prompt], size: req[:size], quality: req[:quality], refs: refs,
-                                  cache_root: @cache, screen: "plate-#{req[:family]}", http: @http)
+                                  cache_root: @cache, screen: "plate-#{req[:family]}", http: @http, **key_args)
         first ||= path
         [ req[:family], path ]
       rescue PrototypeImagegen::RequestError => e
         raise PrototypeImagegen::RequestError, "#{req[:family]} plate failed: #{e.message}"
       end
     end
+
+    # Only an explicit project reaches the imagegen, so an injected one that
+    # predates the keyword keeps working.
+    def key_args = @key_cwd ? { key_cwd: @key_cwd } : {}
 
     def render(plates)
       pages = spec.sizes.to_h { |s| [ s.name, html_for(s, plates.fetch(s.family)) ] }
@@ -421,7 +428,8 @@ module ImagePlate
 
       spec = Spec.load(options[:spec])
       run = Run.new(spec: spec, prompt: options.fetch(:prompt), quality: options.fetch(:quality, PrototypeImagegen::QUALITY_DRAFT),
-                    cache: options.fetch(:cache, '.cache'), out_dir: options[:out] || DEFAULT_OUT, **deps)
+                    cache: options.fetch(:cache, '.cache'), out_dir: options[:out] || DEFAULT_OUT,
+                    key_cwd: options[:key_cwd], **deps)
       PrototypeImagegen.warn_retirement
       usd = run.estimate_usd
       out.puts("image estimate: #{run.families.size} plate(s)#{' (cached)' if usd.zero?}, $#{format('%.2f', usd)} to spend")
@@ -429,6 +437,8 @@ module ImagePlate
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', max)} ceiling" if usd > max + 1e-9
       return 0 if options[:estimate_only]
 
+      options[:key_cwd] = KeyProject.resolve(argv_project: options[:project]) unless usd.zero? && !options[:project]
+      run.key_cwd = options[:key_cwd]
       run.call.each { |path| out.puts("image: #{path}") }
       0
     rescue SpecError => e
@@ -440,7 +450,7 @@ module ImagePlate
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
-      WalkthroughEnv.key_error(e, out: out)
+      WalkthroughEnv.key_error(e, out: out, cwd: options[:key_cwd] || Dir.pwd)
     rescue OverflowError, CeilingError, PrototypeImagegen::RequestError, PrototypeImagegen::AttemptCapError,
            WalkthroughEnv::MissingKeyError, SystemCallError, PrototypeCapture::UnsupportedContentError => e
       out.puts("error: #{e.message}")

@@ -7,6 +7,7 @@ require 'net/http'
 require 'uri'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_captions'
+require_relative 'key_project'
 require_relative 'walkthrough_env'
 require_relative 'walkthrough_story'
 require_relative 'walkthrough_storyboard'
@@ -108,13 +109,13 @@ module ElevenLabs
   # The dictionary locator for a set of aliases, created once per distinct
   # rule set and cached by its content hash, so a re-render reuses it and a
   # changed alias makes a new one.
-  def dictionary_locator(pronunciations, cache_root:, transport: DEFAULT_TRANSPORT, sleeper: method(:sleep))
+  def dictionary_locator(pronunciations, cache_root:, transport: DEFAULT_TRANSPORT, sleeper: method(:sleep), key_cwd: Dir.pwd)
     rules = pronunciation_rules(pronunciations)
     return nil if rules.empty?
 
     key = WalkthroughCache.key(pronunciation_rules: rules)
     path = WalkthroughCache.fetch(cache_root, :pronunciation, key, 'json') do |tmp|
-      data = JSON.parse(perform(add_dictionary_request(rules, key), transport: transport, sleeper: sleeper))
+      data = JSON.parse(perform(add_dictionary_request(rules, key), transport: transport, sleeper: sleeper, key_cwd: key_cwd))
       locator = { 'pronunciation_dictionary_id' => data.fetch('id'), 'version_id' => data.fetch('version_id') }
       File.write(tmp, JSON.generate(locator))
     rescue JSON::ParserError, KeyError => e
@@ -152,16 +153,17 @@ module ElevenLabs
   end
 
   def tts(text:, voice_id:, model:, output_format:, cache_root:, settings: nil, pronunciations: nil,
-          transport: DEFAULT_TRANSPORT, sleeper: method(:sleep))
+          transport: DEFAULT_TRANSPORT, sleeper: method(:sleep), key_cwd: Dir.pwd)
     key = audio_key(text: text, voice_id: voice_id, model: model, output_format: output_format, settings: settings,
                     pronunciations: pronunciations)
     align_path = WalkthroughCache.path(cache_root, :audio, key, 'alignment.json')
     measured = nil
     audio_path = WalkthroughCache.fetch(cache_root, :audio, key, 'mp3') do |tmp|
-      locator = dictionary_locator(pronunciations, cache_root: cache_root, transport: transport, sleeper: sleeper)
+      locator = dictionary_locator(pronunciations, cache_root: cache_root, transport: transport, sleeper: sleeper,
+                                   key_cwd: key_cwd)
       req = tts_request(text: text, voice_id: voice_id, model: model, output_format: output_format,
                         settings: settings, locator: locator)
-      decoded = decode_tts(perform(req, transport: transport, sleeper: sleeper), aliased: !locator.nil?)
+      decoded = decode_tts(perform(req, transport: transport, sleeper: sleeper, key_cwd: key_cwd), aliased: !locator.nil?)
       File.binwrite(tmp, decoded[:audio])
       File.write(align_path, JSON.generate(decoded[:alignment]))
       measured = decoded[:measured_ms]
@@ -178,12 +180,12 @@ module ElevenLabs
   end
 
   def music(length_ms:, model:, cache_root:, prompt: nil, composition_plan: nil, transport: DEFAULT_TRANSPORT,
-            sleeper: method(:sleep))
+            sleeper: method(:sleep), key_cwd: Dir.pwd)
     block = { prompt: prompt, composition_plan: composition_plan, model: model }
     key = music_key(block, length_ms)
     req = music_request(prompt: prompt, composition_plan: composition_plan, length_ms: length_ms, model: model)
     path = WalkthroughCache.fetch(cache_root, :music, key, 'mp3') do |tmp|
-      File.binwrite(tmp, perform(req, transport: transport, sleeper: sleeper))
+      File.binwrite(tmp, perform(req, transport: transport, sleeper: sleeper, key_cwd: key_cwd))
     end
     { key: key, path: path }
   end
@@ -203,7 +205,7 @@ module ElevenLabs
   # A non-2xx answer raises a named CfProviderError::Failure (scrubbed, with a
   # next step); rate_limited is retried a bounded number of times, honouring
   # retry-after, and quota_exhausted never is.
-  def perform(request, transport:, sleeper:, key: WalkthroughEnv.elevenlabs_key!)
+  def perform(request, transport:, sleeper:, key_cwd: Dir.pwd, key: WalkthroughEnv.elevenlabs_key!(cwd: key_cwd))
     CfProviderError.with_retry(sleeper: sleeper) do
       response = begin
         transport.call(request, key)
@@ -236,7 +238,7 @@ module ElevenLabs
     DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'
     COMMANDS = %w[narrate music].freeze
     DEFAULT_MUSIC_MODEL = 'music_v1'
-    USAGE = 'usage: elevenlabs.rb narrate|music [options] (--cache DIR sets the cache root, default .cache)'
+    USAGE = 'usage: elevenlabs.rb narrate|music [options] (--cache DIR sets the cache root, default .cache; --project DIR names the project whose key is used)'
 
     class UsageError < StandardError; end
 
@@ -249,12 +251,16 @@ module ElevenLabs
         out.puts(USAGE)
         return 2
       end
-      send(command, parse(args), out, transport, sleeper)
+      opts = parse(args)
+      send(command, opts, out, transport, sleeper)
       0
+    rescue KeyProject::Invalid => e
+      out.puts(e.message)
+      2
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
-      WalkthroughEnv.key_error(e, out: out)
+      WalkthroughEnv.key_error(e, out: out, cwd: opts&.dig(:key_cwd) || Dir.pwd)
     rescue WalkthroughStory::MissingStoryError => e
       WalkthroughStory.report(e, out: out)
     rescue UsageError, Error, OptionParser::ParseError, WalkthroughEnv::MissingKeyError => e
@@ -277,6 +283,7 @@ module ElevenLabs
         o.on('--duration-ms MS', Integer) { |v| opts[:duration_ms] = v }
         o.on('--cache DIR') { |v| opts[:cache] = v }
         o.on('--estimate-only') { opts[:estimate_only] = true }
+        KeyProject.add_option(o, opts)
       end.parse!(args)
       opts
     end
@@ -289,8 +296,10 @@ module ElevenLabs
       return if opts[:estimate_only]
 
       story_preflight!(opts)
+      key_cwd = KeyProject.resolve(argv_project: opts[:project])
+      opts[:key_cwd] = key_cwd
       items.each do |item|
-        res = ElevenLabs.tts(**item.except(:label), cache_root: opts[:cache], transport: transport, sleeper: sleeper)
+        res = ElevenLabs.tts(**item.except(:label), cache_root: opts[:cache], transport: transport, sleeper: sleeper, key_cwd: key_cwd)
         out.puts("scene #{item[:label]}:") if item[:label]
         out.puts("audio: #{res[:audio]}", "alignment: #{res[:alignment]}", "srt: #{write_srt(res, opts[:cache])}")
       end
@@ -310,7 +319,8 @@ module ElevenLabs
       return if opts[:estimate_only]
 
       story_preflight!(opts)
-      res = ElevenLabs.music(**spec, cache_root: opts[:cache], transport: transport, sleeper: sleeper)
+      opts[:key_cwd] = KeyProject.resolve(argv_project: opts[:project])
+      res = ElevenLabs.music(**spec, cache_root: opts[:cache], transport: transport, sleeper: sleeper, key_cwd: opts[:key_cwd])
       out.puts("music: #{res[:path]}")
     end
 

@@ -8,6 +8,7 @@ require 'open3'
 require_relative 'change_docker'
 require_relative 'roast' unless defined?(Roast::Cli) # already loaded when roast.rb is the program
 require_relative 'roast_lens'
+require_relative 'key_project'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
 
@@ -35,7 +36,7 @@ module RoastVideo
   KIND_VIDEO = 'video'
   DEFAULT_DOCKER = ->(argv) { Open3.capture2e(*argv) }
   USAGE = 'usage: roast.rb --video MP4 --brief FILE [--transcript VTT] [--history DIR] [--out-dir DIR] ' \
-          '[--round N] [--max-usd N] [--model NAME|terra|sol] [--effort LEVEL] [--repo DIR] [--cache DIR] [--fps N] [--width N] [--lens NAME]... [--estimate-only] [--allow-sensitive]'
+          '[--round N] [--max-usd N] [--model NAME|terra|sol] [--effort LEVEL] [--repo DIR] [--cache DIR] [--fps N] [--width N] [--lens NAME]... [--estimate-only] [--allow-sensitive] [--project DIR]'
 
   # The craft section of the video rubric, adapted in our own words from the
   # editorial, visual, audio, and technical checklists of gitethanwoo/video-editing
@@ -242,7 +243,7 @@ module RoastVideo
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
-      WalkthroughEnv.key_error(e, out: out)
+      WalkthroughEnv.key_error(e, out: out, cwd: opts&.dig(:key_cwd) || Dir.pwd)
     rescue Roast::CeilingError, Roast::SensitiveError, Roast::RequestError, FfmpegError, WalkthroughEnv::MissingKeyError, SystemCallError,
            DesignConfig::Error => e
       out.puts("error: #{e.message}")
@@ -269,6 +270,7 @@ module RoastVideo
         o.on('--estimate-only') { opts[:estimate_only] = true }
         o.on('--allow-sensitive') { opts[:allow_sensitive] = true }
         o.on('--lens NAME') { |v| opts[:lens_names] << v }
+        KeyProject.add_option(o, opts)
       end.parse!(args)
       opts[:lenses] = RoastLens.resolve(opts[:lens_names])
       opts[:cache] ||= Roast::Cli.store_cache(repo)
@@ -311,15 +313,16 @@ module RoastVideo
 
       request = RoastVideo.build_request(brief: brief, frames: frames, transcript: transcript, history: history, round: round,
                                            model: opts[:model], effort: opts[:effort], lenses: lenses)
-      critic = fetch_critic(cache, request, out, http)
+      opts[:key_cwd] = KeyProject.resolve(argv_project: opts[:project]) unless cached && !opts[:project]
+      critic = fetch_critic(cache, request, out, http, opts[:key_cwd] || Dir.pwd)
       RoastVideo.write_round(opts[:out_dir], round, critic, master_sha256: sha)
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{round}.video.json")} score #{critic['score']}/10")
     end
 
     # The cached critic JSON, making the paid call (and printing its usage) only on a miss.
-    def fetch_critic(cache, request, out, http)
+    def fetch_critic(cache, request, out, http, key_cwd)
       path = WalkthroughCache.fetch(*cache) do |tmp|
-        body = Roast.post(request, http)
+        body = Roast.post(request, http, key_cwd: key_cwd)
         if (u = body['usage'])
           out.puts("roast usage: #{u['input_tokens']} tokens in, #{u['output_tokens']} out")
         end

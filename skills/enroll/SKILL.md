@@ -24,6 +24,13 @@ One of three:
   `inheritable_from` adds the inherit option; `snippet` and `correct` are the
   commands to offer.
 
+Never enroll a scratchpad. A Claude Code session scratchpad
+(`<tmp>/claude-<uid>/<project>/<session>/scratchpad`) is a throwaway dir: a
+paid script run there exits 4 with a plain error (no `cf_enroll` line) saying
+the session record has no project. Do not offer to enroll it. Tell the user to
+re-run with `--project <repo root>` (reference/key-enrollment.md, Scratchpad
+runs).
+
 The project is `project_root` from the line, else the current directory's
 project. Start with `ruby ~/.claude/cf/bin/cf_keys.rb status --dir <root>`; it
 never prints a value. Skip a provider that already reads `enrolled`,
