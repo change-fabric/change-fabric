@@ -158,6 +158,16 @@ class DeepResearchCliTest < Minitest::Test
     assert_equal before, Dir.glob(File.join(ENV["CF_RESEARCH_ROOT"], "**", "*")).size
   end
 
+  def test_re_ingesting_the_same_pdf_still_honors_out_dir
+    DeepResearchStore.create(record, "p")
+    cli("ingest", "--run", RUN_ID, "--pdf", synthetic_pdf, extractor: synthetic_xml)
+    out_dir = File.join(@tmp, "plan")
+    code, out, = cli("ingest", "--run", RUN_ID, "--pdf", synthetic_pdf, "--out-dir", out_dir)
+    assert_equal 0, code
+    assert_match(/Already ingested/, out)
+    assert File.exist?(File.join(out_dir, "report.json"))
+  end
+
   def test_ingest_out_dir_copies_the_report
     DeepResearchStore.create(record, "p")
     out_dir = File.join(@tmp, "plan")

@@ -151,6 +151,7 @@ module DeepResearch
 
       sha = Digest::SHA256.file(opts[:pdf]).hexdigest
       if (dup = DeepResearchStore.ingested_pdf(sha))
+        DeepResearchStore.copy_out(dup.first, opts[:out_dir], %w[report.json prompt.md]) if opts[:out_dir]
         @out.puts("Already ingested: #{DeepResearchStore.report_path(dup.first)}")
         return OK
       end
