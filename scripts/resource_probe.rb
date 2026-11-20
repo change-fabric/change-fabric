@@ -36,6 +36,8 @@ module ResourceProbe
   FORWARDED_SIGNALS = %w[INT TERM HUP].freeze
   SECRET_FLAG = /\A--?[\w-]*(token|secret|password|passwd|apikey|api-key|key|auth|credential)[\w-]*\z/i
   SECRET_VALUE = %r{\A(sk-|ghp_|gho_|github_pat_|xox[abp]-|AKIA|AIza)|\A[A-Fa-f0-9]{32,}\z|\A(?=[A-Za-z0-9+_-]*\d)(?=[A-Za-z0-9+_-]*[A-Za-z])[A-Za-z0-9+_-]{40,}={0,2}\z}
+  # Free text (an HTTP header, a quoted payload) is opaque: it may carry a credential.
+  OPAQUE_TEXT = /\s|(authorization|bearer|password|passwd|secret|token|api[-_]?key)\s*[:=]/i
   URL_CREDENTIALS = %r{\A([a-z][a-z0-9+.-]*://)[^/@\s]*@}i
   ENV_ASSIGN = /\A([A-Za-z_][A-Za-z0-9_]*)=(.*)\z/m
 
@@ -89,14 +91,14 @@ module ResourceProbe
         return "#{m[1]}=<redacted>"
       end
       return key_value(arg, root, cwd) if arg.start_with?('-') && arg.include?('=')
-      return '<redacted>' if arg.match?(SECRET_VALUE)
+      return '<redacted>' if arg.match?(SECRET_VALUE) || arg.match?(OPAQUE_TEXT)
 
       url_or_path(arg, root, cwd)
     end
 
     def key_value(arg, root, cwd)
       flag, value = arg.split('=', 2)
-      return "#{flag}=<redacted>" if flag.match?(SECRET_FLAG) || value.match?(SECRET_VALUE)
+      return "#{flag}=<redacted>" if flag.match?(SECRET_FLAG) || value.match?(SECRET_VALUE) || value.match?(OPAQUE_TEXT)
 
       "#{flag}=#{url_or_path(value, root, cwd)}"
     end

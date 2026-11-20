@@ -205,6 +205,16 @@ class ResourceProbeTest < Minitest::Test
     assert entry["command_redacted"]
   end
 
+  def test_header_and_free_text_arguments_are_redacted
+    argv = [ "curl", "-H", "Authorization: Bearer secret-example-value", "--header=X-Api-Key: abc123", "--data", "token=hunter2", "-fsS", "--label=ok-value" ]
+    probe_with(FakeRunner.new(ok)).probe("fetch", argv, cwd: @root)
+    raw = File.read(@store.path)
+    %w[secret-example-value abc123 hunter2 Bearer].each { |bad| refute_includes raw, bad }
+    entry = @store.ops["fetch"]
+    assert_equal [ "curl", "-H", "<redacted>", "--header=<redacted>", "--data", "token=<redacted>", "-fsS", "--label=ok-value" ], entry["command"]
+    assert entry["command_redacted"]
+  end
+
   def test_repo_executable_is_recorded_so_replay_resolves_it
     tool = File.join(@root, "my-probe-tool")
     File.write(tool, "#!/bin/sh\nexit 0\n")
