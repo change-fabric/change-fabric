@@ -241,7 +241,7 @@ module ResourceProbe
     def run(argv, root:, cwd:, env: {}, docker: nil)
       before = @disk.read(root)
       docker0 = { mem: docker&.mem_mb.to_f, disk: docker&.disk_gb.to_f }
-      pid = Process.spawn(env.merge(ACTIVE_ENV => '1'), *argv, chdir: cwd)
+      pid = Process.spawn(env.merge(ACTIVE_ENV => '1'), *argv, chdir: cwd, pgroup: true)
       stats = sample_until_exit(pid, docker)
       after = @disk.read(root)
       finish(stats, before, after, docker0, docker)
@@ -281,8 +281,9 @@ module ResourceProbe
       stats[:samples] += 1
     end
 
+    # The child leads its own process group, so a cancel reaches its workers too.
     def forward(signal, pid)
-      Process.kill(signal, pid)
+      Process.kill(signal, -pid)
     rescue SystemCallError
       nil
     end

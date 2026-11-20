@@ -387,6 +387,29 @@ class ResourceProbeTest < Minitest::Test
     assert_nil res[:exit]
   end
 
+  def test_cancel_signal_reaches_the_whole_command_tree
+    pidfile = File.join(@root, "worker.pid")
+    tree = Struct.new(:x) { def rss_mb(_) = 1.0 }.new
+    disk = Struct.new(:x) { def read(_) = { free_gb: 1.0, used_gb: 1.0 } }.new
+    sender = Thread.new do
+      sleep 0.05 until File.exist?(pidfile) && !File.read(pidfile).strip.empty?
+      Process.kill("TERM", Process.pid) # handled by the runner's trap, which relays it to the child's group
+    end
+    res = RP::Runner.new(tree: tree, disk: disk, interval: 0.05)
+                    .run([ "sh", "-c", "sleep 30 & echo $! > #{pidfile}; wait" ], root: @root, cwd: @root)
+    sender.join
+    worker = File.read(pidfile).to_i
+    sleep 0.2
+    assert_equal "TERM", res[:signal]
+    assert_raises(Errno::ESRCH, "worker must not outlive the cancelled command") { Process.kill(0, worker) }
+  ensure
+    begin
+      Process.kill("KILL", worker) if worker&.positive?
+    rescue SystemCallError
+      nil
+    end
+  end
+
   def test_runner_missing_command_is_127
     res = RP::Runner.new.run([ "/nonexistent/cf-probe-cmd" ], root: @root, cwd: @root)
     assert_equal 127, res[:exit]
