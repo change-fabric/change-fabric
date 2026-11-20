@@ -161,4 +161,43 @@ class RoastP1PassTest < Minitest::Test
     end
     assert_equal 1, rig.names.count(:mitigate)
   end
+
+  def test_an_approved_decision_does_not_consume_the_retry
+    asked = []
+    notes = [ { note: "q", decision: "which palette?" }, "fixed", "fixed again" ]
+    verdicts = %i[unresolved resolved]
+    pass = RoastFollowups::Pass.new(
+      classify: ->(e) { { needs_human: e["problem"] == "which palette?", reason: "taste" } },
+      ask: ->(_e, _r) { asked << 1; { approved: true, direction: "blue" } },
+      mitigate: ->(_e, _d) { notes.shift },
+      judge: ->(_e) { verdicts.shift }
+    )
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "r.json")
+      RoastFollowups.upsert(path, RoastFollowups.from_critic(1, { "issues" => [ { "priority" => "P1", "where" => "a", "problem" => "b" } ] }))
+      entry = pass.run(path).first
+      assert_equal "mitigated", entry["outcome"]
+      assert_equal 2, entry["attempts"]
+    end
+    assert_equal 1, asked.size
+  end
+
+  def test_a_worker_that_keeps_raising_decisions_ends_unresolved
+    pass = RoastFollowups::Pass.new(
+      classify: ->(_e) { { needs_human: false, reason: "" } },
+      ask: ->(_e, _r) { { approved: true, direction: "" } },
+      mitigate: ->(_e, _d) { { note: "q", decision: "again?" } },
+      judge: ->(_e) { raise "never judged" }
+    )
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "r.json")
+      RoastFollowups.upsert(path, RoastFollowups.from_critic(1, { "issues" => [ { "priority" => "P1", "where" => "a", "problem" => "b" } ] }))
+      assert_equal "unresolved", pass.run(path).first["outcome"]
+    end
+  end
+
+  def test_brainstorm_materializes_followups_before_the_pass
+    text = File.read(File.join(ROOT, "skills/brainstorm/SKILL.md"))
+    assert_match(/roast\.rb decide --out-dir <plan_dir>\/roast --cap 1/, text)
+  end
 end

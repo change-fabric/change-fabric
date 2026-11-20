@@ -130,12 +130,18 @@ module RoastFollowups
       direction = gate(entry)
       return entry if direction == :stop
 
+      decisions = 0
       until entry['attempts'] >= MAX_ATTEMPTS
         entry['attempts'] += 1
         result = @mitigate.call(entry, direction)
         decision = result.is_a?(Hash) ? (result[:decision] || result['decision']) : nil
         entry['note'] = (result.is_a?(Hash) ? (result[:note] || result['note']) : result).to_s
         if decision
+          # A raised decision is not a judged fix: refund the attempt, bounded
+          # so a worker that keeps asking cannot loop forever.
+          entry['attempts'] -= 1
+          return finish(entry, 'unresolved') if (decisions += 1) > MAX_ATTEMPTS
+
           direction = gate(entry, decision)
           return entry if direction == :stop
 
