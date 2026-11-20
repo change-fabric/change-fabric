@@ -320,7 +320,7 @@ module ResourceProbe
 
   # Forced runs of ops already registered by a real run.
   class Benchmark
-    Report = Struct.new(:ran, :skipped, :unknown, keyword_init: true)
+    Report = Struct.new(:ran, :skipped, :unknown, :signal, keyword_init: true)
 
     def initialize(root:, store:, probe:)
       @root, @store, @probe = root, store, probe
@@ -330,7 +330,7 @@ module ResourceProbe
       ops = @store.ops
       unknown = names.reject { |n| ops.key?(n) }
       report = Report.new(ran: [], skipped: [], unknown: unknown)
-      names.each { |n| execute(n, ops, report, []) } if unknown.empty?
+      names.each { |n| execute(n, ops, report, []) unless report.signal } if unknown.empty?
       report
     end
 
@@ -343,7 +343,8 @@ module ResourceProbe
       reason = blocked(entry, ops, chain + [ name ])
       return report.skipped << { op: name, reason: reason } if reason
 
-      entry['prereqs'].each { |pre| execute(pre, ops, report, chain + [ name ]) }
+      entry['prereqs'].each { |pre| execute(pre, ops, report, chain + [ name ]) unless report.signal }
+      return if report.signal
       failed = report.skipped.find { |s| entry['prereqs'].include?(s[:op]) }
       return report.skipped << { op: name, reason: "prereq #{failed[:op]} did not run" } if failed
 
@@ -355,6 +356,9 @@ module ResourceProbe
                                                      docker: (DockerSampler.new if used_docker?(entry)))
       if outcome.exit_code.to_i.zero? && outcome.signal.nil?
         report.ran << name
+      elsif outcome.signal
+        report.signal = outcome.signal # a cancel ends the whole benchmark
+        report.skipped << { op: name, reason: "cancelled by #{outcome.signal}" }
       else
         report.skipped << { op: name, reason: "exited #{outcome.signal || outcome.exit_code}" }
       end
@@ -440,7 +444,7 @@ module ResourceProbe
     store = Store.new(slug: ident.slug, home: home)
     case sub
     when 'probe' then run_probe(names.first, cmd, opts, ident, store, env, err, runner, killer)
-    when 'benchmark' then run_benchmark(names, ident, store, out, err, runner)
+    when 'benchmark' then run_benchmark(names, ident, store, out, err, runner, killer)
     when 'show' then run_show(ident, store, opts, env, out)
     else
       err.puts parser.banner
@@ -472,7 +476,7 @@ module ResourceProbe
     127
   end
 
-  def self.run_benchmark(names, ident, store, out, err, runner)
+  def self.run_benchmark(names, ident, store, out, err, runner, killer)
     if names.empty?
       err.puts 'usage: resource_probe.rb benchmark <op> [<op>...]'
       return 2
@@ -485,6 +489,8 @@ module ResourceProbe
     end
     out.puts "ran: #{report.ran.join(', ')}" if report.ran.any?
     report.skipped.each { |s| out.puts "skipped #{s[:op]}: #{s[:reason]}" }
+    return killer.call(report.signal) if report.signal
+
     report.skipped.empty? ? 0 : 1
   end
 

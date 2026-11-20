@@ -499,6 +499,16 @@ class ResourceProbeTest < Minitest::Test
     assert_match(/skipped secret_op: command had redacted values/, out)
   end
 
+  def test_benchmark_stops_and_relays_a_cancel_signal
+    probe_with(FakeRunner.new(ok)).probe("a", %w[true], cwd: @root)
+    probe_with(FakeRunner.new(ok)).probe("b", %w[true], cwd: @root)
+    runner = FakeRunner.new(ok.merge(exit: nil, signal: "TERM"))
+    code, out, = cli(%w[benchmark a b], runner: runner)
+    assert_equal "killed:TERM", code
+    assert_equal 1, runner.calls.length, "the second op must not start"
+    assert_match(/skipped a: cancelled by TERM/, out)
+  end
+
   def test_benchmark_reports_a_failing_run_as_skipped
     probe_with(FakeRunner.new(ok)).probe("t", %w[true], cwd: @root)
     code, out, = cli(%w[benchmark t], runner: FakeRunner.new(ok.merge(exit: 9)))
