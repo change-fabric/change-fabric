@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.28.0": {
+    version: "0.28.0",
+    date: "2026-11-20",
+    headline: "Carve-out enforcement: the merge guard merges a carve-out PR only at a phone-approved head.",
+    highlights: [
+      {
+        title: "admin_bypass.carve_out_paths is enforced",
+        body:
+          "The merge guard classifies a PR by the base carve_out_paths, renames on both names, and requires a phone passkey carve-out receipt for the exact head plus --match-head-commit. A gh error fails closed.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. A repo with no carve_out_paths is unaffected.",
+  },
   "0.27.0": {
     version: "0.27.0",
     date: "2026-11-19",

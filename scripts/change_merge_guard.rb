@@ -8,6 +8,11 @@ require_relative 'change_policy'
 require_relative 'change_gate_check'
 require_relative 'change_override_store'
 require_relative 'guarded_command'
+require_relative 'change_pr_facts'
+require_relative 'change_carve_out_store'
+require_relative 'approval_console/canonical'
+require_relative 'approval_console/local_store'
+require_relative 'approval_console/proof_check'
 
 # PreToolUse hook: gates a `gh pr merge` into a protected branch on a
 # comprehensive cf:change run. The branch is a repo's staging/production or
@@ -57,6 +62,9 @@ class ChangeMergeGuard
     policy = base_policy(root, base, url)
     return unreadable_violation(root, base) if policy == :unreadable
     return nil if policy.nil?
+
+    carve_out = carve_out_violation(policy, base, sha, url)
+    return carve_out if carve_out
     return nil unless policy.protects?(base)
     # An override counts only when its proof stands (ChangeGateCheck#overridden?).
     return nil if ChangeGateCheck.new(sha: sha, profile: policy.profile_for(base), root: root,
@@ -82,6 +90,68 @@ class ChangeMergeGuard
     ChangePolicy::Source.for_pr_url(root, url).policy(base)
   rescue ChangePolicy::Unreadable
     :unreadable
+  end
+
+  # A PR whose changed files (both names of a rename) match the base policy's
+  # `carve_out_paths` merges only at a phone-approved head: a ChangeCarveOutStore
+  # record for this repo, PR and exact head, its receipt passing the carve-out
+  # row of the claim table (passkey level, signed files and base equal to the
+  # recomputed ones) and under 24h old now, and `--match-head-commit <head>` on
+  # the merge. Fails closed on every gh or store error, but only for a policy
+  # that lists carve-out paths; a repo without the list is unaffected. A
+  # standing override does not waive it.
+  def carve_out_violation(policy, base, sha, url)
+    return nil if policy.carve_out_paths.empty?
+
+    files = changed_files(url)
+    hits = files.select { |file| policy.carve_out?(file) }
+    return nil if hits.empty?
+
+    problem = carve_out_problem(policy, base, sha, url, files)
+    return nil unless problem
+
+    "this PR is a carve-out (#{hits.first(3).join(', ')}#{hits.size > 3 ? ", and #{hits.size - 3} more" : ''}): #{problem} " \
+      "Request Patrick's phone approval of the exact head with approval_console.rb request " \
+      "--type carve-out --pr-url #{url || '<pr-url>'}, record it with approval_console.rb record <id>, then merge with " \
+      "--match-head-commit #{sha}. #{escape_note}"
+  rescue StandardError => e
+    "this repo lists carve-out paths and the PR could not be classified (#{e.message}); the guard fails closed. #{escape_note}"
+  end
+
+  def carve_out_problem(policy, base, sha, url, files)
+    return "the merge must carry --match-head-commit #{sha} (the head the approval binds)." unless match_head_commit(command) == sha
+
+    repo = ChangePrFacts.repo_id(url)
+    number = ChangePrFacts.parse_url(url).last
+    record = carve_out_store.lookup(repo: repo, pr: number, sha: sha)
+    return "no phone-approved carve-out is recorded for head #{sha[0, 12]}." unless record
+
+    receipt_problem(record['proof'], policy, repo: repo, sha: sha, url: url, base: base, files: files)
+  end
+
+  def receipt_problem(proof, policy, repo:, sha:, url:, base:, files:)
+    signed = ApprovalConsole::Canonical.parse(proof.is_a?(Hash) ? proof['body'] : nil)
+    expected = { 'type' => 'carve-out', 'repo' => repo, 'sha' => sha, 'profile' => signed['profile'], 'summary' => signed['summary'],
+                 'pr_url' => url, 'pr_title' => signed['pr_title'], 'base' => base, 'files' => files }
+    check = ApprovalConsole::ProofCheck.new(level: 'passkey', store: proof_store, pins: policy.approval_pins, now: Time.now)
+    problem = check.receipt_problem(proof, expected)
+    return "the recorded carve-out receipt is refused: #{problem}." if problem
+    return nil if ApprovalConsole::ProofCheck.fresh?(proof, at: Time.now)
+
+    'the carve-out receipt is 24h old or older (or dated in the future); request a new approval.'
+  end
+
+  def changed_files(url) = ChangePrFacts.files(url)
+  def carve_out_store = ChangeCarveOutStore.new
+  def proof_store = ApprovalConsole::LocalStore.new
+
+  # The sha after `--match-head-commit` (or `=`) on the merge command, or nil.
+  def match_head_commit(cmd)
+    tokens = GuardedCommand.tokens(cmd)
+    idx = tokens.index('--match-head-commit')
+    return tokens[idx + 1] if idx
+
+    tokens.find { |token| token.start_with?('--match-head-commit=') }&.split('=', 2)&.last
   end
 
   # Fail-closed only when this repo is otherwise governed at all (a
