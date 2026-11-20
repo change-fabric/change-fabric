@@ -500,4 +500,34 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
     ENV["CF_ALLOW_UNGATED_MERGE"] = "1"
     assert_nil verdict("gh pr merge 612 --squash")
   end
+
+  def test_a_bare_merge_with_match_head_commit_resolves_the_current_branch_pr
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "gh pr merge --squash --match-head-commit #{HEAD}" } }
+    guard = ChangeMergeGuard.new(event)
+    seen = []
+    stub = lambda do |*args|
+      seen << args
+      [ "main\t#{HEAD}\t#{PR_URL}\n", Struct.new(:success?).new(true) ]
+    end
+    original = Open3.method(:capture2e)
+    Open3.define_singleton_method(:capture2e, &stub)
+    begin
+      assert_equal [ "main", HEAD, PR_URL ], guard.send(:pr_facts)
+    ensure
+      Open3.define_singleton_method(:capture2e, original)
+    end
+    refute_includes seen.first, HEAD
+    assert_equal %w[gh pr view --json], seen.first.first(4)
+  end
+
+  def test_merge_ref_skips_flag_values_and_still_finds_the_selector
+    guard = ChangeMergeGuard.new({})
+    assert_nil guard.send(:merge_ref, "gh pr merge --squash --match-head-commit #{HEAD}")
+    assert_equal "612", guard.send(:merge_ref, "gh pr merge --match-head-commit #{HEAD} 612 --squash")
+    assert_equal "612", guard.send(:merge_ref, "gh pr merge 612 --body note --match-head-commit #{HEAD}")
+  end
+
+  def test_the_denial_hint_carries_the_summary_the_request_needs
+    assert_match(/--type carve-out --pr-url #{Regexp.escape(PR_URL)} --summary /, verdict)
+  end
 end

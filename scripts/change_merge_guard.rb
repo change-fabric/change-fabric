@@ -112,7 +112,7 @@ class ChangeMergeGuard
 
     "this PR is a carve-out (#{hits.first(3).join(', ')}#{hits.size > 3 ? ", and #{hits.size - 3} more" : ''}): #{problem} " \
       "Request Patrick's phone approval of the exact head with approval_console.rb request " \
-      "--type carve-out --pr-url #{url || '<pr-url>'}, record it with approval_console.rb record <id>, then merge with " \
+      "--type carve-out --pr-url #{url || '<pr-url>'} --summary <what and why>, record it with approval_console.rb record <id>, then merge with " \
       "--match-head-commit #{sha}. #{escape_note}"
   rescue StandardError => e
     "this repo lists carve-out paths and the PR could not be classified (#{e.message}); the guard fails closed. #{escape_note}"
@@ -266,14 +266,9 @@ class ChangeMergeGuard
   end
 
   # The first positional argument to `pr merge` (a number, URL, or branch), or
-  # nil for a bare `gh pr merge` that targets the current branch's PR.
-  def merge_ref(cmd)
-    tokens = cmd.split
-    idx = tokens.index('merge')
-    return nil unless idx
-
-    tokens[(idx + 1)..].find { |token| !token.start_with?('-') }
-  end
+  # nil for a bare `gh pr merge` that targets the current branch's PR. The
+  # value of a flag such as `--match-head-commit <sha>` is not that argument.
+  def merge_ref(cmd) = ChangePrFacts.merge_ref(cmd)
 
   def deny(reason)
     {
