@@ -479,6 +479,18 @@ class IncidentReportTest < Minitest::Test
     assert_equal "scanned", rep.states["summary"] # the summary itself is clean
   end
 
+  def test_a_recapture_after_drafting_blocks_the_pdf_scan_until_redrafted
+    rep = report
+    capture!
+    rep.draft(at: T1, sections: sections, title: "t")
+    File.write(File.join(@store.path(@id), "evidence", "screens", "captures.json"), JSON.generate("shots" => [], "host" => "h", "version" => "v2"))
+    result = rep.scan(at: T1)
+    refute result["pdf"]["ok"]
+    assert(result["pdf"]["notes"].any? { |n| n.include?("recaptured after the PDF was drafted") })
+    assert_raises(IncidentReport::Error) { rep.roast(at: T1, repo_dir: @tmp) }
+    assert_empty @shell.roast_calls
+  end
+
   def test_scan_needs_current_ocr_for_every_screenshot
     rep = report
     capture!

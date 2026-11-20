@@ -388,7 +388,7 @@ module IncidentReport
       raise Error, 'the evidence PDF rendered no pages' if files.empty?
 
       m['drafts']['pdf'] = { 'path' => pdf }
-      m['pages'] = { 'pdf_sha256' => IncidentReport.sha256_file(pdf), 'files' => files.map { |f| { 'file' => f, 'sha256' => IncidentReport.sha256_file(f) } } }
+      m['pages'] = { 'pdf_sha256' => IncidentReport.sha256_file(pdf), 'captures_sha256' => IncidentReport.sha256_file(captures_file), 'files' => files.map { |f| { 'file' => f, 'sha256' => IncidentReport.sha256_file(f) } } }
     end
 
     def stage_work(work, captures, title)
@@ -458,7 +458,11 @@ module IncidentReport
 
       texts = {}
       notes = []
-      captures = JSON.parse(File.read(File.join(screens_dir, 'captures.json')))
+      captures_file = File.join(screens_dir, 'captures.json')
+      # The PDF and its pages show the captures it was built from; a recapture needs a redraft.
+      stale = m.dig('pages', 'captures_sha256') != IncidentReport.sha256_file(captures_file)
+      notes << { text: 'screenshots were recaptured after the PDF was drafted: run draft again', fatal: true } if stale
+      captures = JSON.parse(File.read(captures_file))
       texts['evidence captions'] = captures['shots'].map { |s| "#{s['viewport']}: #{s['route']}" }.join("\n") + "\n#{captures['host']} #{captures['version']}"
       unavailable = (m['ocr'] || {})['status'] == 'unavailable'
       # Whatever OCR did read is scanned, even when another screenshot failed.
