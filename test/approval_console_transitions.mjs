@@ -23,6 +23,7 @@ const SCENARIOS = {
   expiring_now: { click: false, shiftMs: LIFETIME_MS + 30000 },
   success: { type: "482913", click: true, status: 200, body: { proof: { kind: "stub" } } },
   approved_elsewhere: { type: "482913", click: true, status: 409, body: { error: "not_pending" } },
+  replayed_code: { type: "482913", click: true, status: 409, body: { error: "replay" } },
   passkey_cancelled: { type: "482913", click: true, cancel: true },
   passkey_unsupported: { click: false, noPasskey: true }
 };

@@ -549,7 +549,8 @@ module ConsolePages
       const handle=(s,j)=>{
         if(s===200)return end('ok','Approved','The approval is recorded. You can close this page.');
         if(s===410)return gone();
-        if(s===409)return end('info','Approved elsewhere','This request was already approved elsewhere. Nothing more to do.');
+        if(s===409&&j.error==='replay'){totp.value='';return note('That code was already used. Wait for the next code and try again.')}
+        if(s===409&&j.error==='not_pending')return end('info','Approved elsewhere','This request was already approved elsewhere. Nothing more to do.');
         if(s===401&&j.error==='totp_invalid'){totp.value='';return note('That code did not match. Wait for the next code and try again.')}
         if(s===401&&j.error==='assertion_invalid')return note('The passkey was not accepted. Try again, or use the terminal fallback.');
         if(s===423){locked=true;totp.disabled=true;return note('Too many failed tries. Locked until '+hm(Date.parse(j.locked_until))+'.')}

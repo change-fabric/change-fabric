@@ -103,6 +103,10 @@ class ApprovalConsoleTransitionsTest < Minitest::Test
     assert_retryable scenario("wrong_code"), "That code did not match. Wait for the next code and try again.", code_kept: false
   end
 
+  def test_a_replayed_code_keeps_the_page_and_asks_for_a_fresh_code
+    assert_retryable scenario("replayed_code"), "That code was already used. Wait for the next code and try again.", code_kept: false
+  end
+
   def test_a_refused_passkey_keeps_the_code
     assert_retryable scenario("assertion_failure"), "The passkey was not accepted. Try again, or use the terminal fallback.", code_kept: true
   end

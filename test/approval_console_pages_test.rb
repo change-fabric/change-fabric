@@ -381,7 +381,7 @@ class ApprovalConsolePagesTest < Minitest::Test
       "The passkey was not accepted. Try again, or use the terminal fallback.",
       "Too many failed tries. Locked until ", "The console is busy. Try again in a moment.",
       "Passkey cancelled. Tap Approve to try again.", "This browser cannot use passkeys. Open the link in Safari or use the terminal fallback.",
-      "This request was already approved elsewhere. Nothing more to do.", "Expiring now", "Waiting for your passkey",
+      "This request was already approved elsewhere. Nothing more to do.", "That code was already used. Wait for the next code and try again.", "Expiring now", "Waiting for your passkey",
       "left<-60000", "NotAllowedError" ].each { |needle| assert_includes js, needle }
     refute_match(/test|preview|location\.hash/i, js, "no test mode in the page script")
   end
