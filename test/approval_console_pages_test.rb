@@ -345,6 +345,13 @@ class ApprovalConsolePagesTest < Minitest::Test
     assert_equal "#ff9b9b", dark.fetch("--danger")
   end
 
+  def test_presented_values_keep_newlines_and_repeated_spaces
+    assert_includes ConsolePages::CSS, "[data-field] { white-space: pre-wrap; }"
+    html = render("step", items: [ { "step" => "run", "base_fields" => { "run" => "a\n  b" }, "fields" => { "run" => "x\n  y" } } ])
+    assert_includes html, %(<q data-field="items.0.fields.run">x\n  y</q>)
+    assert_includes html, %(<code data-field="items.0.base_fields.run">a\n  b</code>)
+  end
+
   def test_the_danger_token_is_used_only_for_the_high_risk_signals
     uses = ConsolePages::CSS.lines.grep(/var\(--danger\)/)
     assert_equal 2, uses.size

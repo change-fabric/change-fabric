@@ -112,6 +112,7 @@ module ConsolePages
     dt { font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
     dd { margin: 0; overflow-wrap: anywhere; }
     dd ul { margin: 0; padding: 0; list-style: none; }
+    [data-field] { white-space: pre-wrap; }
     dd li + li { margin-top: 0.125rem; }
     dl.sub { grid-template-columns: minmax(0, 8rem) minmax(0, 1fr); gap: 0.375rem 0.75rem; }
     .was { display: block; font-size: 0.8125rem; color: var(--muted); }
