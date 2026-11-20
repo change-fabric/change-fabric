@@ -162,6 +162,13 @@ class DeepResearchParseTest < Minitest::Test
     assert_equal false, report["findings"][0]["citation_resolves"]
   end
 
+  def test_url_wrapped_after_a_query_delimiter_rejoins
+    parsed = parse("Sources", marked(1, "Doc URL: https://example.org/search?q="), "ruby&page=2",
+                   marked(2, "Doc2 URL: https://example.org/a#"), "frag")
+    assert_equal [ "https://example.org/search?q=ruby&page=2", "https://example.org/a#frag" ],
+                 parsed[:sources].map { |src| src["url"] }
+  end
+
   def test_balanced_parentheses_in_a_url_survive_and_prose_punctuation_is_stripped
     parsed = parse("Sources", marked(1, "Ruby https://en.wikipedia.org/wiki/Ruby_(programming_language)."),
                    marked(2, "(see https://example.org/a)"))

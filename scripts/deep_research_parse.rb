@@ -78,10 +78,10 @@ module DeepResearchParse
 
   def page_one_text(xml) = lines(xml).select { |l| l.page == 1 }.map(&:text).join("\n")
 
-  # Joins wrapped lines. A hyphen or a URL cut at a slash rejoins with no space.
+  # Joins wrapped lines. A hyphen, or a URL cut after a slash or query delimiter, rejoins with no space.
   def join(texts)
     texts.reduce('') do |acc, t|
-      glue = acc.empty? || acc.match?(%r{\w-\z|https?://(?:\S*/)?\z}) ? '' : ' '
+      glue = acc.empty? || acc.match?(%r{\w-\z|https?://(?:\S*[/?&=#_%+])?\z}) ? '' : ' '
       "#{acc}#{glue}#{t}"
     end.gsub(/\s+/, ' ').strip
   end
