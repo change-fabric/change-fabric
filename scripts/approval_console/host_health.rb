@@ -9,7 +9,7 @@ module ApprovalConsole
   # installed. A degraded host still approves ordinary types with TOTP and
   # refuses the high-risk ones.
   module HostHealth
-    HIGH_RISK = %w[prod-op carve-out money].freeze
+    HIGH_RISK = %w[prod-op carve-out money release override].freeze
     GUARD = File.join('.claude', 'cf', 'bin', 'secrets_read_guard.rb')
 
     Report = Struct.new(:reasons, keyword_init: true) do

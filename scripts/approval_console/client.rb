@@ -6,6 +6,7 @@ require 'json'
 require 'net/http'
 require 'openssl'
 require 'uri'
+require_relative 'canonical'
 
 module ApprovalConsole
   # The machine side of the console's signed routes. Every call carries
@@ -65,6 +66,8 @@ module ApprovalConsole
 
     def call(method, path, payload)
       raw = payload.nil? ? '' : JSON.generate(payload)
+      raise Refused.new(413, 'error' => 'too_large') if raw.bytesize > Canonical::MAX_REQUEST_BYTES
+
       status, text = @transport.call(method, "#{origin}#{path}", headers(method, path, raw), raw)
       data = parse(text)
       raise Unreachable, "console returned #{status}" if status.to_i >= 500

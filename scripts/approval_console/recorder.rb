@@ -112,9 +112,9 @@ module ApprovalConsole
     end
 
     def write_override(proof, expected)
-      overrides(expected['sha'], expected['profile']).record(reason: expected['reason'], recorded_by: @recorded_by,
+      overrides(expected['sha'], expected['profile'], expected['scope']).record(reason: expected['reason'], recorded_by: @recorded_by,
                                                              proof: proof, policy_sha: policy_sha)
-      "override for #{expected['sha'][0, 12]}#{expected['profile'] ? " (profile: #{expected['profile']})" : ''}"
+      "override for #{expected['sha'][0, 12]}#{expected['profile'] ? " (profile: #{expected['profile']})" : ''}#{expected['scope'] ? " (scope: #{expected['scope']})" : ''}"
     end
 
     def write_carve_out(proof, expected)
@@ -132,7 +132,9 @@ module ApprovalConsole
 
     def approvals(sha) = @stores[:approval]&.call(sha) || ChangeApprovalStore.new(sha)
 
-    def overrides(sha, profile) = @stores[:override]&.call(sha, profile) || ChangeOverrideStore.new(sha, profile: profile)
+    def overrides(sha, profile, scope = nil)
+      @stores[:override]&.call(sha, profile, scope) || ChangeOverrideStore.new(sha, profile: profile, scope: scope)
+    end
 
     def store(name, klass) = @stores[name] || klass.new
   end

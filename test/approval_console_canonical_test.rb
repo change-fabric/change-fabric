@@ -86,9 +86,44 @@ class ApprovalConsoleCanonicalTest < Minitest::Test
     assert Canonical.build(base.merge(type: "prod-op", summary: "rotate", argv: [ "ruby", "rotate.rb" ]))
     assert Canonical.build(base.merge(type: "money", summary: "charge", argv: [ "bin/charge" ]))
     assert_raises(Canonical::Invalid) { Canonical.build(base.merge(type: "prod-op", summary: "x", argv: [])) }
-    assert Canonical.build(base.merge(type: "carve-out", summary: "merge", pr_url: "https://github.com/a/b/pull/1"))
-    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(type: "carve-out", summary: "merge", pr_url: "http://x")) }
+    assert Canonical.build(base.merge(carve_out_attrs))
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(carve_out_attrs(pr_url: "http://x"))) }
     assert_raises(Canonical::Invalid) { Canonical.build(base.merge(type: "override")) }
+  end
+
+  def carve_out_attrs(**over)
+    { type: "carve-out", summary: "merge", pr_url: "https://github.com/a/b/pull/1", pr_title: "Add a thing", base: "main",
+      files: [ "README.md", "scripts/x.rb" ] }.merge(over)
+  end
+
+  def test_carve_out_signs_the_title_base_and_a_sorted_unique_file_list
+    base = step_attrs.reject { |key, _| key == :items }
+    body = Canonical.parse(Canonical.build(base.merge(carve_out_attrs)))
+    assert_equal [ "README.md", "scripts/x.rb" ], body["files"]
+    assert_equal "main", body["base"]
+    assert_equal "Add a thing", body["pr_title"]
+    [ { files: [ "b", "a" ] }, { files: [ "a", "a" ] }, { files: [ "" ] }, { files: "a" }, { base: " " }, { pr_title: "" } ].each do |bad|
+      assert_raises(Canonical::Invalid, bad.inspect) { Canonical.build(base.merge(carve_out_attrs(**bad))) }
+    end
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(carve_out_attrs.except(:files))) }
+  end
+
+  def test_release_signs_the_tag_and_the_commit_it_points_at
+    base = step_attrs.reject { |key, _| key == :items }
+    body = Canonical.parse(Canonical.build(base.merge(type: "release", tag: "skills/v1.2.3", commit: base[:sha])))
+    assert_equal "skills/v1.2.3", body["tag"]
+    assert_equal body["sha"], body["commit"]
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(type: "release", tag: "v1", commit: "b" * 40)) }
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(type: "release", tag: " ", commit: base[:sha])) }
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(type: "release", commit: base[:sha])) }
+  end
+
+  def test_override_scope_is_optional_and_limited_to_merge_or_tag
+    base = step_attrs.reject { |key, _| key == :items }.merge(type: "override", reason: "CI is down")
+    refute Canonical.parse(Canonical.build(base)).key?("scope")
+    %w[merge tag].each { |scope| assert_equal scope, Canonical.parse(Canonical.build(base.merge(scope: scope)))["scope"] }
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(scope: "deploy")) }
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(scope: nil)) }
   end
 
   def test_refuses_unexpected_fields

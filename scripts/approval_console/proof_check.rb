@@ -80,12 +80,13 @@ module ApprovalConsole
     end
 
     # nil, or why the override record's proof does not stand.
-    def override_problem(record, repo:, sha:, profile:)
+    def override_problem(record, repo:, sha:, profile:, scope: nil)
       return missing('override') unless record.key?('proof')
 
       proof = record['proof']
 
       expected = { 'type' => 'override', 'repo' => repo, 'sha' => sha, 'profile' => profile, 'reason' => record['reason'] }
+      expected['scope'] = scope if scope
       problem = short_reason(record['reason']) || proof_problem(proof, expected) || stale_at_use(proof)
       problem && "override proof is refused: #{problem}"
     end

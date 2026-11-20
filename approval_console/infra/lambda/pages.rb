@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'cgi'
+require 'erb'
 require 'json'
 
 # The three HTML pages. Rules: no external scripts or fonts, one inline script
@@ -63,13 +64,46 @@ module ConsolePages
 
   def body_rows(body)
     body.map do |key, value|
-      shown = value.is_a?(String) ? value : JSON.pretty_generate(value)
-      "<dt>#{esc(key)}</dt><dd>#{value.is_a?(String) ? esc(shown) : "<pre>#{esc(shown)}</pre>"}</dd>"
+      "<dt>#{esc(key)}</dt><dd>#{value_html(key, value)}</dd>"
     end.join
   end
 
+  def value_html(key, value)
+    return esc(value) if value.is_a?(String)
+    return "<ul>#{value.map { |file| "<li><code>#{esc(file)}</code></li>" }.join}</ul>" if key == 'files' && value.is_a?(Array) && value.all?(String)
+
+    "<pre>#{esc(JSON.pretty_generate(value))}</pre>"
+  end
+
+  GITHUB = 'github.com'
+  REPO_ID = %r{\Arepo:#{Regexp.escape(GITHUB)}/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\z}
+  PR_PATH = %r{\Ahttps://#{Regexp.escape(GITHUB)}/([^/\s]+)/([^/\s]+)/pull/(\d+)/?\z}
+
+  # Tap-through GitHub links built only from signed fields (repo, sha, tag,
+  # pr_url), never from agent text: the host is the constant above, the repo
+  # comes from the signed repo id, the commit and tag are percent-encoded, and
+  # a pr_url is linked only when it names that same repo. Anything that does
+  # not fit the pattern yields no link rather than a guessed one.
+  def links(body)
+    owner, name = REPO_ID.match(body['repo'].to_s)&.captures
+    return [] unless owner
+
+    root = "https://#{GITHUB}/#{owner}/#{name}"
+    list = []
+    list << [ 'Commit on GitHub', "#{root}/commit/#{ERB::Util.url_encode(body['sha'].to_s)}" ] if body['sha'].to_s.match?(/\A[0-9a-f]{40}\z/)
+    list << [ 'Release tag on GitHub', "#{root}/releases/tag/#{ERB::Util.url_encode(body['tag'])}" ] if body['type'] == 'release' && body['tag'].is_a?(String)
+    pr = PR_PATH.match(body['pr_url'].to_s)
+    list << [ 'Pull request on GitHub', "#{root}/pull/#{pr[3]}" ] if pr && [ pr[1], pr[2] ] == [ owner, name ]
+    list
+  end
+
+  def links_html(body)
+    items = links(body).map { |label, url| "<li><a href=\"#{esc(url)}\" rel=\"noopener noreferrer\">#{esc(label)}</a></li>" }
+    items.empty? ? '' : "<ul>#{items.join}</ul>"
+  end
+
   def approve(nonce, body_string, body, status, credentials)
-    inner = +"<p>Review every field. The passkey signs a hash of exactly this text.</p><dl>#{body_rows(body)}</dl>"
+    inner = +"<p>Review every field. The passkey signs a hash of exactly this text.</p>#{links_html(body)}<dl>#{body_rows(body)}</dl>"
     if status == 'pending'
       inner << '<label for="totp">Code from your TOTP app</label><br>' \
                '<input id="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}">' \

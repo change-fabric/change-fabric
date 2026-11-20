@@ -308,11 +308,10 @@ class ApprovalConsoleCliTest < Minitest::Test
   def test_a_missing_store_is_degraded_and_refuses_high_risk_types
     report = ApprovalConsole::HostHealth.check(store: @store, home: @home)
     assert_predicate report, :degraded?
-    %w[prod-op carve-out money].each do |type|
+    %w[prod-op carve-out money release override].each do |type|
       assert_match(/degraded host/, ApprovalConsole::HostHealth.refusal(type, report))
     end
     assert_nil ApprovalConsole::HostHealth.refusal("step", report)
-    assert_nil ApprovalConsole::HostHealth.refusal("override", report)
   end
 
   def test_a_wrong_mode_or_missing_guard_is_degraded
@@ -424,7 +423,8 @@ class ApprovalConsoleRecordVerbTest < Minitest::Test
   end
 
   def test_record_dispatches_a_carve_out_to_the_carve_out_store
-    attrs = { "type" => "carve-out", "repo" => REPO, "sha" => SHA, "profile" => nil, "summary" => "merge", "pr_url" => "https://github.com/acme/widgets/pull/7" }
+    attrs = { "type" => "carve-out", "repo" => REPO, "sha" => SHA, "profile" => nil, "summary" => "merge", "pr_url" => "https://github.com/acme/widgets/pull/7",
+              "pr_title" => "Add a thing", "base" => "main", "files" => [ "scripts/a.rb" ] }
     status, out, err = cli([ "record", submit(attrs) ])
     assert_equal 0, status, err
     assert_match(/carve-out for PR #7/, out)

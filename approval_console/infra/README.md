@@ -40,6 +40,13 @@ terraform plan  -var aws_profile=... -var alert_email=... -var 'claim_repos=["ow
 terraform apply -var aws_profile=... -var alert_email=... -var 'claim_repos=["owner@123/repo@456"]'
 ```
 
+To ship a later change to the handler or the shared files (a new type or signed
+field), the maintainer runs `redeploy.sh <merged sha>` from this directory's
+checkout, through `~/.claude/cf/manual/queue/0014-approval-console-redeploy.sh`.
+It refuses unless HEAD is that sha, the sha is an ancestor of `origin/main`, the
+tree is clean and the AWS account is the expected one, and it never replaces the
+function or its URL.
+
 The agent never applies. The maintainer's script is
 `~/.claude/cf/manual/queue/0005-approval-console-deploy.sh`. It needs a
 `token.actions.githubusercontent.com` OIDC provider in the account (the site

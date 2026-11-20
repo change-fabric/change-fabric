@@ -15,8 +15,19 @@ module ApprovalConsole
     class Invalid < StandardError; end
 
     VERSION = 1
-    TYPES = %w[step override prod-op carve-out money].freeze
+    TYPES = %w[step override prod-op carve-out money release].freeze
+    SCOPES = %w[merge tag].freeze
     MAX_LIFETIME = 3600
+    # A carve-out signs its whole file list. The client and the Lambda share
+    # this ceiling: 3000 paths of about 200 bytes, JSON-encoded twice (the body
+    # is a string inside the request JSON), is about 620 KB, so 1 MiB leaves
+    # headroom and stays far under the 6 MB Function URL limit.
+    MAX_FILES = 3000
+    MAX_REQUEST_BYTES = 1024 * 1024
+    # The console stores the body in one DynamoDB item (400 KB cap) and keeps
+    # it again in the approved proof, so a body over this is refused at build
+    # time, on the client, before anything is sent or stored.
+    MAX_CANONICAL_BYTES = 300_000
     UUID = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
     SHA = /\A[0-9a-f]{40}\z/
     TIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/
@@ -26,8 +37,13 @@ module ApprovalConsole
       'override' => %w[reason],
       'prod-op' => %w[summary argv],
       'money' => %w[summary argv],
-      'carve-out' => %w[summary pr_url]
+      'carve-out' => %w[summary pr_url pr_title base files],
+      'release' => %w[tag commit]
     }.freeze
+    # Fields a body may omit: an override with no scope unlocks both the merge
+    # and the tag guard; with one, only that guard. Absent equals nil when a
+    # verifier compares a body to its expected context.
+    OPTIONAL = { 'override' => %w[scope] }.freeze
     UNVERIFIED = 'unverified-'
 
     module_function
@@ -99,12 +115,22 @@ module ApprovalConsole
       return [ "unknown type #{type.inspect}" ] unless TYPES.include?(type)
 
       errors = []
-      allowed = COMMON + PER_TYPE.fetch(type)
+      required = COMMON + PER_TYPE.fetch(type)
+      allowed = required + OPTIONAL.fetch(type, [])
       errors << "unexpected fields: #{(body.keys - allowed).sort.join(', ')}" unless (body.keys - allowed).empty?
-      errors << "missing fields: #{(allowed - body.keys).sort.join(', ')}" unless (allowed - body.keys).empty?
+      errors << "missing fields: #{(required - body.keys).sort.join(', ')}" unless (required - body.keys).empty?
+      errors.concat(size_errors(body))
       errors.concat(common_errors(body))
       errors.concat(payload_errors(type, body))
       errors
+    end
+
+    def size_errors(body)
+      bytes = serialize(body).bytesize
+      return [] if bytes <= MAX_CANONICAL_BYTES
+
+      files = body['files'].is_a?(Array) ? " (#{body['files'].size} files)" : ''
+      [ "body is #{bytes} bytes#{files}, over the #{MAX_CANONICAL_BYTES}-byte limit; split the change into smaller PRs" ]
     end
 
     def common_errors(body)
@@ -139,10 +165,34 @@ module ApprovalConsole
     def payload_errors(type, body)
       case type
       when 'step' then item_errors(body['items'])
-      when 'override' then nonempty?(body['reason']) ? [] : [ 'reason is empty' ]
-      when 'carve-out' then summary_errors(body) + (body['pr_url'].to_s.match?(%r{\Ahttps://\S+\z}) ? [] : [ 'pr_url is not an https URL' ])
+      when 'override' then override_errors(body)
+      when 'carve-out' then carve_out_errors(body)
+      when 'release' then release_errors(body)
       else summary_errors(body) + argv_errors(body['argv'])
       end
+    end
+
+    def override_errors(body)
+      errors = nonempty?(body['reason']) ? [] : [ 'reason is empty' ]
+      errors << "scope must be one of #{SCOPES.join(', ')}" if body.key?('scope') && !SCOPES.include?(body['scope'])
+      errors
+    end
+
+    def carve_out_errors(body)
+      errors = summary_errors(body)
+      errors << 'pr_url is not an https URL' unless body['pr_url'].to_s.match?(%r{\Ahttps://\S+\z})
+      errors << 'pr_title is empty' unless nonempty?(body['pr_title'])
+      errors << 'base is empty' unless nonempty?(body['base'])
+      files = body['files']
+      errors << "files must be a sorted, unique array of at most #{MAX_FILES} non-empty strings" unless files.is_a?(Array) && files.size <= MAX_FILES && files.all? { |f| nonempty?(f) } && files == files.uniq.sort
+      errors
+    end
+
+    def release_errors(body)
+      errors = []
+      errors << 'tag is empty' unless nonempty?(body['tag'])
+      errors << 'commit must equal sha' unless body['commit'] == body['sha']
+      errors
     end
 
     def summary_errors(body) = nonempty?(body['summary']) ? [] : [ 'summary is empty' ]

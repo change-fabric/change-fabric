@@ -316,7 +316,9 @@ class ApprovalConsoleVerifierTest < Minitest::Test
     cases = {
       "override" => [ { reason: "CI is down" }, %i[reason] ],
       "prod-op" => [ { summary: "rotate", argv: [ "ruby", "r.rb" ] }, %i[summary argv] ],
-      "carve-out" => [ { summary: "merge", pr_url: "https://github.com/a/b/pull/1" }, %i[summary pr_url] ]
+      "carve-out" => [ { summary: "merge", pr_url: "https://github.com/a/b/pull/1", pr_title: "T", base: "main", files: [ "a.rb" ] },
+                       %i[summary pr_url pr_title base files] ],
+      "release" => [ { tag: "skills/v1.0.0", commit: SHA }, %i[tag commit] ]
     }
     cases.each do |type, (payload, keys)|
       body = Canonical.build(body_attrs(type: type).reject { |key, _| key == :items }.merge(payload))

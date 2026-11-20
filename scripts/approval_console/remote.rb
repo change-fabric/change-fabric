@@ -30,7 +30,8 @@ module ApprovalConsole
       context['machine_id'] = machine_id
       context['profile'] = nil unless context.key?('profile')
       context['items'] = context['items'].map { |item| item_pair(string_keys(item)) } if context['items'].is_a?(Array)
-      context.slice('type', 'machine_id', 'repo', 'sha', 'profile', *Canonical::PER_TYPE.fetch(context['type'], []))
+      context.slice('type', 'machine_id', 'repo', 'sha', 'profile', *Canonical::PER_TYPE.fetch(context['type'], []),
+                    *Canonical::OPTIONAL.fetch(context['type'], []))
     end
 
     def string_keys(hash) = hash.to_h { |key, value| [ key.to_s, value ] }

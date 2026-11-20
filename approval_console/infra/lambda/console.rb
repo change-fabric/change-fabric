@@ -19,7 +19,7 @@ class ApprovalConsoleApp
   Verifier = ApprovalConsole::Verifier
   Cbor = ApprovalConsole::Cbor
 
-  MAX_BODY = 32 * 1024
+  MAX_BODY = Canonical::MAX_REQUEST_BYTES
   SKEW = 300
   LOCK_AFTER = 5
   LOCK_BASE = 900

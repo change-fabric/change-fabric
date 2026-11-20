@@ -75,4 +75,36 @@ class ChangeOverrideStoreTest < Minitest::Test
     ChangeOverrideStore.new("abc123").record(reason: "x", recorded_by: "cf")
     refute ChangeOverrideStore.new("def456").authorized?
   end
+
+  # A scope narrows an override to the merge or the tag guard; with none it
+  # unlocks both, as before.
+  def test_a_scoped_override_authorizes_only_its_own_scope
+    ChangeOverrideStore.new("abc123", scope: "merge").record(reason: "x", recorded_by: "cf")
+    assert ChangeOverrideStore.new("abc123", scope: "merge").authorized?
+    refute ChangeOverrideStore.new("abc123", scope: "tag").authorized?
+    refute ChangeOverrideStore.new("abc123").authorized?
+    assert_equal "merge", ChangeOverrideStore.new("abc123", scope: "merge").read["scope"]
+  end
+
+  def test_merge_and_tag_overrides_coexist_for_one_sha
+    ChangeOverrideStore.new("abc123", scope: "merge").record(reason: "x", recorded_by: "cf")
+    ChangeOverrideStore.new("abc123", scope: "tag").record(reason: "y", recorded_by: "cf")
+    assert_equal "x", ChangeOverrideStore.new("abc123", scope: "merge").read["reason"]
+    assert_equal "y", ChangeOverrideStore.new("abc123", scope: "tag").read["reason"]
+  end
+
+  def test_a_copied_scoped_record_cannot_widen_its_scope
+    ChangeOverrideStore.new("abc123", scope: "merge").record(reason: "x", recorded_by: "cf")
+    dir = File.join(Dir.home, ".claude", "cf", "change")
+    FileUtils.cp(File.join(dir, "abc123@merge.override"), File.join(dir, "abc123.override"))
+    refute ChangeOverrideStore.new("abc123").authorized?
+    FileUtils.cp(File.join(dir, "abc123@merge.override"), File.join(dir, "abc123@tag.override"))
+    refute ChangeOverrideStore.new("abc123", scope: "tag").authorized?
+  end
+
+  def test_an_unscoped_override_still_authorizes_the_unscoped_gate
+    ChangeOverrideStore.new("abc123").record(reason: "x", recorded_by: "cf")
+    assert ChangeOverrideStore.new("abc123").authorized?
+    refute ChangeOverrideStore.new("abc123").read.key?("scope")
+  end
 end

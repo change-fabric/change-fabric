@@ -5,6 +5,7 @@ require "securerandom"
 require_relative "../approval_console/infra/lambda/console"
 require_relative "../approval_console/infra/lambda/clients"
 require_relative "support/soft_authenticator"
+require_relative "../scripts/change_pr_facts"
 require_relative "support/console_fakes"
 
 class ApprovalConsoleLambdaTest < Minitest::Test
@@ -70,8 +71,9 @@ class ApprovalConsoleLambdaTest < Minitest::Test
   end
 
   def request_body(rid: SecureRandom.uuid, mid: MID, type: "carve-out", summary: "merge PR 9", created: "2026-11-19T11:55:00Z", expires: "2026-11-19T12:10:00Z")
-    Canonical.build(type: type, machine_id: mid, repo: "github.com/acme/app", sha: SHA, profile: nil, request_id: rid,
-                    created_at: created, expires_at: expires, summary: summary, pr_url: "https://github.com/acme/app/pull/9")
+    Canonical.build(type: type, machine_id: mid, repo: "repo:github.com/acme/app", sha: SHA, profile: nil, request_id: rid,
+                    created_at: created, expires_at: expires, summary: summary, pr_url: "https://github.com/acme/app/pull/9",
+                    pr_title: "Add a thing", base: "main", files: [ "scripts/a.rb", "scripts/b.rb" ])
   end
 
   def create_request(body = request_body)
@@ -103,7 +105,8 @@ class ApprovalConsoleLambdaTest < Minitest::Test
 
   def expected_for(body)
     parsed = Canonical.parse(body)
-    { type: parsed["type"], machine_id: MID, repo: parsed["repo"], sha: SHA, profile: nil, summary: parsed["summary"], pr_url: parsed["pr_url"] }
+    { type: parsed["type"], machine_id: MID, repo: parsed["repo"], sha: SHA, profile: nil, summary: parsed["summary"], pr_url: parsed["pr_url"],
+      pr_title: parsed["pr_title"], base: parsed["base"], files: parsed["files"] }
   end
 
   # ----- requests --------------------------------------------------------
@@ -157,8 +160,64 @@ class ApprovalConsoleLambdaTest < Minitest::Test
   end
 
   def test_create_request_rejects_oversize_bodies_before_any_work
-    status, data = call("POST", "/m/#{MID}/requests", "x" * 33_000)
+    status, data = call("POST", "/m/#{MID}/requests", "x" * (ApprovalConsoleApp::MAX_BODY + 1))
     assert_equal [ 413, "too_large" ], [ status, data["error"] ]
+  end
+
+  def carve_out_body(count, width: 60)
+    files = Array.new(count) { |i| format("%<i>04d/", i: i) + ("d" * (width - 8)) + ".rb" }.sort
+    [ files, {
+      type: "carve-out", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil,
+      request_id: SecureRandom.uuid, created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z",
+      summary: "merge PR 9", pr_url: "https://github.com/acme/app/pull/9", pr_title: "Big", base: "main", files: files
+    } ]
+  end
+
+  def carve_out_with_files(count, width: 60) = Canonical.build(carve_out_body(count, width: width).last)
+
+  def test_a_3000_file_carve_out_with_60_character_paths_is_accepted
+    body = carve_out_with_files(Canonical::MAX_FILES)
+    raw = JSON.generate("body" => body)
+    assert_operator raw.bytesize, :>, 32 * 1024
+    assert_operator raw.bytesize, :<, ApprovalConsoleApp::MAX_BODY
+    assert_equal 201, create_request(body)[0]
+  end
+
+  def test_a_body_of_about_290_kb_passes_and_about_500_kb_is_refused_at_build_time
+    assert carve_out_with_files(1430, width: 200).bytesize.between?(280_000, Canonical::MAX_CANONICAL_BYTES)
+    _, attrs = carve_out_body(2500, width: 200)
+    error = assert_raises(Canonical::Invalid) { Canonical.build(attrs) }
+    assert_match(/body is \d{6} bytes \(2500 files\), over the 300000-byte limit/, error.message)
+  end
+
+  def test_the_server_refuses_an_oversize_body_before_any_store_write
+    files, attrs = carve_out_body(2500, width: 200)
+    oversize = Canonical.serialize(attrs.merge(v: 1))
+    assert_operator oversize.bytesize, :>, 450_000
+    assert_equal 2500, files.size
+    before = @store.items.dup
+    status, data = signed("POST", "/m/#{MID}/requests", { "body" => oversize })
+    assert_includes [ 400, 413 ], status
+    assert_equal "invalid_body", data["error"] if status == 400
+    assert_equal before, @store.items, "nothing was written"
+    assert_empty @dm.sent
+  end
+
+  def test_a_request_one_byte_over_the_limit_is_still_413
+    over = "x" * (ApprovalConsoleApp::MAX_BODY + 1)
+    assert_equal 413, call("POST", "/m/#{MID}/requests", over)[0]
+    exact = "x" * ApprovalConsoleApp::MAX_BODY
+    refute_equal 413, call("POST", "/m/#{MID}/requests", exact)[0]
+  end
+
+  def test_the_file_count_and_body_limits_are_shared_between_client_and_server
+    assert_equal ApprovalConsole::Canonical::MAX_REQUEST_BYTES, ApprovalConsoleApp::MAX_BODY
+    assert_equal ApprovalConsole::Canonical::MAX_FILES, ChangePrFacts::MAX_FILES
+    assert_operator ApprovalConsoleApp::MAX_BODY, :<, 6 * 1024 * 1024
+  end
+
+  def test_more_than_the_file_limit_is_not_a_valid_body
+    assert_raises(Canonical::Invalid) { carve_out_with_files(Canonical::MAX_FILES + 1) }
   end
 
   def test_requests_are_limited_per_machine_per_hour
@@ -186,7 +245,8 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_includes html, "&lt;script&gt;alert(1)&lt;/script&gt; &amp; more"
     refute_includes html, "<script>alert(1)"
     refute_match(/<script[^>]*\ssrc=/i, html, "no external or same-origin script files")
-    refute_match(%r{(?:src|href)="https?://}i, html)
+    refute_match(%r{src="https?://}i, html)
+    assert(html.scan(/href="([^"]*)"/).flatten.all? { |url| url.start_with?("https://github.com/acme/app/") }, "links only point at the signed repo")
     tags = html.scan(/<(?:script|style)\b[^>]*>/)
     refute_empty tags
     assert(tags.all? { |tag| tag.include?(%(nonce="#{nonce}")) }, "every script and style carries the response nonce")
@@ -202,6 +262,53 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     _, html, = call("GET", "/m/#{MID}/r/#{rid}")
     assert_includes html, "This request is expired."
     refute_includes html, 'id="go"'
+  end
+
+  # ----- the phone page shows only signed fields --------------------------
+
+  def page_html(body)
+    _, rid = [ body, Canonical.parse(body)["request_id"] ]
+    create_request(body)
+    _, _, response = call("GET", "/m/#{MID}/r/#{rid}")
+    response[:body]
+  end
+
+  def test_the_page_lists_the_signed_files_base_and_title_with_links_from_signed_fields
+    html = page_html(request_body)
+    assert_includes html, "<li><code>scripts/a.rb</code></li>"
+    assert_includes html, "<li><code>scripts/b.rb</code></li>"
+    assert_includes html, "<dd>main</dd>"
+    assert_includes html, "<dd>Add a thing</dd>"
+    assert_includes html, 'href="https://github.com/acme/app/commit/' + SHA + '"'
+    assert_includes html, 'href="https://github.com/acme/app/pull/9"'
+  end
+
+  def test_a_release_page_links_the_tag_and_the_commit
+    body = Canonical.build(type: "release", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil,
+                           request_id: SecureRandom.uuid, created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z",
+                           tag: "skills/v1.2.3 beta", commit: SHA)
+    html = page_html(body)
+    assert_includes html, 'href="https://github.com/acme/app/releases/tag/skills%2Fv1.2.3%20beta"'
+    assert_includes html, 'href="https://github.com/acme/app/commit/' + SHA + '"'
+  end
+
+  def test_no_link_is_built_from_a_pr_url_for_another_repo_or_host_or_a_non_github_repo
+    ConsolePages.links("repo" => "repo:github.com/acme/app", "sha" => SHA, "pr_url" => "https://github.com/evil/app/pull/9").tap do |links|
+      refute(links.any? { |_, url| url.include?("evil") })
+      assert_equal [ "Commit on GitHub" ], links.map(&:first)
+    end
+    assert_empty ConsolePages.links("repo" => "repo:gitlab.com/acme/app", "sha" => SHA)
+    assert_empty ConsolePages.links("repo" => "repo:github.com/acme/app/../x", "sha" => SHA)
+    assert_empty ConsolePages.links("repo" => "not a repo", "sha" => SHA)
+    refute(ConsolePages.links("repo" => "repo:github.com/a/b", "sha" => "zz").any? { |label, _| label == "Commit on GitHub" })
+  end
+
+  def test_agent_text_never_reaches_a_link_or_the_markup_unescaped
+    body = request_body(summary: '<a href="https://evil.example">click</a>')
+    html = page_html(body)
+    refute_includes html, 'href="https://evil.example"'
+    assert_includes html, "&lt;a href=&quot;https://evil.example&quot;&gt;"
+    assert_equal 2, html.scan('rel="noopener noreferrer"').size
   end
 
   # ----- approve ---------------------------------------------------------

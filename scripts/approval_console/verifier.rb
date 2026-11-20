@@ -107,6 +107,9 @@ module ApprovalConsole
       (required - [ 'items' ]).each do |key|
         raise Reject, "#{key} does not match the expected context" unless body[key] == expected[key]
       end
+      Canonical::OPTIONAL.fetch(expected['type'], []).each do |key|
+        raise Reject, "#{key} does not match the expected context" unless body[key] == expected[key]
+      end
       match_items(body, expected['items']) if required.include?('items')
     end
 
