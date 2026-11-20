@@ -191,7 +191,16 @@ module DeepResearchParse
 
   # The URL after a `URL:` label wins over any other link in the entry text.
   def source_url(text)
-    (text[/URL:\s*(#{URL_RE})/, 1] || text[URL_RE])&.sub(/[.,;)]+\z/, '')
+    trim_url(text[/URL:\s*(#{URL_RE})/, 1] || text[URL_RE])
+  end
+
+  # Strips trailing prose punctuation, and a closing parenthesis only when it
+  # has no opening one in the URL.
+  def trim_url(url)
+    return unless url
+
+    url = url.chop while url.match?(/[.,;]\z/) || (url.end_with?(')') && url.count(')') > url.count('('))
+    url
   end
 
   def source_entries(lines)

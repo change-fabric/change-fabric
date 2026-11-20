@@ -162,6 +162,13 @@ class DeepResearchParseTest < Minitest::Test
     assert_equal false, report["findings"][0]["citation_resolves"]
   end
 
+  def test_balanced_parentheses_in_a_url_survive_and_prose_punctuation_is_stripped
+    parsed = parse("Sources", marked(1, "Ruby https://en.wikipedia.org/wiki/Ruby_(programming_language)."),
+                   marked(2, "(see https://example.org/a)"))
+    assert_equal [ "https://en.wikipedia.org/wiki/Ruby_(programming_language)", "https://example.org/a" ],
+                 parsed[:sources].map { |src| src["url"] }
+  end
+
   # The real ChatGPT export fixture (Patrick's first manual run). The export
   # holds the report only: no prompt, no run id, no link annotations.
   def test_chatgpt_fixture_matches_its_expected_report
