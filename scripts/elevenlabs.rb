@@ -296,13 +296,18 @@ module ElevenLabs
       return if opts[:estimate_only]
 
       story_preflight!(opts)
-      key_cwd = KeyProject.resolve(argv_project: opts[:project])
-      opts[:key_cwd] = key_cwd
+      key_cwd = opts[:key_cwd] = key_cwd_for(opts, free: pending.zero?)
       items.each do |item|
         res = ElevenLabs.tts(**item.except(:label), cache_root: opts[:cache], transport: transport, sleeper: sleeper, key_cwd: key_cwd)
         out.puts("scene #{item[:label]}:") if item[:label]
         out.puts("audio: #{res[:audio]}", "alignment: #{res[:alignment]}", "srt: #{write_srt(res, opts[:cache])}")
       end
+    end
+
+    # A fully cached request makes no paid call, so it needs no project unless
+    # one was named.
+    def key_cwd_for(opts, free:)
+      free && !opts[:project] ? Dir.pwd : KeyProject.resolve(argv_project: opts[:project])
     end
 
     # Only a storyboard is a walkthrough; text, file, prompt and plan inputs skip it.
@@ -319,7 +324,7 @@ module ElevenLabs
       return if opts[:estimate_only]
 
       story_preflight!(opts)
-      opts[:key_cwd] = KeyProject.resolve(argv_project: opts[:project])
+      opts[:key_cwd] = key_cwd_for(opts, free: pending_ms.zero?)
       res = ElevenLabs.music(**spec, cache_root: opts[:cache], transport: transport, sleeper: sleeper, key_cwd: opts[:key_cwd])
       out.puts("music: #{res[:path]}")
     end

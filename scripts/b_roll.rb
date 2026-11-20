@@ -341,9 +341,11 @@ if __FILE__ == $PROGRAM_NAME
   budget = BRoll::Budget.new(flag.call('--max-usd', BRoll::DEFAULT_CEILING_USD).to_f)
   key_cwd = Dir.pwd
   begin
-    key_cwd = KeyProject.resolve(argv_project: project)
+    model = flag.call('--model', BRoll::MODEL)
+    cached = File.file?(BRoll.cached_path(cache, BRoll.asset_key(source_image: image, prompt: prompt, seconds: seconds, model: model)))
+    key_cwd = cached && !project ? Dir.pwd : KeyProject.resolve(argv_project: project)
     puts BRoll.generate(source_image: image, prompt: prompt, seconds: seconds, cache_root: cache,
-                        model: flag.call('--model', BRoll::MODEL), budget: budget, key_cwd: key_cwd)
+                        model: model, budget: budget, key_cwd: key_cwd)
   rescue KeyProject::Invalid => e
     abort(e.message)
   rescue WalkthroughEnv::NeedsEnrollment => e

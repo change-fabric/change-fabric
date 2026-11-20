@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "base64"
 require "json"
 require "stringio"
 require "tmpdir"
@@ -90,5 +91,33 @@ class KeyProjectE2ETest < Minitest::Test
     end
     assert_equal 0, code, out.string
     assert_equal [ STUB_KEY ], @keys
+  end
+
+  def test_cached_music_replays_from_a_scratchpad_without_a_project
+    assert_equal 0, music("--project", @repo).first
+    @keys.clear
+    code, text = music
+    assert_equal 0, code, text
+    assert_empty @keys
+  end
+
+  def test_cached_narration_replays_from_a_scratchpad_without_a_project
+    body = JSON.generate("audio_base64" => Base64.strict_encode64("MP3"),
+                         "alignment" => { "characters" => %w[a], "character_start_times_seconds" => [ 0.0 ],
+                                          "character_end_times_seconds" => [ 1.0 ] })
+    transport = lambda do |_req, key|
+      @keys << key
+      Resp.new("200", body)
+    end
+    run = lambda do |*extra|
+      Dir.chdir(@scratch) do
+        ElevenLabs::Cli.run([ "narrate", "--text", "Hi", "--voice", "v1", "--cache", @cache, *extra ],
+                            out: StringIO.new, transport: transport, sleeper: ->(_) { })
+      end
+    end
+    assert_equal 0, run.call("--project", @repo)
+    @keys.clear
+    assert_equal 0, run.call
+    assert_empty @keys
   end
 end
