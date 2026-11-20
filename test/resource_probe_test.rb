@@ -361,6 +361,20 @@ class ResourceProbeTest < Minitest::Test
     assert_in_delta 1.0, sampler.rss_mb(12), 0.001
   end
 
+  def test_tree_sampler_lists_descendants_without_the_root
+    ps = "  10 1 1\n  11 10 1\n  12 11 1\n  20 1 1\n"
+    assert_equal [ 11, 12 ], RP::TreeSampler.new(runner: ->(*) { ps }).descendants(10).sort
+  end
+
+  def test_child_stays_in_the_callers_process_group_so_terminal_input_works
+    out = File.join(@root, "pgrp.txt")
+    tree = Struct.new(:x) { def rss_mb(_) = 1.0 }.new
+    disk = Struct.new(:x) { def read(_) = { free_gb: 1.0, used_gb: 1.0 } }.new
+    RP::Runner.new(tree: tree, disk: disk, interval: 0.05)
+              .run([ RbConfig.ruby, "-e", "File.write(ARGV[0], Process.getpgrp)", out ], root: @root, cwd: @root)
+    assert_equal Process.getpgrp, File.read(out).to_i
+  end
+
   def test_disk_sampler_reads_df_and_du
     out = { "df" => "Filesystem 1024-blocks Used Available Capacity\n/dev/x 100 1 1048576 1%\n", "du" => "2097152\t/repo\n" }
     r = RP::DiskSampler.new(runner: ->(cmd, *) { out.fetch(cmd) }).read("/repo")
@@ -432,13 +446,12 @@ class ResourceProbeTest < Minitest::Test
 
   def test_cancel_signal_reaches_the_whole_command_tree
     pidfile = File.join(@root, "worker.pid")
-    tree = Struct.new(:x) { def rss_mb(_) = 1.0 }.new
     disk = Struct.new(:x) { def read(_) = { free_gb: 1.0, used_gb: 1.0 } }.new
     sender = Thread.new do
       sleep 0.05 until File.exist?(pidfile) && !File.read(pidfile).strip.empty?
       Process.kill("TERM", Process.pid) # handled by the runner's trap, which relays it to the child's group
     end
-    res = RP::Runner.new(tree: tree, disk: disk, interval: 0.05)
+    res = RP::Runner.new(disk: disk, interval: 0.05)
                     .run([ "sh", "-c", "sleep 30 & echo $! > #{pidfile}; wait" ], root: @root, cwd: @root)
     sender.join
     worker = File.read(pidfile).to_i

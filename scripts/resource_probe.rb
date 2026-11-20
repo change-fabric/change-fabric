@@ -179,7 +179,25 @@ module ResourceProbe
 
     # Total RSS in MB of pid and all its descendants (ps reports KB on macOS and Linux).
     def rss_mb(pid)
-      rows = @runner.call('ps', '-axo', 'pid=,ppid=,rss=').lines.map { |l| l.split.map(&:to_i) }.select { |r| r.length == 3 }
+      rows = process_rows
+      tree = descendant_set(rows, pid)
+      rows.select { |r| tree[r[0]] }.sum { |r| r[2] } / 1024.0
+    rescue SystemCallError
+      0.0
+    end
+
+    # PIDs below pid (not pid itself), for relaying a cancel to the whole command tree.
+    def descendants(pid)
+      descendant_set(process_rows, pid).keys - [ pid ]
+    rescue SystemCallError
+      []
+    end
+
+    private
+
+    def process_rows = @runner.call('ps', '-axo', 'pid=,ppid=,rss=').lines.map { |l| l.split.map(&:to_i) }.select { |r| r.length == 3 }
+
+    def descendant_set(rows, pid)
       kids = rows.group_by { |r| r[1] }
       seen = {}
       stack = [ pid ]
@@ -190,9 +208,7 @@ module ResourceProbe
         seen[cur] = true
         (kids[cur] || []).each { |r| stack << r[0] }
       end
-      rows.select { |r| seen[r[0]] }.sum { |r| r[2] } / 1024.0
-    rescue SystemCallError
-      0.0
+      seen
     end
   end
 
@@ -251,7 +267,7 @@ module ResourceProbe
     def run(argv, root:, cwd:, env: {}, docker: nil)
       before = @disk.read(root)
       docker0 = { mem: docker&.mem_mb.to_f, disk: docker&.disk_gb.to_f }
-      pid = Process.spawn(env.merge(ACTIVE_ENV => '1'), *argv, chdir: cwd, pgroup: true)
+      pid = Process.spawn(env.merge(ACTIVE_ENV => '1'), *argv, chdir: cwd)
       stats = sample_until_exit(pid, docker)
       after = @disk.read(root)
       finish(stats, before, after, docker0, docker)
@@ -291,11 +307,15 @@ module ResourceProbe
       stats[:samples] += 1
     end
 
-    # The child leads its own process group, so a cancel reaches its workers too.
+    # Stays in the terminal's process group (a separate group would be stopped by
+    # SIGTTIN on input), so a cancel is relayed to the child and its workers by pid.
     def forward(signal, pid)
-      Process.kill(signal, -pid)
-    rescue SystemCallError
-      nil
+      pids = @tree.respond_to?(:descendants) ? @tree.descendants(pid) : []
+      (pids + [ pid ]).each do |target|
+        Process.kill(signal, target)
+      rescue SystemCallError
+        nil
+      end
     end
   end
 
