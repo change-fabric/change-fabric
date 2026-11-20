@@ -581,6 +581,8 @@ class ChangeRun
   # this method before adding any concurrency.
   def sweep_stale_resources
     removed = ChangeDocker.sweep
+    qa = ChangeDocker.sweep(prefix: ChangeDocker::QA_PREFIX)
+    removed = { containers: removed[:containers] + qa[:containers], networks: removed[:networks] + qa[:networks] }
     removed[:containers].each { |name| log("[change] removed stale container: #{name}") }
     removed[:networks].each { |name| log("[change] removed stale network: #{name}") }
     log("[change] sweep: #{removed[:containers].size} container(s), #{removed[:networks].size} network(s) removed")
@@ -730,7 +732,8 @@ class ChangeRun
       boot = config.boot
       mounts = ctx_args[:evidence_dir] ? { ctx_args[:evidence_dir] => ChangeTestcasesEvidence::MOUNT } : {}
       ChangeDocker.with_browserless(network: network.name, add_hosts: boot.add_hosts,
-                                    local_tls_hosts: boot.local_tls_hosts, mounts: mounts) do |session|
+                                    local_tls_hosts: boot.local_tls_hosts, mounts: mounts,
+                                    run_id: boot_run_id) do |session|
         yield Context.new(browserless: session, **ctx_args)
       end
     else

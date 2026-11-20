@@ -1,0 +1,13 @@
+# Class 5: a slow interaction a unit test never times. The budget sits on the
+# wait and measures from the start of the labelled click, so it spans the click
+# through the visible confirmation.
+suite: measured-slow
+suite_version: 5
+cases:
+  - id: save-is-fast
+    acceptance: Saving confirms within 1.5 seconds.
+    steps:
+      - goto: /profile
+      - click: "button.save"
+        label: save
+      - wait_for_text: { text: "Saved.", budget_ms: 1500, budget_from: save }

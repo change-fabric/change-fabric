@@ -267,6 +267,7 @@ class ChangeSuite
     raw_steps.each_with_index do |raw_step, index|
       check_verb(raw_step, index, where)
       check_verb_version(raw_step, index, where, version)
+      check_measured_versions(raw_step, index, where, version)
     end
     raw_steps
   end
@@ -277,6 +278,21 @@ class ChangeSuite
     return if added <= version
 
     raise Error, "#{where} step #{index + 1} uses `#{verb}`, added in suite_version #{added}, but declares " \
+                 "suite_version #{version}; set suite_version: #{added}"
+  end
+
+  # (v5) `budget_ms` and the measured read kinds, beside the verb or inside its
+  # mapping, are refused in a file that declares an older suite_version.
+  def self.check_measured_versions(raw_step, index, where, version)
+    verb = (raw_step.keys.map(&:to_s) & ChangeSuiteSchema::STEP_VERBS).first
+    inner = raw_step[verb] || raw_step[verb.to_sym]
+    inner = inner.is_a?(Hash) ? inner.transform_keys(&:to_s) : {}
+    used = (raw_step.keys.map(&:to_s) + inner.keys).map { |key| [ key, ChangeSuiteSchema.option_version(key) ] }
+    used << [ inner['kind'], ChangeSuiteSchema.kind_version(inner['kind'].to_s) ]
+    key, added = used.select { |_name, since| since > version }.first
+    return unless key
+
+    raise Error, "#{where} step #{index + 1} uses `#{key}`, added in suite_version #{added}, but declares " \
                  "suite_version #{version}; set suite_version: #{added}"
   end
 

@@ -21,3 +21,5 @@ defaults:
   ruby: { ram_mb: 2048, disk_gb: 4 }
   other: { ram_mb: 2048, disk_gb: 4 }
   docker: { ram_mb: 6144, disk_gb: 20 }
+  # Memory cap for every browser container cf starts (docker --memory).
+  browser_memory: 2g

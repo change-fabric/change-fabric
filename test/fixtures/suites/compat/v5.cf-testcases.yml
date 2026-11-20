@@ -1,0 +1,15 @@
+suite: compat-v5
+suite_version: 5
+cases:
+  - id: measured
+    acceptance: The header holds still and the save confirms quickly.
+    steps:
+      - goto: /
+      - capture: { var: top, selector: "main h1", kind: rect.y }
+      - capture: { as: scrolled, kind: scroll_y }
+      - capture: { as: bar_bottom, selector: ".bar", kind: rect.bottom }
+      - expect_equal: { var: bar_bottom, selector: ".row", kind: rect.y, tolerance: 1 }
+      - expect_stable: { var: hdr_y, selector: "main h1", kind: rect.y, tolerance_px: 2, wait: fonts }
+      - click: "button.save"
+        label: save
+      - wait_for_text: { text: Saved, budget_ms: 1500, budget_from: save }

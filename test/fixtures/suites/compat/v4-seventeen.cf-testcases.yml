@@ -1,0 +1,109 @@
+# A synthetic 17-case v4 suite. It must keep loading and compiling to the
+# same steps in every later suite version (see the compat test and the golden).
+suite: compat-v4-seventeen
+suite_version: 4
+cases:
+  - id: home-loads
+    acceptance: The home page loads.
+    steps:
+      - goto: /
+      - expect_status: { equals: 200 }
+      - expect_visible: "h1"
+  - id: nav-about
+    acceptance: The about link opens the about page.
+    steps:
+      - goto: /
+      - click: "a[href='/about']"
+      - wait_for: { url_contains: /about }
+      - expect_url: { contains: /about }
+  - id: search-form
+    acceptance: A search returns results.
+    steps:
+      - goto: /search
+      - fill: { selector: "#q", value: widgets }
+      - press: { key: Enter, selector: "#q" }
+      - wait_for: ".results"
+      - expect_count: { selector: ".results li", equals: 3 }
+  - id: select-sort
+    acceptance: Sorting by price is selectable.
+    steps:
+      - goto: /search
+      - select: { selector: "#sort", value: price }
+      - expect_text: { selector: "#sort", contains: Price }
+  - id: capture-count
+    acceptance: The badge matches the list.
+    steps:
+      - goto: /items
+      - capture: { selector: ".badge", as: badge, kind: number }
+      - capture: { selector: "tbody tr", as: rows, kind: count }
+      - expect_equal: { var: badge, equals_var: rows }
+  - id: capture-text
+    acceptance: A heading is stable text.
+    steps:
+      - goto: /
+      - capture: { selector: "h1", as: title }
+      - goto: /about
+      - expect_equal: { var: title, selector: "h1" }
+  - id: screenshot
+    acceptance: A named screenshot is taken.
+    steps:
+      - goto: /
+      - screenshot: { name: home, full_page: true }
+  - id: screenshot-phone
+    acceptance: A phone screenshot is taken.
+    steps:
+      - goto: /
+      - screenshot: { name: phone, viewport: { width: 390, height: 844 } }
+  - id: wait-url
+    acceptance: A redirect lands on the dashboard.
+    steps:
+      - goto: /start
+      - wait_for_url: "/dashboard"
+      - expect_url: { equals: "http://app.test/dashboard" }
+  - id: wait-text
+    acceptance: A toast appears.
+    steps:
+      - goto: /
+      - click: "button.save"
+      - wait_for_text: Saved
+  - id: wait-hidden
+    acceptance: A spinner clears.
+    steps:
+      - goto: /
+      - wait_until_hidden: ".spinner"
+      - expect_hidden: ".spinner"
+  - id: wait-response
+    acceptance: The API answers.
+    steps:
+      - goto: /
+      - click: "button.load"
+      - wait_for_response: { url: "/api/items", status: 200 }
+  - id: wait-idle
+    acceptance: The page settles.
+    steps:
+      - goto: /
+      - wait_for_network_idle: { idle_ms: 300 }
+      - expect_visible: "main"
+  - id: text-selector
+    acceptance: A text locator works.
+    steps:
+      - goto: /
+      - click: "text=Contact"
+      - expect_visible: "text=Contact us"
+  - id: nth-selector
+    acceptance: An nth locator works.
+    steps:
+      - goto: /items
+      - click: "tbody tr >> nth=-1"
+      - expect_visible: ".detail"
+  - id: step-timeout
+    acceptance: A slow step gets a longer timeout.
+    steps:
+      - goto: /report
+      - click: { selector: "button.run", timeout_ms: 30000 }
+      - wait_for: { selector: ".done", timeout_ms: 30000 }
+  - id: eval-escape
+    acceptance: An eval reads a raw value.
+    steps:
+      - goto: /
+      - eval: { script: "return document.title;" }

@@ -1,0 +1,11 @@
+# Class 3: a sticky bar covering the first row at a phone width. The first row
+# must start exactly where the bar ends.
+suite: measured-sticky
+suite_version: 5
+cases:
+  - id: sticky-not-covering
+    acceptance: The first order row starts below the sticky bar.
+    steps:
+      - goto: /orders
+      - capture: { var: bar_bottom, selector: ".bar", kind: rect.bottom }
+      - expect_equal: { var: bar_bottom, selector: "main .row:first-child", kind: rect.y, tolerance: 1 }

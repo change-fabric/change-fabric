@@ -102,6 +102,31 @@ class ChangeSuiteSchemaSpecTest < Minitest::Test
     assert_equal 7, steps.size
   end
 
+  def test_a_v5_file_loads_its_measured_steps
+    steps = ChangeSuite.load_file(compat("v5")).cases.first.steps
+    assert_equal 8, steps.size
+  end
+
+  def test_a_v4_file_may_not_use_the_v5_options_or_kinds
+    {
+      "budget_ms" => { "wait_for_text" => "x", "budget_ms" => 10 },
+      "label" => { "click" => "#a", "label" => "go" },
+      "rect.y" => { "capture" => { "selector" => "h1", "as" => "y", "kind" => "rect.y" } },
+      "tolerance" => { "expect_equal" => { "var" => "y", "selector" => "h1", "tolerance" => 1 } }
+    }.each do |key, step|
+      error = assert_raises(ChangeSuite::Error, key) { ChangeSuite.steps([ { "goto" => "/" }, step ], "s", "c", "p", 4) }
+      assert_includes error.message, "added in suite_version 5"
+      assert_includes error.message, "`#{key}`"
+    end
+    ChangeSuite.steps([ { "goto" => "/" }, { "wait_for_text" => "x", "budget_ms" => 10 } ], "s", "c", "p", 5)
+  end
+
+  def test_the_seventeen_case_v4_fixture_loads_under_the_current_loader
+    suite = ChangeSuite.load_file(compat("v4-seventeen"))
+    assert_equal 4, suite.version
+    assert_equal 17, suite.cases.size
+  end
+
   def test_a_file_newer_than_the_install_names_the_update
     assert_equal ChangeSuiteSchema::SUITE_VERSION + 1, YAML.safe_load_file(compat("too-new"))["suite_version"],
                  "raise the too-new fixture with SUITE_VERSION"

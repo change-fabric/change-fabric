@@ -180,14 +180,14 @@ claims it works. A fixture pass is never reported as a live model pass, and
 
 Enforcer: test/install_test.rb, test/agent_contract_test.rb
 
-## Media is proven by playing it
+## Media and fixes are proven in a real browser
 
-A 200 on the media URL does not prove playback. A click-to-load media element
-exists from the first render and starts `play()` inside the user's gesture, so
-iOS Safari honors it, and a failed load surfaces an error rather than a silent
-stuck player.
+A 200 on a media URL does not prove playback, and a mocked unit test does not
+prove a UI fix. A click-to-load media element starts `play()` inside the user's
+gesture, and a UI fix ships with a suite case whose measured read fails on the
+base and passes on the head.
 
-Enforcer: site/test/media-slot.test.ts
+Enforcer: site/test/media-slot.test.ts, test/change_measured_shapes_docker_test.rb
 
 ## Skills name roles, not tiers
 

@@ -6,6 +6,7 @@ require 'open3'
 require 'optparse'
 require 'timeout'
 require 'yaml'
+require_relative 'change_docker'
 require_relative 'cf_pids'
 require_relative 'cf_project_identity'
 require_relative 'resource_fingerprint'
@@ -181,15 +182,24 @@ module ResourceGate
     end
 
     # Returns the PIDs stopped. A prune that fails (Docker absent or stopped)
-    # is skipped and never aborts the gate; the re-measure decides.
+    # is skipped and never aborts the gate; the re-measure decides. The stale
+    # network sweep is a safe reclaim too: it removes only idle, hour-old,
+    # cf-labeled networks (ChangeDocker.sweep_stale_networks).
     def reclaim_safe
       [ %w[docker image prune -f], %w[docker builder prune -f] ].each { |cmd| attempt(cmd) }
+      sweep_networks
       @pids ? @pids.stop_matching : []
     end
 
     def candidates = worktrees + dumps
 
     private
+
+    def sweep_networks
+      ChangeDocker.sweep_stale_networks(runner: ->(*argv) { @runner.call('reclaim', *argv) })
+    rescue MeasurementError
+      nil
+    end
 
     def attempt(cmd)
       @runner.call('reclaim', *cmd)

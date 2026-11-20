@@ -15,7 +15,7 @@ class ChangeCaseResult
   FAILURE_STATUSES = %w[fail auth_interrupted partial_evidence].freeze
 
   FIELDS = %i[key suite id persona status attempts duration_ms started_at commit run_id evidence_dir
-              acceptance_verdict].freeze
+              acceptance_verdict step_durations].freeze
 
   attr_reader(*FIELDS)
 
@@ -27,6 +27,7 @@ class ChangeCaseResult
     FIELDS.each { |field| instance_variable_set(:"@#{field}", fields[field]) }
     @status = @status.to_s
     @attempts = Array(@attempts)
+    @step_durations = Array(@step_durations)
   end
 
   def self.from_h(hash)

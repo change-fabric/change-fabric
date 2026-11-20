@@ -29,7 +29,7 @@ module ChangeSuiteSchema
   # field set before the key existed. Every PR that adds a suite field raises
   # this by one and records the field in FIELD_VERSIONS, so an install can tell
   # a file written for a newer toolkit from a file with a typo.
-  SUITE_VERSION = 4
+  SUITE_VERSION = 5
 
   # The version a file declares when it says nothing.
   DEFAULT_SUITE_VERSION = 1
@@ -107,9 +107,19 @@ module ChangeSuiteSchema
   # The suite_version that introduced each step verb; a verb absent here is a
   # version 1 verb. Same rule as FIELD_VERSIONS: a file using a verb newer than
   # it declares is refused with the version that adds it.
-  VERB_VERSIONS = (ChangeFlowCompiler::STATE_WAITS + ChangeFlowCompiler::EVENT_WAITS).to_h { |verb| [ verb, 4 ] }.freeze
+  VERB_VERSIONS = (ChangeFlowCompiler::STATE_WAITS + ChangeFlowCompiler::EVENT_WAITS).to_h { |verb| [ verb, 4 ] }
+                                                                                    .merge('expect_stable' => 5).freeze
 
   def self.verb_version(verb) = VERB_VERSIONS.fetch(verb, DEFAULT_SUITE_VERSION)
+
+  # (v5) The step option and the read kinds newer than version 1, gated the
+  # same way: a v4 file using them is refused naming the version that adds them.
+  OPTION_VERSIONS = { 'budget_ms' => 5, 'budget_from' => 5, 'label' => 5, 'tolerance' => 5, 'tolerance_px' => 5, 'wait' => 5, 'max_cls' => 5 }.freeze
+  KIND_VERSIONS = ChangeFlowCompiler::MEASURED_KINDS.to_h { |kind| [ kind, 5 ] }.freeze
+
+  def self.option_version(option) = OPTION_VERSIONS.fetch(option, DEFAULT_SUITE_VERSION)
+
+  def self.kind_version(kind) = KIND_VERSIONS.fetch(kind, DEFAULT_SUITE_VERSION)
 
   # The keys a suite file may carry at the top level and on each case, derived
   # from FIELDS so the strict loader and the drift test read one list.

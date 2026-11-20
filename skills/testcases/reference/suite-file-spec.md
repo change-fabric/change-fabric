@@ -1,6 +1,6 @@
 # Test-case suite file specification
 
-Suite version: 4
+Suite version: 5
 
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
@@ -44,6 +44,7 @@ only adds optional fields, so an older file always loads on a newer install.
 | 2 | `suite_version`, `cases[].timeout_ms`, `cases[].safe_rerun`. From this version on the loader is strict (below). |
 | 3 | `cases[].persona`, `cases[].safe_retry`. |
 | 4 | Step verbs `wait_for_url`, `wait_for_text`, `wait_until_hidden`, `wait_for_response`, `wait_for_network_idle`. |
+| 5 | Measured reads `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom`, `scroll_y`; the step verb `expect_stable`; the step options `label`, `budget_ms`, `budget_from`; and `tolerance` on `expect_equal`. |
 
 The loader is strict. An unknown top-level or case key is refused by name, and
 a key newer than the file's declared `suite_version` is refused with the version
@@ -88,6 +89,24 @@ mapping (`click: { selector: "#go" }`). A `timeout_ms` may sit beside the
 verb or inside its mapping (`wait_for: { selector: "#app", timeout_ms: 30000 }`);
 the one beside the verb wins.
 
+(suite_version 5) Any step may carry `label: name` (a word, unique in the
+case). `budget_ms: N` on a step is a verdict, not a timeout: the step still
+passes or fails on its own, and then fails with `span <from>..<step> took Xms,
+budget Yms` when the span from the start of the step named by `budget_from`
+(or from its own start) to its own end exceeds N. Put the budget on the wait
+that confirms an action and point `budget_from` at the action's label, so the
+span covers the click through the visible confirmation:
+
+```yaml
+- click: "button.save"
+  label: save
+- wait_for_text: { text: "Saved.", budget_ms: 1500, budget_from: save }
+```
+
+An unknown `budget_from`, or one naming a later step, is refused at compile
+time. Every step records its `started_at_ms` and `duration_ms`; the case result
+carries them as `step_durations`.
+
 A selector is a plain Puppeteer selector (CSS, `::-p-text(...)`,
 `::-p-xpath(...)`), or one of these text and position forms, parsed by
 `scripts/change_flow_selector.rb`: `text=Save` (innermost element whose text
@@ -108,7 +127,7 @@ quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 | action | press | Presses a key, optionally after focusing a selector. |
 | action | wait_for | Waits for a selector, a url fragment, or a navigation load state. |
 | action | screenshot | Captures a named screenshot at this point in the flow. `full_page: true` captures the whole scrollable page; `viewport: { width, height }` resizes for this capture only. |
-| action | capture | Reads a selector into a named variable: `{ selector, as: name, kind: text, number, or count }` (default `text`; `number` is the first number in the text, commas ignored). |
+| action | capture | Reads a selector into a named variable: `{ selector, as: name, kind: text, number, or count }` (default `text`; `number` is the first number in the text, commas ignored). (suite_version 5) `kind` also takes `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom` (the element's `getBoundingClientRect()`, as numbers) and `scroll_y` (`window.scrollY`; with a `selector`, that element's `scrollTop`; the selector is optional only for `scroll_y`). `var` is accepted for `as`. |
 | state wait | wait_for_url | (suite_version 4) Polls until the current url matches a glob (`wait_for_url: "/checkout/*"`, or `{ glob: }`) or a JavaScript regex (`{ regex: }`, checked when the step runs). In a glob `*` stays within a path segment, `**` crosses them and `?` is one character; a pattern starting with `/` matches the path and query, anything else the full url. |
 | state wait | wait_for_text | (suite_version 4) Polls until the page text, or a `selector`'s text, contains `text` (`wait_for_text: Saved`, or `{ text:, selector: }`). |
 | state wait | wait_until_hidden | (suite_version 4) Waits until the selector is absent or hidden, such as a spinner going away. |
@@ -120,7 +139,8 @@ quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 | assertion | expect_url | The current url must `equals` or `contains` the expected string. |
 | assertion | expect_status | The last navigation's HTTP status must equal the expected code, so a route that answers 500 with a rendered body is still a failure. |
 | assertion | expect_count | The number of elements matching the selector must equal the expected count. |
-| assertion | expect_equal | A captured `var` must equal a live read of `selector` (with `kind`) or a second captured `equals_var`. Compared as strings, so a captured number matches a count. A var no earlier step captures is refused at compile time. |
+| assertion | expect_equal | A captured `var` must equal a live read of `selector` (with `kind`) or a second captured `equals_var`. Compared as strings, so a captured number matches a count. A var no earlier step captures is refused at compile time. (suite_version 5) `tolerance: N` compares numerically within N instead; `kind: scroll_y` needs no selector. |
+| assertion | expect_stable | (suite_version 5) `{ var, selector, kind, tolerance_px, max_cls, wait }`: a figure must not move between first paint and the page settling. An init script installed before the first navigation records the selector's rect on the first animation frame it exists, samples it every frame it changes, and buffers layout-shift entries. The step waits for `document.fonts.ready` (`wait: fonts`, the default and only value) and network idle, then judges the whole window: the largest deviation of any sample from the first value must be within `tolerance_px` (default 0; `kind` default `rect.y`; text is not allowed), so a header that moves 20 px during load and returns still fails. The layout-shift score attributed to the element (entries whose sources touched it, excluding those right after input) must be within `max_cls` (default 0). Both values ride on the step result with the entries. `var` keeps the final value. |
 | escape hatch | eval | Raw JS, run as-is in the page. Marked as raw in the compiled step and labeled as such in the report, so a reader can see exactly where the declarative contract was abandoned. Reach for it last. |
 
 ## Sessions

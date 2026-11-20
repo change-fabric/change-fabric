@@ -6,6 +6,7 @@ require 'securerandom'
 require 'net/http'
 require 'json'
 require 'uri'
+require 'yaml'
 require_relative 'change_local_tls'
 
 # Ephemeral-container plumbing shared by every lane, holding the cf:docker
@@ -176,7 +177,9 @@ module ChangeDocker
   # at the first container that tried to join it. Raising here with docker's
   # own output makes that failure immediate and named.
   def create_ephemeral_network(name)
-    out, status = Open3.capture2e('docker', 'network', 'create', name)
+    sweep_stale_networks_quietly
+    out, status = Open3.capture2e('docker', 'network', 'create', '--label', "#{NETWORK_OWNED_LABEL}=1",
+                                  '--label', "#{NETWORK_CREATED_LABEL}=#{Time.now.to_i}", name)
     raise "failed to create network '#{name}': #{out.strip}" unless status.success?
 
     begin
@@ -201,9 +204,9 @@ module ChangeDocker
   # `allow_file_protocol` lets a page open file:// urls, which browserless
   # refuses by default; only a container with nothing but a report dir
   # mounted should ask for it.
-  def with_browserless(network:, add_hosts: [], local_tls_hosts: nil, mounts: {}, allow_file_protocol: false)
+  def with_browserless(network:, add_hosts: [], local_tls_hosts: nil, mounts: {}, allow_file_protocol: false, run_id: nil)
     token = SecureRandom.hex(8)
-    name = "cf-change-bl-#{SecureRandom.hex(4)}"
+    name = browser_name(run_id)
     port = free_port
     start_browserless(name, network, port, token, add_hosts, mounts, allow_file_protocol)
     begin
@@ -223,8 +226,10 @@ module ChangeDocker
 
   # The browser container's argv, split out for the same reason as
   # run_command: the host alias is asserted in a test, not in a docker run.
-  def browserless_command(name, network, port, _token, add_hosts = [], mounts = {}, allow_file_protocol: false)
-    cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ]
+  def browserless_command(name, network, port, _token, add_hosts = [], mounts = {}, allow_file_protocol: false,
+                          memory: browser_memory)
+    cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}",
+            '--memory', memory ]
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     Array(add_hosts).each { |entry| cmd += [ '--add-host', entry ] }
@@ -233,6 +238,36 @@ module ChangeDocker
     browserless_limits.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
     cmd += [ '-e', 'ALLOW_FILE_PROTOCOL=true' ] if allow_file_protocol
     cmd + [ BROWSERLESS_IMAGE ]
+  end
+
+  # The browser container's name: `cf-qa-<run_id>` for a run's first browser,
+  # `cf-qa-<run_id>-<n>` for each later one in the same process, so a leftover
+  # container is traceable to its run and a sweep can tell it is cf's. A caller
+  # with no run id gets one from CF_RUN_ID, else this process's pid.
+  def browser_name(run_id = nil)
+    id = (run_id || ENV['CF_RUN_ID'] || "p#{Process.pid}").to_s.gsub(/[^A-Za-z0-9_.-]/, '-')[0, 60]
+    count = BROWSER_NAME_LOCK.synchronize { BROWSER_NAME_COUNTS[id] += 1 } - 1
+    count.zero? ? "#{QA_PREFIX}#{id}" : "#{QA_PREFIX}#{id}-#{count}"
+  end
+
+  # The memory cap every browser container gets: `defaults.browser_memory` from
+  # the resource-floors config (the user's override file first, then the shipped
+  # defaults), `2g` when neither sets a usable value. Config, not a schema key,
+  # so raising it never needs a CHANGE.md version bump.
+  def browser_memory(user_file: USER_FLOORS_FILE, shipped_file: SHIPPED_FLOORS_FILE)
+    [ user_file, shipped_file ].each do |file|
+      value = floors_defaults(file)['browser_memory'].to_s.strip
+      return value.downcase if value.match?(/\A[1-9]\d*(\.\d+)?[bkmg]\z/i)
+    end
+    DEFAULT_BROWSER_MEMORY
+  end
+
+  def floors_defaults(file)
+    parsed = File.file?(file) ? YAML.safe_load_file(file) : nil
+    defaults = parsed.is_a?(Hash) ? parsed['defaults'] : nil
+    defaults.is_a?(Hash) ? defaults : {}
+  rescue Psych::Exception, SystemCallError
+    {}
   end
 
   # browserless's own limiter settings, set explicitly rather than left to the
@@ -250,6 +285,27 @@ module ChangeDocker
   # teardown (a kill, an interrupted host) is identifiable and reclaimable.
   RESOURCE_PREFIX = 'cf-change-'
 
+  # A browser container is `cf-qa-<run_id>[-<n>]`. Not under RESOURCE_PREFIX,
+  # so `sweep` takes it by its own prefix (`sweep(prefix: QA_PREFIX)`).
+  QA_PREFIX = 'cf-qa-'
+  BROWSER_NAME_LOCK = Mutex.new
+  BROWSER_NAME_COUNTS = Hash.new(0)
+
+  # The cap comes from the resource-floors config, never a literal in a lane.
+  DEFAULT_BROWSER_MEMORY = '2g'
+  USER_FLOORS_FILE = File.join(Dir.home, '.claude', 'cf', 'config', 'resource_floors.yml')
+  SHIPPED_FLOORS_FILE = begin
+    config = File.expand_path('../config', __dir__)
+    installed = File.join(config, 'resource_floors.defaults.yml')
+    File.exist?(installed) ? installed : File.join(config, 'resource_floors.yml')
+  end
+
+  # Labels on every network cf creates. The stale-network sweep acts on these
+  # and on nothing else: a network without them was not made by this code.
+  NETWORK_OWNED_LABEL = 'cf.owned'
+  NETWORK_CREATED_LABEL = 'cf.created_at'
+  STALE_NETWORK_AGE_S = 3600
+
   # Label carrying the pid of the process that started a container, so a sweep
   # can tell a live run's container from an orphan.
   OWNER_LABEL = 'cf.owner_pid'
@@ -266,6 +322,49 @@ module ChangeDocker
     networks = matching_names('docker', 'network', 'ls', '--filter', "name=#{prefix}", '--format', '{{.Name}}')
     networks.each { |name| Open3.capture2e('docker', 'network', 'rm', name) }
     { containers: containers, networks: networks }
+  end
+
+  # Removes cf-labeled networks that are idle and old: carrying cf.owned=1,
+  # with zero attached containers, and cf.created_at at least `min_age_s`
+  # ago. An unlabeled network, a young one and one with a container on it are
+  # never touched, so a live run's network cannot be removed. Networks leaked
+  # before the labels existed carry none; `sweep` (by name prefix) takes those.
+  # `runner` takes an argv and returns stdout, raising when the command fails.
+  # Returns the names removed.
+  def sweep_stale_networks(min_age_s: STALE_NETWORK_AGE_S, now: Time.now, runner: nil)
+    run = runner || method(:docker_output)
+    names = run.call('docker', 'network', 'ls', '--filter', "label=#{NETWORK_OWNED_LABEL}=1", '--format', '{{.Name}}')
+    names.split("\n").map(&:strip).reject(&:empty?).select { |name| stale_network?(name, min_age_s, now, run) }
+         .select { |name| remove_network(run, name) }
+  end
+
+  def remove_network(run, name)
+    run.call('docker', 'network', 'rm', name)
+    true
+  rescue StandardError
+    false
+  end
+
+  def stale_network?(name, min_age_s, now, run)
+    info = JSON.parse(run.call('docker', 'network', 'inspect', name)).first
+    labels = info['Labels'] || {}
+    created = Integer(labels[NETWORK_CREATED_LABEL].to_s, exception: false)
+    labels[NETWORK_OWNED_LABEL] == '1' && created && (info['Containers'] || {}).empty? && now.to_i - created >= min_age_s
+  rescue StandardError
+    false
+  end
+
+  def sweep_stale_networks_quietly
+    sweep_stale_networks
+  rescue StandardError
+    []
+  end
+
+  def docker_output(*argv)
+    out, status = Open3.capture2e(*argv)
+    raise "#{argv.first(3).join(' ')} failed: #{out.strip}" unless status.success?
+
+    out
   end
 
   def orphaned_containers(prefix)
