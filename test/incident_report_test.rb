@@ -280,6 +280,7 @@ class IncidentReportTest < Minitest::Test
     let handler = null;
     let current = 'about:blank';
     const events = [];
+    const masked = [];
     const request = (spec) => ({
       method: () => spec.method, url: () => spec.url, isNavigationRequest: () => !!spec.nav, headers: () => ({ Accept: '*/*' }),
       continue: (over) => events.push({ url: spec.url, method: spec.method, outcome: 'continue', cookie: over && over.headers ? over.headers.Cookie : null }),
@@ -287,7 +288,18 @@ class IncidentReportTest < Minitest::Test
     });
     const page = {
       setRequestInterception: async () => {}, on: (_e, h) => { handler = h; }, evaluateOnNewDocument: async () => {},
-      setExtraHTTPHeaders: async () => {}, setViewport: async () => {}, evaluate: async () => {},
+      setExtraHTTPHeaders: async () => {}, setViewport: async () => {},
+      evaluate: async (fn, arg) => {
+        const el = (tag) => ({ tag, children: [], value: 'x', style: { setProperty(k, v) { (this.set ||= {})[k] = v; } },
+                               querySelectorAll() { return this.children; } });
+        const kid = el('span');
+        const hit = el('img');
+        hit.children = [ kid ];
+        globalThis.NodeFilter = { SHOW_TEXT: 4 };
+        globalThis.document = { body: {}, querySelectorAll: () => [ hit ], createTreeWalker: () => ({ nextNode: () => null }) };
+        fn(arg);
+        masked.push({ own: hit.style.set, child: kid.style.set, value: hit.value });
+      },
       screenshot: async () => 'UE5H', url: () => current,
       goto: async (url) => {
         const plan = scenario.pages[new URL(url).pathname] || {};
@@ -300,7 +312,7 @@ class IncidentReportTest < Minitest::Test
       },
     };
     const out = await mod.default({ page });
-    process.stdout.write(JSON.stringify({ result: out.data, events }));
+    process.stdout.write(JSON.stringify({ result: out.data, events, masked }));
   JS
 
   def run_module(pages = {}, routes: [ "/status" ], cookie: nil, **named)
@@ -327,6 +339,16 @@ class IncidentReportTest < Minitest::Test
     assert_equal "continue", outcome.call("HEAD")
     assert_equal 1, run["result"]["shots"].size
     assert_equal [ "method POST", "method PUT" ], run["result"]["blocked"].map { |b| b["reason"] }
+  end
+
+  def test_masking_hides_the_matched_element_itself_not_just_its_children
+    run = run_module("/status" => {})
+    mask = run["masked"].first
+    assert_equal "brightness(0)", mask["own"]["filter"]
+    assert_equal "none", mask["own"]["background-image"]
+    assert_equal "#000", mask["own"]["background"]
+    assert_equal "hidden", mask["child"]["visibility"]
+    assert_equal "", mask["value"]
   end
 
   def test_the_session_cookie_goes_only_to_the_production_origin
@@ -573,6 +595,21 @@ class IncidentReportTest < Minitest::Test
     _r, problems = rep.finalize(at: T2, attest_no_ocr: "page 2 is unreadable")
     assert(problems.any? { |p| p.start_with?("pdf: credential assignment in pdf page page-1.png") })
     assert_equal "roasted", rep.states["pdf"]
+  end
+
+  def test_a_secret_in_one_screenshot_is_kept_when_a_later_screenshot_fails_ocr
+    first = shot_file("desktop", "/status")
+    runner = ->(path) { File.basename(path) == first ? [ "password=extremelysecret", true ] : [ "no docker", false ] }
+    rep = report(ocr_override: IncidentReport::Ocr.new(runner: runner))
+    capture!
+    rep.draft(at: T1, sections: sections, title: "t")
+    assert_equal "unavailable", rep.ocr_screens(at: T1)["status"]
+    result = rep.scan(at: T1)
+    refute result["pdf"]["ok"]
+    assert_equal [ "credential assignment" ], result["pdf"]["hits"].map { |h| h[:kind] }
+    err = assert_raises(IncidentReport::Error) { rep.roast(at: T1, repo_dir: @tmp) }
+    assert_match(/not scanned/, err.message)
+    assert_empty @shell.roast_calls
   end
 
   def test_a_redraft_clears_the_human_exceptions_it_does_not_cover

@@ -203,6 +203,8 @@ module IncidentReport
             el.value = '';
             el.style.setProperty('background', '#000', 'important');
             el.style.setProperty('color', '#000', 'important');
+            el.style.setProperty('background-image', 'none', 'important');
+            el.style.setProperty('filter', 'brightness(0)', 'important');
             for (const child of el.querySelectorAll('*')) child.style.setProperty('visibility', 'hidden', 'important');
           }
           const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -411,8 +413,8 @@ module IncidentReport
         path = File.join(screens_dir, shot['file'])
         text, ok = @ocr.read(path)
         unless ok
-          m['ocr'] = { 'status' => 'unavailable', 'at' => Time.parse(at).utc.iso8601, 'screens' => {}, 'reason' => text.to_s.lines.first.to_s.strip }
-          break
+          m['ocr'].merge!('status' => 'unavailable', 'reason' => text.to_s.lines.first.to_s.strip)
+          next
         end
         File.write(File.join(out_dir, "#{shot['file']}.txt"), text)
         m['ocr']['screens'][shot['file']] = { 'sha256' => IncidentReport.sha256_file(path), 'text_sha256' => IncidentReport.sha256(text) }
@@ -446,18 +448,15 @@ module IncidentReport
       notes = []
       captures = JSON.parse(File.read(File.join(screens_dir, 'captures.json')))
       texts['evidence captions'] = captures['shots'].map { |s| "#{s['viewport']}: #{s['route']}" }.join("\n") + "\n#{captures['host']} #{captures['version']}"
-      ocr = m['ocr'] || {}
-      if ocr['status'] == 'unavailable'
-        notes << { text: 'screenshot OCR unavailable: finalize needs --attest-no-ocr', fatal: false }
-      else
-        captures['shots'].each do |shot|
-          text = ocr_text(m, shot)
-          if text.nil?
-            notes << { text: "no current OCR for #{shot['file']}: run ocr", fatal: true }
-          else
-            texts["ocr #{shot['file']}"] = text
-          end
-        end
+      unavailable = (m['ocr'] || {})['status'] == 'unavailable'
+      # Whatever OCR did read is scanned, even when another screenshot failed.
+      captures['shots'].each do |shot|
+        text = ocr_text(m, shot)
+        texts["ocr #{shot['file']}"] = text if text
+        next if text
+
+        notes << (unavailable ? { text: "OCR unavailable for #{shot['file']}: finalize needs --attest-no-ocr", fatal: false }
+                              : { text: "no current OCR for #{shot['file']}: run ocr", fatal: true })
       end
       [ texts, notes ]
     end
@@ -484,13 +483,16 @@ module IncidentReport
       m = manifest
       raise Error, 'nothing to roast: run draft first' if m['drafts'].empty?
 
-      target = roast_target(repo_dir)
-      DRAFTS.each do |name|
-        draft = m['drafts'][name] or next
-        sha = IncidentReport.sha256_file(draft['path'])
+      names = DRAFTS.select { |name| m['drafts'][name] }
+      names.each do |name|
+        sha = IncidentReport.sha256_file(m['drafts'][name]['path'])
         scan = m['scan'][name]
         raise Error, "#{name} is not scanned at its current bytes: run scan first (scan and roast come after drafting)" unless scan && scan['content_sha256'] == sha && scan['ok']
-
+      end
+      target = roast_target(repo_dir)
+      names.each do |name|
+        draft = m['drafts'][name]
+        sha = IncidentReport.sha256_file(draft['path'])
         m['roast'][name] = roast_one(name, draft, sha, m, repo_dir: repo_dir, at: at, target: target, max_usd: max_usd)
       end
       save(m)
