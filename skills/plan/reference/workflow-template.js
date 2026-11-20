@@ -136,6 +136,12 @@ async function gate(where, batchName) {
   )
 }
 
+// Every agent that runs a heavy step carries this line, the phase agents via
+// preamble() and the final Verify agent directly.
+const GATE_LINE = "Before any heavy step (test suite, docker build, change boot or lanes), run the " +
+  "resource gate: ruby ~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe. If it " +
+  "reports ok false, stop, set landed false, and put the gate JSON in notes."
+
 // Common preamble for every phase agent. The plan is the source of truth, so
 // each agent reads it rather than trusting a paraphrase in this script.
 function preamble(phaseName) {
@@ -146,9 +152,7 @@ function preamble(phaseName) {
     " first, in full, then do only the phase named below. The plan's " +
     "\"Decisions (settled, do not re-litigate)\" section records answers the user " +
     "already gave; treat those as fixed and do not reopen them.\n\n" +
-    "Before any heavy step (test suite, docker build, change boot or lanes), run the " +
-    "resource gate: ruby ~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe. If it " +
-    "reports ok false, stop, set landed false, and put the gate JSON in notes.\n\n" +
+    GATE_LINE + "\n\n" +
     "Repository: " + REPO_PATH + "\n" +
     "Phase: " + phaseName + "\n\n"
 }
@@ -235,6 +239,7 @@ let verification = null
 if (fullRun || input.verify === true) {
   phase("Verify")
   verification = await agent(
+    GATE_LINE + "\n\n" +
     "Every phase below reports having landed and self-verified. Independently confirm the " +
     "plan's own acceptance criteria in " + REPO_PATH + ": run the plan's full check suite " +
     "yourself and read the real output. Report green only on evidence.\n\n" +

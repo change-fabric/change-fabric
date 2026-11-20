@@ -33,6 +33,12 @@ class ResourceGateLintTest < Minitest::Test
     refute_includes text, "ruby scripts/resource_gate.rb"
   end
 
+  def test_template_gives_the_verify_agent_the_gate_line
+    text = File.read(TEMPLATE)
+    assert_equal 2, text.scan("GATE_LINE +").size
+    assert_operator text.index("GATE_LINE +", text.index('phase("Verify")')), :>, 0
+  end
+
   def test_template_gate_schema_accepts_a_measurement_error
     schema = File.read(TEMPLATE)[/const GATE_SCHEMA = \{.*?\n\}\n/m]
     assert_includes schema, 'ram_available_mb: { type: [ "number", "null" ] }'
