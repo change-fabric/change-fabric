@@ -150,8 +150,18 @@ class IncidentReportTest < Minitest::Test
   def test_destination_override_expands_client_and_date
     rep = report(client_template: @client)
     rep.draft(at: T1, sections: sections, title: "Analytics errors")
-    assert_equal File.join(@tmp, "notes", "example-client", "030226mon"), rep.manifest["dest"]
+    assert_equal File.join(@tmp, "notes", "example-client", "030226mon", @id), rep.manifest["dest"]
     assert File.file?(File.join(rep.manifest["dest"], "client-summary.md"))
+  end
+
+  def test_two_incidents_for_one_client_and_day_get_distinct_paths
+    other_id = @store.create(slug: "second", at: T0, client: "example-client")
+    other = IncidentReport::Report.new(store: @store, id: other_id, shell: @shell, ocr: ocr, client_template: @client, known_roots: nil)
+    first = report(client_template: @client)
+    first.draft(at: T1, sections: sections, title: "t")
+    other.draft(at: T1, sections: sections("fix" => "Another."), title: "t")
+    refute_equal first.manifest["dest"], other.manifest["dest"]
+    assert_includes File.read(File.join(first.manifest["dest"], "client-summary.md")), "A test setting was removed."
   end
 
   def test_destination_refuses_a_git_work_tree_even_when_it_does_not_exist_yet
@@ -271,8 +281,8 @@ class IncidentReportTest < Minitest::Test
     let current = 'about:blank';
     const events = [];
     const request = (spec) => ({
-      method: () => spec.method, url: () => spec.url, isNavigationRequest: () => !!spec.nav,
-      continue: () => events.push({ url: spec.url, method: spec.method, outcome: 'continue' }),
+      method: () => spec.method, url: () => spec.url, isNavigationRequest: () => !!spec.nav, headers: () => ({ Accept: '*/*' }),
+      continue: (over) => events.push({ url: spec.url, method: spec.method, outcome: 'continue', cookie: over && over.headers ? over.headers.Cookie : null }),
       abort: () => { events.push({ url: spec.url, method: spec.method, outcome: 'abort' }); spec.aborted = true; },
     });
     const page = {
@@ -293,11 +303,11 @@ class IncidentReportTest < Minitest::Test
     process.stdout.write(JSON.stringify({ result: out.data, events }));
   JS
 
-  def run_module(pages = {}, routes: [ "/status" ], **named)
+  def run_module(pages = {}, routes: [ "/status" ], cookie: nil, **named)
     skip "node is not installed" unless NODE
     pages = named if pages.empty?
     code = IncidentReport::Capture.module_source(base: "https://app.example.test", hosts: [ "app.example.test" ], routes: routes,
-                                                 viewports: { "desktop" => [ 1440, 900 ] }, masks: IncidentReport::Capture::DEFAULT_MASKS)
+                                                 viewports: { "desktop" => [ 1440, 900 ] }, masks: IncidentReport::Capture::DEFAULT_MASKS, cookie: cookie)
     mod = File.join(@tmp, "mod.mjs")
     File.write(mod, code)
     harness = File.join(@tmp, "harness.mjs")
@@ -317,6 +327,21 @@ class IncidentReportTest < Minitest::Test
     assert_equal "continue", outcome.call("HEAD")
     assert_equal 1, run["result"]["shots"].size
     assert_equal [ "method POST", "method PUT" ], run["result"]["blocked"].map { |b| b["reason"] }
+  end
+
+  def test_the_session_cookie_goes_only_to_the_production_origin
+    code = IncidentReport::Capture.module_source(base: "https://app.example.test", hosts: [ "app.example.test", "cdn.example.test" ],
+                                                 routes: [ "/status" ], viewports: { "desktop" => [ 1, 1 ] }, masks: [], cookie: "sid=abc")
+    skip "node is not installed" unless NODE
+    File.write(File.join(@tmp, "mod.mjs"), code)
+    File.write(File.join(@tmp, "harness.mjs"), HARNESS)
+    scenario = { "pages" => { "/status" => { "requests" => [ { "method" => "GET", "url" => "https://cdn.example.test/a.css" },
+                                                                { "method" => "GET", "url" => "https://app.example.test/api/me" } ] } } }
+    out, err, status = Open3.capture3("node", File.join(@tmp, "harness.mjs"), File.join(@tmp, "mod.mjs"), JSON.generate(scenario))
+    assert status.success?, err
+    cookies = JSON.parse(out)["events"].to_h { |e| [ e["url"], e["cookie"] ] }
+    assert_equal "sid=abc", cookies["https://app.example.test/api/me"]
+    assert_nil cookies["https://cdn.example.test/a.css"]
   end
 
   def test_an_off_host_subresource_is_aborted_but_the_capture_succeeds

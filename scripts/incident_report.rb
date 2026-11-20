@@ -161,7 +161,7 @@ module IncidentReport
     # The browserless /function module. Policy lives in `decide`, which the
     # tests drive with a fake page under node.
     def module_source(base:, hosts:, routes:, viewports:, masks:, cookie: nil)
-      cfg = { base: base, hosts: hosts, routes: routes, masks: masks, cookie: cookie,
+      cfg = { base: base, base_host: URI.parse(base).host, hosts: hosts, routes: routes, masks: masks, cookie: cookie,
               viewports: viewports.map { |name, (w, h)| { name: name, width: w, height: h } } }
       MODULE_JS.sub('__CFG__') { JSON.generate(cfg) }
     end
@@ -187,7 +187,8 @@ module IncidentReport
         await page.setRequestInterception(true);
         page.on('request', (req) => {
           const verdict = decide(req.method(), req.url(), req.isNavigationRequest());
-          if (verdict.allow) return req.continue();
+          if (verdict.allow) return cfg.cookie && new URL(req.url()).host === cfg.base_host
+            ? req.continue({ headers: { ...req.headers(), Cookie: cfg.cookie } }) : req.continue();
           blocked.push({ method: req.method(), url: req.url().split('?')[0], reason: verdict.reason });
           if (verdict.nav) offHostNav = verdict.reason;
           return req.abort('blockedbyclient');
@@ -196,7 +197,6 @@ module IncidentReport
           window.WebSocket = class { constructor() { throw new Error('blocked: read-only capture'); } };
           window.EventSource = class { constructor() { throw new Error('blocked: read-only capture'); } };
         });
-        if (cfg.cookie) await page.setExtraHTTPHeaders({ Cookie: cfg.cookie });
         const mask = (selectors) => {
           const re = [/[\w.+-]+@[\w-]+\.[\w.-]+/g, /\+?\d[\d ().-]{8,}\d/g, /\b(?:eyJ|ghp_|sk-|xox[abp]-)[\w.-]{10,}/g];
           for (const el of document.querySelectorAll(selectors.join(','))) {
@@ -321,7 +321,8 @@ module IncidentReport
       client = IncidentStore.segment(incident['client'].to_s)
       raise Error, 'the client destination needs <client>, but this incident has no client: create it with --client' if template.include?('<client>') && client.empty?
 
-      File.expand_path(template.gsub('<client>', client).gsub('<date>', Time.parse(at).utc.strftime('%m%d%y%a').downcase))
+      # One directory per incident: two incidents for a client on one day must not share paths.
+      File.join(File.expand_path(template.gsub('<client>', client).gsub('<date>', Time.parse(at).utc.strftime('%m%d%y%a').downcase)), id)
     end
 
     # --- draft ---------------------------------------------------------------

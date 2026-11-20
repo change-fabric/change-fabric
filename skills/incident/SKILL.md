@@ -101,7 +101,8 @@ work tree or under the repo checkout or any path in `CF_KNOWN_REPO_ROOTS`
    the file's SHA-256, so a later edit drops that draft back to draft. With
    no OCR the PDF needs `finalize --attest-no-ocr "<Patrick's reason>"`; a
    score under the bar needs `--accept-below-bar "<reason>"`. Drafts go to
-   `CF_INCIDENT_CLIENT_DIR` (a template with `<client>` and `<date>`), else
+   `CF_INCIDENT_CLIENT_DIR` (a template with `<client>` and `<date>`; each
+   incident gets its own `<id>` subdirectory), else
    `report/out/` in the incident directory. Hand Patrick the paths. After he
    sends whatever he sends, `set --status reported`.
 9. **Close.** Update `rca.md` after the verified transition, then `close`. It
