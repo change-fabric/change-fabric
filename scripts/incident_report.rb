@@ -252,7 +252,7 @@ module IncidentReport
       screens = File.join(dir, 'screens')
       FileUtils.mkdir_p(screens)
       shots = Array(result['shots']).map do |shot|
-        file = "#{shot['viewport']}-#{route_slug(shot['route'])}.png"
+        file = "#{shot['viewport']}-#{route_slug(shot['route'])}-#{IncidentReport.sha256(shot['route'])[0, 8]}.png"
         File.binwrite(File.join(screens, file), Base64.decode64(shot['png']))
         { 'file' => file, 'route' => shot['route'], 'viewport' => shot['viewport'], 'final_url' => shot['final_url'],
           'sha256' => IncidentReport.sha256_file(File.join(screens, file)) }
@@ -340,8 +340,9 @@ module IncidentReport
       File.write(summary, render_summary(title, at, sections))
       m['drafts']['summary'] = { 'path' => summary }
       draft_pdf(m, dest, title)
-      m['scan'] = {}
-      m['roast'] = {}
+      # A human exception approved the old bytes, never the new ones.
+      %w[scan roast].each { |key| m[key] = {} }
+      %w[ocr_attestation accepted_below_bar].each { |key| m.delete(key) }
       FileUtils.rm_f(final_path)
       save(m)
       store.append(id, at: at, actor: 'report', text: "client report drafted into #{File.basename(dest)}")
@@ -597,16 +598,18 @@ module IncidentReport
       pages = m['pages']
       return [ 'pdf: no rendered pages bound to this PDF; redraft' ] unless pages && pages['pdf_sha256'] == sha
 
-      texts = {}
       reads = pages['files'].map { |page| [ page['file'], *@ocr.read(page['file']) ] }
-      reads.each { |file, text, _ok| texts["pdf page #{File.basename(file)}"] = text }
-      if reads.any? { |_file, _text, ok| !ok }
-        m['ocr']['final_pdf'] = { 'status' => 'unavailable', 'pdf_sha256' => sha }
-        return m['ocr_attestation'] ? [] : [ 'pdf: OCR is unavailable; attest with --attest-no-ocr "<reason>"' ]
-      end
+      readable = reads.select { |_file, _text, ok| ok }
+      texts = readable.to_h { |file, text, _ok| [ "pdf page #{File.basename(file)}", text ] }
       hits = Scan.hits(texts, terms: @terms || SensitiveTerms.load)
+      problems = hits.map { |h| "pdf: #{h[:kind]} in #{h[:source]}" }
+      if readable.size < reads.size
+        m['ocr']['final_pdf'] = { 'status' => 'unavailable', 'pdf_sha256' => sha, 'hits' => hits }
+        problems << 'pdf: OCR is unavailable for some pages; attest with --attest-no-ocr "<reason>"' unless m['ocr_attestation']
+        return problems
+      end
       m['ocr']['final_pdf'] = { 'status' => 'ok', 'pdf_sha256' => sha, 'hits' => hits }
-      hits.map { |h| "pdf: #{h[:kind]} in #{h[:source]}" }
+      problems
     end
   end
 

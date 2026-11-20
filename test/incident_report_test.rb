@@ -110,8 +110,8 @@ class IncidentReportTest < Minitest::Test
 
   def ocr = IncidentReport::Ocr.new(runner: ->(path) { [ @ocr_text[File.basename(path)], @ocr_ok ] })
 
-  def report(client_template: nil, **opts)
-    IncidentReport::Report.new(store: @store, id: @id, shell: @shell, ocr: ocr, client_template: client_template, known_roots: nil, **opts)
+  def report(client_template: nil, ocr_override: nil, **opts)
+    IncidentReport::Report.new(store: @store, id: @id, shell: @shell, ocr: ocr_override || ocr, client_template: client_template, known_roots: nil, **opts)
   end
 
   def sections(extra = {})
@@ -126,6 +126,8 @@ class IncidentReportTest < Minitest::Test
                                 base: "https://app.example.test", hosts: [ "app.example.test" ], routes: [ "/status" ],
                                 viewports: IncidentReport::Capture.viewports("desktop,mobile"), masks: [], at: T1, version: "v1.2.1")
   end
+
+  def shot_file(viewport, route) = "#{viewport}-#{IncidentReport::Capture.route_slug(route)}-#{IncidentReport.sha256(route)[0, 8]}.png"
 
   def ready!(rep = report)
     capture!
@@ -416,14 +418,14 @@ class IncidentReportTest < Minitest::Test
   end
 
   def test_screenshot_ocr_text_is_scanned
-    @ocr_text["desktop-status.png"] = "Welcome back zorblax admin"
+    @ocr_text[shot_file("desktop", "/status")] = "Welcome back zorblax admin"
     rep = report
     capture!
     rep.draft(at: T1, sections: sections, title: "t")
     rep.ocr_screens(at: T1)
     result = rep.scan(at: T1)
     refute result["pdf"]["ok"]
-    assert_equal [ "ocr desktop-status.png" ], result["pdf"]["hits"].map { |h| h[:source] }
+    assert_equal [ "ocr #{shot_file("desktop", "/status")}" ], result["pdf"]["hits"].map { |h| h[:source] }
     assert_equal "scanned", rep.states["summary"] # the summary itself is clean
   end
 
@@ -532,6 +534,45 @@ class IncidentReportTest < Minitest::Test
     assert(problems.any? { |p| p.start_with?("pdf: sensitive term in pdf page page-1.png") })
     refute(problems.any? { |p| p.include?("zorblax") })
     assert_equal "roasted", rep.states["pdf"]
+  end
+
+  def test_a_secret_on_a_readable_page_blocks_even_when_another_page_fails_ocr_and_is_attested
+    rep = report
+    capture!
+    rep.draft(at: T1, sections: sections, title: "t")
+    rep.ocr_screens(at: T1)
+    rep.scan(at: T1)
+    rep.roast(at: T1, repo_dir: @tmp)
+    flaky = IncidentReport::Ocr.new(runner: ->(path) { File.basename(path) == "page-2.png" ? [ "boom", false ] : [ "password=extremelysecret", true ] })
+    rep = report(ocr_override: flaky)
+    _r, problems = rep.finalize(at: T2, attest_no_ocr: "page 2 is unreadable")
+    assert(problems.any? { |p| p.start_with?("pdf: credential assignment in pdf page page-1.png") })
+    assert_equal "roasted", rep.states["pdf"]
+  end
+
+  def test_a_redraft_clears_the_human_exceptions_it_does_not_cover
+    @ocr_ok = false
+    @shell.score = 6
+    rep = report
+    capture!
+    rep.draft(at: T1, sections: sections, title: "t")
+    rep.ocr_screens(at: T1)
+    rep.scan(at: T1)
+    rep.roast(at: T1, repo_dir: @tmp)
+    _r, problems = rep.finalize(at: T2, attest_no_ocr: "no docker", accept_below_bar: "reviewed")
+    assert_empty problems
+    rep.draft(at: T2, sections: sections("fix" => "A different fix."), title: "t")
+    refute rep.manifest.key?("ocr_attestation")
+    refute rep.manifest.key?("accepted_below_bar")
+    assert_equal({ "summary" => "draft", "pdf" => "draft" }, rep.states)
+  end
+
+  def test_routes_that_normalize_to_one_slug_keep_separate_screenshots
+    refute_equal shot_file("desktop", "/foo/bar"), shot_file("desktop", "/foo-bar")
+    shots = [ "/foo/bar", "/foo-bar" ].map { |r| { "route" => r, "viewport" => "desktop", "png" => Base64.strict_encode64(PNG + r), "final_url" => "https://app.example.test#{r}" } }
+    record = IncidentReport::Capture.write(File.join(@tmp, "ev2"), { "shots" => shots }, base: "https://app.example.test", at: T1, version: "v")
+    assert_equal 2, record["shots"].map { |s| s["file"] }.uniq.size
+    assert_equal 2, Dir[File.join(@tmp, "ev2", "screens", "*.png")].size
   end
 
   def test_the_ocr_container_is_pinned_and_runs_without_network
