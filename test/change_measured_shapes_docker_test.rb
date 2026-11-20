@@ -35,7 +35,11 @@ class ChangeMeasuredShapesDockerTest < Minitest::Test
       #{ChangeFlowCompiler.flow_runtime_js}
       export default async ({ page }) => {
         await page.setRequestInterception(true);
-        page.on("request", (request) => request.respond({ status: 200, contentType: "text/html", body: #{JSON.generate(html)} }));
+        page.on("request", (request) => {
+          // /data answers after 1.2 s, so it is in flight when the step runs.
+          if (request.url().endsWith("/data")) return setTimeout(() => request.respond({ status: 200, contentType: "application/json", body: "{}" }), 1200);
+          return request.respond({ status: 200, contentType: "text/html", body: #{JSON.generate(html)} });
+        });
         const steps = await cfRunFlow(page, #{JSON.generate(compiled)});
         return { data: { steps: steps.map((s) => ({ ok: s.ok, error: s.error, label: s.label, durationMs: s.durationMs })) }, type: "application/json" };
       };
@@ -73,6 +77,12 @@ class ChangeMeasuredShapesDockerTest < Minitest::Test
   def test_class_2_a_layout_shift_attributed_to_the_element_fails_max_cls
     failed = assert_discriminates("cls")
     assert_match(/layout shift .* attributed to main h1 exceeds max_cls 0/, failed["error"])
+  end
+
+  # The request is outstanding before expect_stable starts. Watching only from
+  # that point would call the page idle after 500 ms and miss the shift.
+  def test_class_2_a_shift_after_a_request_already_in_flight_fails
+    assert_discriminates("inflight")
   end
 
   def test_class_3_a_sticky_bar_covering_the_first_row_fails

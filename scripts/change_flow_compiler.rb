@@ -75,6 +75,9 @@ class ChangeFlowCompiler
   # window.scrollY, or the element's scrollTop when a selector is given.
   MEASURED_KINDS = %w[rect.x rect.y rect.width rect.height rect.bottom scroll_y].freeze
 
+  # What expect_stable can judge: the kinds the first-paint recorder samples.
+  STABLE_KINDS = %w[rect.x rect.y rect.width rect.height rect.bottom].freeze
+
   # What capture and expect_equal read from a selector.
   READ_KINDS = (%w[text number count] + MEASURED_KINDS).freeze
   TAG_NAME = /\A[A-Za-z0-9_-]+\z/
@@ -402,9 +405,30 @@ class ChangeFlowCompiler
       requestAnimationFrame(tick);
     };
 
+    // Installs the recorder once per page; the testcases lane calls this before
+    // a seeded landing navigation, and cfRunFlow calls it again harmlessly.
     async function cfInstallMeasure(page, steps) {
+      if (page.__cfMeasureInstalled || !steps.some((step) => step.verb === "expectStable")) return;
+      page.__cfMeasureInstalled = true;
       const selectors = steps.filter((step) => step.verb === "expectStable" && step.selector && !step.locator).map((step) => step.selector);
       await page.evaluateOnNewDocument(cfMeasureInit, Array.from(new Set(selectors)));
+    }
+
+    // Network idle that counts requests already in flight (tracked from the
+    // start of the walk, not from now) and fails when idle is never reached.
+    async function cfWaitIdle(state, idleMs, timeoutMs, label) {
+      const deadline = Date.now() + timeoutMs;
+      let quietSince = state.inflight.size === 0 ? Date.now() : null;
+      while (Date.now() < deadline) {
+        if (state.inflight.size === 0) {
+          if (quietSince === null) quietSince = Date.now();
+          if (Date.now() - quietSince >= idleMs) return;
+        } else {
+          quietSince = null;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      cfFail(`${label}: the network was not idle for ${idleMs}ms within ${timeoutMs}ms`);
     }
 
     // Waits for fonts and network idle, then judges the whole window from
@@ -415,15 +439,16 @@ class ChangeFlowCompiler
     // those right after input) must stay within maxCls.
     async function cfExpectStable(page, step, state, timeoutMs) {
       await page.evaluate(() => (document.fonts ? document.fonts.ready.then(() => true) : true)).catch(() => true);
-      const armed = cfArm(page, { index: step.index, verb: "waitForNetworkIdle", idleMs: 500, timeoutMs: timeoutMs, label: step.label });
-      try { armed.start(); await armed.done; } catch (err) { void err; } finally { armed.dispose(); }
+      await cfWaitIdle(state, 500, timeoutMs, step.label);
       const last = await cfRead(page, step, timeoutMs);
       state.vars[step.var] = last;
       const layout = await page.evaluate(() => window.__cfLayout || null).catch(() => null);
       const key = step.kind.indexOf("rect.") === 0 ? step.kind.slice(5) : null;
       const sampled = layout && step.selector && key ? (layout.samples[step.selector] || []).map((rect) => rect[key]) : [];
       const recorded = layout && step.selector && key && layout.first[step.selector] ? layout.first[step.selector][key] : sampled[0];
-      const first = recorded === undefined ? last : recorded;
+      // No recording is no evidence: never substitute the final value.
+      if (recorded === undefined) cfFail(`no first-paint recording for ${step.selector}: the element did not exist in a page instrumented before navigation, so stability cannot be judged`);
+      const first = recorded;
       const values = [ first ].concat(sampled, [ last ]);
       const worst = values.reduce((far, value) => (Math.abs(value - first) > Math.abs(far - first) ? value : far), first);
       const deviation = Math.abs(worst - first);
@@ -542,7 +567,12 @@ class ChangeFlowCompiler
       const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), armed: null };
       const results = [];
       const pending = steps.filter((step) => step.index >= (options.startAt || 0));
-      if (steps.some((step) => step.verb === "expectStable")) await cfInstallMeasure(page, steps);
+      await cfInstallMeasure(page, steps);
+      const watching = steps.some((step) => step.verb === "expectStable");
+      const inflight = new Set();
+      const track = { request: (request) => inflight.add(request), requestfinished: (request) => inflight.delete(request), requestfailed: (request) => inflight.delete(request) };
+      if (watching) for (const [event, fn] of Object.entries(track)) page.on(event, fn);
+      state.inflight = inflight;
       // Every step records when it started (ms from the walk's start) and how
       // long it ran; a step's `budgetMs` is judged on the span from the start
       // of its `budgetFrom` step (or its own start) to its own end.
@@ -581,6 +611,7 @@ class ChangeFlowCompiler
         if (stop) break;
       }
       if (state.armed) state.armed.dispose();
+      if (watching) for (const [event, fn] of Object.entries(track)) page.off(event, fn);
       results.vars = state.vars;
       return results;
     }
@@ -970,6 +1001,15 @@ class ChangeFlowCompiler
     { selector: selector, as: name, kind: kind, label: "capture #{kind} of #{selector || 'the window'} as #{name}" }
   end
 
+  # The recorder resolves selectors with document.querySelector in the page, so
+  # a text or nth locator, or a `::-p-` selector, has no first-paint history.
+  # Refused here rather than passed with nothing measured.
+  def recordable_selector!(selector)
+    return unless ChangeFlowSelector.locator(selector) || selector.include?('::-p-')
+
+    raise Error, "expect_stable needs a plain CSS selector (the first-paint recorder cannot resolve #{selector.inspect})"
+  end
+
   # `scroll_y` alone reads the window; every other kind reads an element.
   def read_selector(spec, verb, kind)
     return require_string(spec, 'selector', verb) unless kind == 'scroll_y'
@@ -986,9 +1026,7 @@ class ChangeFlowCompiler
     spec = spec_for(value, 'var')
     name = var_name(spec['var'], 'expect_stable', 'var')
     kind = (spec['kind'] || 'rect.y').to_s
-    unless READ_KINDS.include?(kind) && kind != 'text'
-      raise Error, "expect_stable kind must be numeric: #{(READ_KINDS - %w[text]).join(', ')}, got #{kind}"
-    end
+    raise Error, "expect_stable kind must be one of #{STABLE_KINDS.join(', ')}, got #{kind}" unless STABLE_KINDS.include?(kind)
 
     tolerance = spec.fetch('tolerance_px', 0)
     raise Error, "expect_stable tolerance_px must be a number of 0 or more, got #{tolerance.inspect}" unless tolerance.is_a?(Numeric) && tolerance >= 0
@@ -1000,6 +1038,7 @@ class ChangeFlowCompiler
     raise Error, "expect_stable max_cls must be a number of 0 or more, got #{max_cls.inspect}" unless max_cls.is_a?(Numeric) && max_cls >= 0
 
     selector = read_selector(spec, 'expect_stable', kind)
+    recordable_selector!(selector)
     { var: name, selector: selector, kind: kind, tolerancePx: tolerance, maxCls: max_cls,
       label: "expect_stable #{kind} of #{selector || 'the window'} within #{tolerance}px" }
   end

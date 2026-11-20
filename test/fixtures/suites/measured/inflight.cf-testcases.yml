@@ -1,0 +1,11 @@
+# Class 2, slow request: the data request is already in flight when
+# expect_stable runs, and the shift lands when it returns. The step must wait
+# for that request, not call the page idle after 500 ms of its own watching.
+suite: measured-inflight
+suite_version: 5
+cases:
+  - id: header-no-shift-after-slow-data
+    acceptance: The dashboard header does not move when slow data arrives.
+    steps:
+      - goto: /dashboard
+      - expect_stable: { var: hdr_y, selector: "main h1", kind: rect.y, tolerance_px: 2, max_cls: 1 }

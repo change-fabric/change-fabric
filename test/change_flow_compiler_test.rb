@@ -693,6 +693,11 @@ class ChangeFlowCompilerTest < Minitest::Test
   def test_expect_stable_refuses_a_text_kind_a_bad_tolerance_and_an_unknown_wait
     base = { "var" => "h", "selector" => "h1", "kind" => "rect.y" }
     assert_raises(ChangeFlowCompiler::Error) { one("expect_stable" => base.merge("kind" => "text")) }
+    %w[number count scroll_y].each { |kind| assert_raises(ChangeFlowCompiler::Error, kind) { one("expect_stable" => base.merge("kind" => kind)) } }
+    [ "text=Dashboard", "h1 >> nth=0", "::-p-text(Dashboard)" ].each do |selector|
+      error = assert_raises(ChangeFlowCompiler::Error, selector) { one("expect_stable" => base.merge("selector" => selector)) }
+      assert_match(/plain CSS selector/, error.message)
+    end
     assert_raises(ChangeFlowCompiler::Error) { one("expect_stable" => base.merge("tolerance_px" => -1)) }
     assert_raises(ChangeFlowCompiler::Error) { one("expect_stable" => base.merge("wait" => "load")) }
     assert_equal "expectStable", one("expect_stable" => base.merge("wait" => "fonts"))[:verb]
@@ -710,6 +715,9 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_includes js, "layout.samples"
     assert_includes js, "[ first ].concat(sampled, [ last ])"
     assert_includes js, "exceeds max_cls"
+    assert_includes js, "cfWaitIdle(state, 500"
+    assert_includes js, "state.inflight"
+    assert_includes js, "no first-paint recording"
   end
 
   def test_a_flow_with_expect_stable_installs_the_init_script_before_the_first_step_runs

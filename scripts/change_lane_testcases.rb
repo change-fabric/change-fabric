@@ -1271,6 +1271,7 @@ class ChangeLaneTestcases < ChangeLane
             // step navigates anyway.
             const first = testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
             if (persona && persona.seed && persona.seed.landing && first && first.verb !== "goto") {
+              await cfInstallMeasure(session.page, testCase.steps);
               await session.page.goto(persona.seed.landing, { waitUntil: "domcontentloaded" });
             }
             let expired = null;
