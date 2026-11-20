@@ -2,6 +2,7 @@
 
 require 'optparse'
 require 'tmpdir'
+require_relative 'path_canon'
 require_relative 'walkthrough_env'
 
 # Which directory a paid script looks its API key up against. A script run from
@@ -19,7 +20,7 @@ require_relative 'walkthrough_env'
 # The scratchpad path is never decoded and no env var overrides the project.
 module KeyProject
   # Claude Code's session scratchpad: <tmp>/claude-<uid>/<project>/<session>/scratchpad.
-  SCRATCH_SHAPE = %r{\A/claude-(\d+)/[^/]+/[^/]+/scratchpad(?:/|\z)}
+  SCRATCH_SHAPE = %r{\Aclaude-(\d+)/[^/]+/[^/]+/scratchpad(?:/|\z)}
   FIXED_TMP_ROOTS = [ '/private/tmp', '/tmp' ].freeze
   SESSION_ENV = 'CLAUDE_CODE_SESSION_ID'
 
@@ -78,9 +79,7 @@ module KeyProject
     return false if real.nil?
 
     (FIXED_TMP_ROOTS + [ tmp_realpath ]).compact.uniq.any? do |root|
-      next false unless real.start_with?("#{root}/")
-
-      m = SCRATCH_SHAPE.match(real.delete_prefix(root))
+      m = SCRATCH_SHAPE.match(PathCanon.relative(real, root).to_s)
       !m.nil? && m[1].to_i == uid
     end
   end
