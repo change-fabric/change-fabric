@@ -163,12 +163,14 @@ module DeepResearch
     def finish_ingest(dir, record, opts, sha)
       xml_path = File.join(dir, 'raw.xml.tmp')
       xml = extract(opts[:pdf], xml_path)
-      refuse_secrets(DeepResearchParse.scannable_text(xml), xml_path)
+      parsed = DeepResearchParse.parse(xml)
+      # The parser rejoins wrapped lines, which can rebuild a token the raw text split.
+      refuse_secrets([ DeepResearchParse.scannable_text(xml), normalized_text(parsed) ].join("\n"), xml_path)
       check_binding(xml, record)
       File.rename(xml_path, File.join(dir, 'raw.xml'))
       FileUtils.cp(opts[:pdf], File.join(dir, 'report.pdf'))
       record = DeepResearchStore.transition(dir, 'ingested', 'pdf_sha256' => sha)
-      report = build_report(record, DeepResearchParse.parse(xml), sha)
+      report = build_report(record, parsed, sha)
       errors = DeepResearchSchema.validate(report)
       unless errors.empty?
         DeepResearchStore.transition(dir, 'failed')
@@ -180,6 +182,11 @@ module DeepResearch
       report['diagnostics'].uniq.each { |d| @err.puts("diagnostic: #{d}") }
       @out.puts("Report: #{DeepResearchStore.report_path(dir)}")
       OK
+    end
+
+    def normalized_text(parsed)
+      [ parsed[:summary], *parsed[:findings].flat_map { |f| [ f['claim'], f['quote'] ] },
+        *parsed[:sources].flat_map { |src| [ src['url'], src['title'] ] } ].compact.join("\n")
     end
 
     def extract(pdf, xml_path)

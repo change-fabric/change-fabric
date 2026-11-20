@@ -117,6 +117,15 @@ class DeepResearchCliTest < Minitest::Test
     refute_includes err, "different run"
   end
 
+  def test_ingest_refuses_a_secret_that_only_exists_once_wrapped_lines_are_rejoined
+    DeepResearchStore.create(record, "p")
+    bad = StoredExtractor.new(xml("Findings", "1. leaked sk-", "#{"a" * 24} done"))
+    code, _out, err = cli("ingest", "--run", RUN_ID, "--pdf", synthetic_pdf, extractor: bad)
+    assert_equal 2, code
+    assert_includes err, "provider token"
+    refute File.exist?(File.join(DeepResearchStore.run_dir("synthetic", RUN_ID), "raw.xml"))
+  end
+
   def test_ingest_of_a_pdf_naming_another_run_warns_but_still_ingests
     DeepResearchStore.create(record("id" => "dr-00000000-0000-4000-8000-0000000000ff"), "p")
     code, _out, err = cli("ingest", "--run", "dr-00000000-0000-4000-8000-0000000000ff", "--pdf", synthetic_pdf,
