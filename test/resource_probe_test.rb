@@ -19,8 +19,8 @@ class ResourceProbeTest < Minitest::Test
       @calls = []
     end
 
-    def run(argv, root:, cwd:, env: {})
-      @calls << { argv: argv, root: root, cwd: cwd, env: env }
+    def run(argv, root:, cwd:, env: {}, docker: nil)
+      @calls << { argv: argv, root: root, cwd: cwd, env: env, docker: docker }
       @results.length > 1 ? @results.shift : @results.first
     end
   end
@@ -168,8 +168,8 @@ class ResourceProbeTest < Minitest::Test
       refute_includes raw, bad, "stored profile leaked #{bad}"
     end
     entry = JSON.parse(raw)["ops"]["leaky"]
-    assert_equal "bin/run", entry["command"][0]
-    assert_equal "--config=conf/a.yml", entry["command"][1]
+    assert_equal "../bin/run", entry["command"][0], "relative to the recorded cwd, so replay resolves it"
+    assert_equal "--config=../conf/a.yml", entry["command"][1]
     assert_equal "sub", entry["cwd"]
     assert entry["command_redacted"]
     assert_equal "plain", entry["command"].last
@@ -180,6 +180,111 @@ class ResourceProbeTest < Minitest::Test
     probe_with(FakeRunner.new(ok)).probe("t", %w[true], cwd: @root)
     assert_equal %w[version ops], JSON.parse(File.read(@store.path)).keys
     refute_includes File.read(@store.path), "CF_PROBE_ACTIVE"
+  end
+
+  def test_inline_scripts_are_never_stored_verbatim
+    probe_with(FakeRunner.new(ok)).probe("shell", [ "sh", "-c", "curl --token secret-example-value https://example.invalid" ], cwd: @root)
+    probe_with(FakeRunner.new(ok)).probe("rb", [ "ruby", "-e", "puts ENV['X']" ], cwd: @root)
+    raw = File.read(@store.path)
+    refute_includes raw, "secret-example-value"
+    refute_includes raw, "puts ENV"
+    assert_equal [ "sh", "-c", "<script>" ], @store.ops["shell"]["command"]
+    assert @store.ops["shell"]["command_redacted"]
+    assert @store.ops["rb"]["command_redacted"]
+  end
+
+  def test_repo_executable_is_recorded_so_replay_resolves_it
+    tool = File.join(@root, "my-probe-tool")
+    File.write(tool, "#!/bin/sh\nexit 0\n")
+    File.chmod(0o755, tool)
+    sub = File.join(@root, "pkg")
+    FileUtils.mkdir_p(sub)
+    File.write(File.join(sub, "data.txt"), "x")
+    probe_with(FakeRunner.new(ok)).probe("tool", [ tool, File.join(sub, "data.txt") ], cwd: sub)
+    entry = @store.ops["tool"]
+    assert_equal [ "../my-probe-tool", "./data.txt" ], entry["command"]
+    refute entry["command_redacted"]
+    res = RP::Runner.new(tree: Struct.new(:x) { def rss_mb(_) = 1.0 }.new, disk: Struct.new(:x) { def read(_) = { free_gb: 1.0, used_gb: 1.0 } }.new,
+                         interval: 0.05).run(entry["command"], root: @root, cwd: File.join(@root, entry["cwd"]))
+    assert_equal 0, res[:exit], "replayed from the recorded cwd the executable resolves"
+    top = probe_with(FakeRunner.new(ok))
+    top.probe("top", [ tool ], cwd: @root)
+    assert_equal [ "./my-probe-tool" ], @store.ops["top"]["command"]
+  end
+
+  def test_worktree_probe_uses_the_checkout_root_not_the_main_checkout
+    main = File.realpath(Dir.mktmpdir("probe-main"))
+    wt = File.join(File.realpath(Dir.mktmpdir("probe-wt-parent")), "wt")
+    git = ->(*a) { system("git", "-C", main, *a, out: File::NULL, err: File::NULL) || flunk("git #{a.join(' ')} failed") }
+    git.call("init", "-q")
+    git.call("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x")
+    git.call("worktree", "add", "-q", wt)
+    File.write(File.join(wt, "Gemfile.lock"), "worktree only")
+    ident = RP.identity(wt)
+    assert_equal File.realpath(wt), ident.root
+    assert_equal CfProjectIdentity.for(main).slug, ident.slug, "the store key stays shared"
+    refute_equal ResourceFingerprint.compute(main), ResourceFingerprint.compute(ident.root)
+    sub = File.join(wt, "app")
+    FileUtils.mkdir_p(sub)
+    RP::Probe.new(root: ident.root, store: RP::Store.new(slug: ident.slug, home: @home), runner: FakeRunner.new(ok)).probe("w", %w[true], cwd: sub)
+    assert_equal "app", RP::Store.new(slug: ident.slug, home: @home).ops["w"]["cwd"]
+  ensure
+    FileUtils.rm_rf([ main, File.dirname(wt.to_s) ])
+  end
+
+  def test_gate_staleness_follows_the_worktree_checkout
+    main = File.realpath(Dir.mktmpdir("probe-main"))
+    wt = File.join(File.realpath(Dir.mktmpdir("probe-wt-parent")), "wt")
+    git = ->(*a) { system("git", "-C", main, *a, out: File::NULL, err: File::NULL) || flunk("git failed") }
+    git.call("init", "-q")
+    git.call("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x")
+    git.call("worktree", "add", "-q", wt)
+    ident = RP.identity(wt)
+    RP::Probe.new(root: ident.root, store: RP::Store.new(slug: ident.slug, home: @home), runner: FakeRunner.new(ok)).probe("w", %w[true], cwd: wt)
+    assert_nil ResourceGate.load_profile(wt, home: @home)["w"]["stale"]
+    File.write(File.join(wt, "Gemfile.lock"), "changed in the worktree")
+    assert_equal true, ResourceGate.load_profile(wt, home: @home)["w"]["stale"]
+  ensure
+    FileUtils.rm_rf([ main, File.dirname(wt.to_s) ])
+  end
+
+  def test_benchmark_keeps_sampling_docker_for_ops_that_measured_it
+    probe_with(FakeRunner.new(ok(dmem: 500))).probe("compose_up", %w[sh run.sh], cwd: @root)
+    probe_with(FakeRunner.new(ok)).probe("plain", %w[true], cwd: @root)
+    runner = FakeRunner.new(ok(dmem: 500))
+    cli(%w[benchmark compose_up plain], runner: runner)
+    assert_kind_of RP::DockerSampler, runner.calls[0][:docker]
+    assert_nil runner.calls[1][:docker]
+  end
+
+  def test_probe_chooses_docker_sampler_from_the_command
+    runner = FakeRunner.new(ok)
+    probe_with(runner).probe("build", %w[docker build .], cwd: @root)
+    probe_with(runner).probe("rake_test", %w[rake test], cwd: @root)
+    assert_kind_of RP::DockerSampler, runner.calls[0][:docker]
+    assert_nil runner.calls[1][:docker]
+  end
+
+  def test_fingerprint_covers_nested_dependency_files_but_not_vendored_trees
+    base = ResourceFingerprint.compute(@root)
+    FileUtils.mkdir_p(File.join(@root, "site"))
+    File.write(File.join(@root, "site", "package-lock.json"), "{}")
+    nested = ResourceFingerprint.compute(@root)
+    refute_equal base, nested
+    File.write(File.join(@root, "site", "package-lock.json"), "{\"v\":2}")
+    refute_equal nested, ResourceFingerprint.compute(@root)
+    FileUtils.mkdir_p(File.join(@root, "site", "node_modules", "dep"))
+    File.write(File.join(@root, "site", "node_modules", "dep", "package-lock.json"), "x")
+    FileUtils.mkdir_p(File.join(@root, "other", ".git"))
+    File.write(File.join(@root, "other", "Gemfile.lock"), "another checkout")
+    assert_equal ResourceFingerprint.compute(@root), ResourceFingerprint.compute(@root)
+    File.write(File.join(@root, "site", "node_modules", "dep", "package-lock.json"), "y")
+    File.write(File.join(@root, "other", "Gemfile.lock"), "changed")
+    File.write(File.join(@root, "site", "Dockerfile.dev"), "FROM x")
+    with_docker = ResourceFingerprint.compute(@root)
+    refute_equal nested, with_docker
+    File.write(File.join(@root, "site", "node_modules", "dep", "package-lock.json"), "z")
+    assert_equal with_docker, ResourceFingerprint.compute(@root)
   end
 
   def test_cwd_outside_the_repo_is_stored_as_dot
@@ -254,14 +359,14 @@ class ResourceProbeTest < Minitest::Test
       def mem_mb = @m.length > 1 ? @m.shift : @m.first
       def disk_gb = 2.0
     end.new
-    runner = RP::Runner.new(tree: tree, disk: disk, docker: docker, interval: 0.05)
-    res = runner.run([ RbConfig.ruby, "-e", "sleep 0.2; exit 3" ], root: @root, cwd: @root)
+    runner = RP::Runner.new(tree: tree, disk: disk, interval: 0.05)
+    res = runner.run([ RbConfig.ruby, "-e", "sleep 0.2; exit 3" ], root: @root, cwd: @root, docker: docker)
     assert_equal 3, res[:exit]
     assert_nil res[:signal]
     assert_equal 321, res[:peak_rss_mb]
     assert_equal 1.5, res[:disk_delta_gb]
     assert_operator res[:samples], :>=, 2
-    assert_operator res[:docker_mem_peak_mb], :>=, 0
+    assert_equal 600, res[:docker_mem_peak_mb]
   end
 
   def test_runner_sets_probe_active_in_the_child

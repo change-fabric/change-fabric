@@ -3,25 +3,44 @@
 require 'digest'
 
 # Digest of the files that change what a heavy command costs: lockfiles,
-# Dockerfiles, compose files and the boot/lanes blocks of CHANGE.md. Shared by
-# the probe (records it per op) and the gate (marks an op stale on mismatch).
-# Digest of the files that change what a command costs.
+# Dockerfiles and compose files at any depth, and the boot/lanes blocks of
+# CHANGE.md. Shared by the probe (records it per op) and the gate (marks an op
+# stale on mismatch).
 module ResourceFingerprint
   LOCKFILES = %w[Gemfile.lock package-lock.json pnpm-lock.yaml yarn.lock].freeze
-  DOCKER_FILES = '{Dockerfile*,docker-compose*.y*ml,compose*.y*ml}'
+  DOCKER_FILE = /\A(Dockerfile[\w.-]*|(docker-)?compose[\w.-]*\.ya?ml)\z/
+  # Generated or vendored trees; a directory with its own .git is another checkout.
+  SKIP_DIRS = %w[node_modules vendor tmp dist build coverage .bundle].freeze
+  MAX_DEPTH = 4
 
   module_function
 
   def compute(root)
-    parts = LOCKFILES.map { |f| digest_file(root, f) }
-    parts += Dir.glob(File.join(root, DOCKER_FILES)).sort.map { |p| digest_file(root, File.basename(p)) }
+    parts = tracked_files(root, 0).sort.map { |rel| "#{rel}:#{Digest::SHA256.file(File.join(root, rel)).hexdigest}" }
     parts << "change:#{Digest::SHA256.hexdigest(change_block(root))}"
     Digest::SHA256.hexdigest(parts.join("\n"))[0, 16]
   end
 
-  def digest_file(root, name)
-    path = File.join(root, name)
-    "#{name}:#{File.file?(path) ? Digest::SHA256.file(path).hexdigest : '-'}"
+  # Root-relative paths of the dependency and Docker files under dir.
+  def tracked_files(root, depth, rel = '')
+    dir = File.join(root, rel)
+    Dir.children(dir).flat_map do |name|
+      path = File.join(dir, name)
+      child = rel.empty? ? name : File.join(rel, name)
+      if File.directory?(path) && !File.symlink?(path)
+        descend?(name, path, depth) ? tracked_files(root, depth + 1, child) : []
+      elsif File.file?(path) && (LOCKFILES.include?(name) || name.match?(DOCKER_FILE))
+        [ child ]
+      else
+        []
+      end
+    end
+  rescue SystemCallError
+    []
+  end
+
+  def descend?(name, path, depth)
+    depth < MAX_DEPTH && !name.start_with?('.') && !SKIP_DIRS.include?(name) && !File.exist?(File.join(path, '.git'))
   end
 
   # The boot: and lanes: blocks of CHANGE.md, found by indentation.

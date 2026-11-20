@@ -456,7 +456,7 @@ module ResourceGate
     data = JSON.parse(File.read(File.join(home, '.claude', 'cf', 'benchmarks', ident.slug, 'profile.json')))
     return {} unless data['ops'].is_a?(Hash)
 
-    current = ResourceFingerprint.compute(ident.root)
+    current = ResourceFingerprint.compute(CfProjectIdentity.checkout_root(File.realpath(project)) || ident.root)
     data['ops'].transform_values { |e| e.is_a?(Hash) && e['fingerprint'] != current ? e.merge('stale' => true) : e }
   rescue StandardError
     {}

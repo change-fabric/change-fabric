@@ -5,6 +5,7 @@ require 'fileutils'
 require 'json'
 require 'open3'
 require 'optparse'
+require 'pathname'
 require_relative 'cf_project_identity'
 require_relative 'path_canon'
 require_relative 'resource_fingerprint'
@@ -59,55 +60,55 @@ module ResourceProbe
 
   # Keeps absolute paths, env values and secrets out of what is stored.
   module Sanitize
+    INTERPRETERS = %w[sh bash zsh dash ksh ruby node perl python python3].freeze
+    INLINE_SCRIPT_FLAG = /\A-[a-z]*[ce]\z/
+
     module_function
 
-    # Returns [argv, changed?]. A path made repo-relative is not a change that
-    # blocks a forced benchmark; a redaction is.
-    def argv(args, root)
+    # Returns [argv, redacted?]. Repo paths become relative to the recorded cwd
+    # (with a ./ prefix so the executable still resolves) and so stay
+    # replayable; a redaction or an inline script does not.
+    def argv(args, root, cwd = root)
       redacted = false
-      redact_next = false
-      out = args.map do |arg|
-        arg = arg.to_s
-        if redact_next
-          redact_next = false
-          redacted = true
-          next '<redacted>'
-        end
-        clean = token(arg, root)
-        redact_next = arg.match?(SECRET_FLAG) && !arg.include?('=')
+      hide_next = false
+      interpreter = INTERPRETERS.include?(File.basename(args.first.to_s))
+      out = args.each_with_index.map do |raw, i|
+        arg = raw.to_s
+        clean = hide_next ? '<redacted>' : token(arg, root, cwd)
+        clean = '<script>' if i.positive? && interpreter && args[i - 1].to_s.match?(INLINE_SCRIPT_FLAG)
+        hide_next = !hide_next && arg.match?(SECRET_FLAG) && !arg.include?('=')
         redacted ||= clean.include?('<')
         clean
       end
       [ out, redacted ]
     end
 
-    def token(arg, root)
+    def token(arg, root, cwd)
       if !arg.start_with?('-') && (m = arg.match(ENV_ASSIGN))
         return "#{m[1]}=<redacted>"
       end
-      return key_value(arg, root) if arg.start_with?('-') && arg.include?('=')
+      return key_value(arg, root, cwd) if arg.start_with?('-') && arg.include?('=')
       return '<redacted>' if arg.match?(SECRET_VALUE)
 
-      path(arg, root)
+      path(arg, root, cwd)
     end
 
-    def key_value(arg, root)
+    def key_value(arg, root, cwd)
       flag, value = arg.split('=', 2)
       return "#{flag}=<redacted>" if flag.match?(SECRET_FLAG) || value.match?(SECRET_VALUE)
 
-      "#{flag}=#{path(value, root)}"
+      "#{flag}=#{path(value, root, cwd)}"
     end
 
-    def path(arg, root)
+    def path(arg, root, cwd)
       return arg unless arg.start_with?('/', '~')
 
-      relative_to(arg, root) || '<path>'
-    end
+      rel = arg.start_with?('~') ? nil : PathCanon.relative(arg, root)
+      return '<path>' unless rel
 
-    def relative_to(arg, root)
-      return nil if arg.start_with?('~')
-
-      PathCanon.relative(arg, root)
+      from = Pathname.new(PathCanon.relative(cwd, root) || '.')
+      out = Pathname.new(rel).relative_path_from(from).to_s
+      out.start_with?('./', '../') || out == '.' ? out : "./#{out}"
     end
 
     def cwd(dir, root) = PathCanon.relative(dir, root) || '.'
@@ -230,40 +231,41 @@ module ResourceProbe
 
   # Runs a command with sampling and returns the measurements and the status.
   class Runner
-    def initialize(tree: TreeSampler.new, disk: DiskSampler.new, docker: nil, interval: SAMPLE_INTERVAL)
-      @tree, @disk, @docker, @interval = tree, disk, docker, interval
+    def initialize(tree: TreeSampler.new, disk: DiskSampler.new, interval: SAMPLE_INTERVAL)
+      @tree, @disk, @interval = tree, disk, interval
     end
 
     # {exit:, signal:, peak_rss_mb:, disk_delta_gb:, docker_mem_peak_mb:, docker_disk_delta_gb:, samples:},
-    # or {exit: 127} when the command cannot start.
-    def run(argv, root:, cwd:, env: {})
+    # or {exit: 127} when the command cannot start. `docker` is a DockerSampler, or nil when
+    # the command does not touch Docker.
+    def run(argv, root:, cwd:, env: {}, docker: nil)
       before = @disk.read(root)
-      docker0 = { mem: @docker&.mem_mb.to_f, disk: @docker&.disk_gb.to_f }
+      docker0 = { mem: docker&.mem_mb.to_f, disk: docker&.disk_gb.to_f }
       pid = Process.spawn(env.merge(ACTIVE_ENV => '1'), *argv, chdir: cwd)
-      stats = sample_until_exit(pid)
+      stats = sample_until_exit(pid, docker)
       after = @disk.read(root)
-      finish(stats, before, after, docker0)
+      finish(stats, before, after, docker0, docker)
     rescue SystemCallError
       { exit: 127, signal: nil }
     end
 
     private
 
-    def finish(stats, before, after, docker0)
+    def finish(stats, before, after, docker0, docker)
       status = stats.delete(:status)
       disk = [ before[:free_gb] - after[:free_gb], after[:used_gb] - before[:used_gb], 0.0 ].max
       stats.merge(exit: status.exitstatus, signal: status.termsig && Signal.signame(status.termsig),
                   disk_delta_gb: disk.round(2),
                   docker_mem_peak_mb: [ stats[:docker_mem_peak_mb] - docker0[:mem], 0.0 ].max.round,
-                  docker_disk_delta_gb: [ @docker&.disk_gb.to_f - docker0[:disk], 0.0 ].max.round(2))
+                  docker_disk_delta_gb: [ docker&.disk_gb.to_f - docker0[:disk], 0.0 ].max.round(2))
     end
 
-    def sample_until_exit(pid)
+    def sample_until_exit(pid, docker)
       old = FORWARDED_SIGNALS.to_h { |s| [ s, Signal.trap(s) { forward(s, pid) } ] }
       stats = { peak_rss_mb: 0.0, docker_mem_peak_mb: 0.0, samples: 0 }
       waiter = Thread.new { Process.wait2(pid).last }
       loop do
-        sample(pid, stats)
+        sample(pid, stats, docker)
         break if waiter.join(@interval)
       end
       stats[:status] = waiter.value
@@ -273,9 +275,9 @@ module ResourceProbe
       old&.each { |s, handler| Signal.trap(s, handler) }
     end
 
-    def sample(pid, stats)
+    def sample(pid, stats, docker)
       stats[:peak_rss_mb] = [ stats[:peak_rss_mb], @tree.rss_mb(pid) ].max
-      stats[:docker_mem_peak_mb] = [ stats[:docker_mem_peak_mb], @docker.mem_mb ].max if @docker
+      stats[:docker_mem_peak_mb] = [ stats[:docker_mem_peak_mb], docker.mem_mb ].max if docker
       stats[:samples] += 1
     end
 
@@ -294,8 +296,8 @@ module ResourceProbe
     end
 
     # Runs and records one op; returns an Outcome carrying the child's status.
-    def probe(op, argv, cwd: @root, prereqs: [])
-      result = @runner.run(argv, root: @root, cwd: cwd)
+    def probe(op, argv, cwd: @root, prereqs: [], docker: nil)
+      result = @runner.run(argv, root: @root, cwd: cwd, docker: docker || ResourceProbe.docker_sampler(op, argv))
       record(op, argv, cwd, prereqs, result) if result[:exit].to_i.zero? && result[:signal].nil?
       Outcome.new(exit_code: result[:exit], signal: result[:signal])
     end
@@ -303,7 +305,7 @@ module ResourceProbe
     private
 
     def record(op, argv, cwd, prereqs, result)
-      clean, redacted = Sanitize.argv(argv, @root)
+      clean, redacted = Sanitize.argv(argv, @root, cwd)
       fresh = {
         'fingerprint' => ResourceFingerprint.compute(@root), 'updated_at_epoch' => @now.call,
         'peak_rss_mb' => result[:peak_rss_mb], 'disk_delta_gb' => result[:disk_delta_gb],
@@ -348,13 +350,17 @@ module ResourceProbe
     end
 
     def launch(name, entry, report)
-      outcome = @probe.probe(name, entry['command'], cwd: File.join(@root, entry['cwd']), prereqs: entry['prereqs'])
+      outcome = @probe.probe(name, entry['command'], cwd: File.join(@root, entry['cwd']), prereqs: entry['prereqs'],
+                                                     docker: (DockerSampler.new if used_docker?(entry)))
       if outcome.exit_code.to_i.zero? && outcome.signal.nil?
         report.ran << name
       else
         report.skipped << { op: name, reason: "exited #{outcome.signal || outcome.exit_code}" }
       end
     end
+
+    # An op that once measured Docker keeps being sampled, whatever its command looks like.
+    def used_docker?(entry) = entry['docker_mem_peak_mb'].to_f.positive? || entry['docker_disk_delta_gb'].to_f.positive?
 
     def blocked(entry, ops, chain)
       prereqs = Array(entry['prereqs'])
@@ -418,10 +424,18 @@ module ResourceProbe
     128 + Signal.list.fetch(signal, 0)
   end
 
+  # The shared identity (it keys the store) rooted at the checkout the command
+  # runs in: for a linked worktree that is the worktree, not the main checkout.
+  def self.identity(dir)
+    ident = CfProjectIdentity.for(dir)
+    ident.root = CfProjectIdentity.checkout_root(File.realpath(dir)) || ident.root
+    ident
+  end
+
   def self.run(argv, env: ENV, out: $stdout, err: $stderr, home: Dir.home, runner: nil, killer: method(:relay_signal))
     args, cmd, opts, parser = parse(argv)
     sub, *names = args
-    ident = CfProjectIdentity.for(opts[:project])
+    ident = ResourceProbe.identity(opts[:project])
     store = Store.new(slug: ident.slug, home: home)
     case sub
     when 'probe' then run_probe(names.first, cmd, opts, ident, store, env, err, runner, killer)
@@ -444,7 +458,7 @@ module ResourceProbe
     # Nested under a probe: run the command as is, never wrap or record twice.
     return passthrough(cmd, killer) if env[ACTIVE_ENV] == '1'
 
-    runner ||= Runner.new(docker: docker_sampler(op, cmd))
+    runner ||= Runner.new
     cwd = File.realpath(opts[:project])
     outcome = Probe.new(root: ident.root, store: store, runner: runner).probe(op, cmd, cwd: cwd, prereqs: opts[:prereqs])
     outcome.signal ? killer.call(outcome.signal) : outcome.exit_code
