@@ -231,11 +231,51 @@ class ChangeConfig
       "error: lanes.testcases.gate_tags names '#{tag}', which no loaded case carries"
     end)
     lines.concat(quarantine_lines(set))
+    lines.concat(measure_lines(set))
     lines.concat(persona_lines(set, lane))
     lines << "testcases: this install reads suite_version up to #{ChangeSuiteSchema::SUITE_VERSION}"
     return lines unless set.errors.empty?
 
     lines << "testcases: #{set.cases.size} case(s) in #{set.suites.size} suite(s)"
+  end
+
+  # Two cases that look verified and measure nothing, raised as warnings: a
+  # figure captured and then never compared (a `capture` or `expect_stable`
+  # var that no `expect_equal` reads), and a case whose every expectation is a
+  # literal text match with no captured figure. Both pass on a page that shows
+  # the right words and the wrong numbers.
+  ASSERTION_VERBS = ChangeFlowCompiler::RUNTIME_VERBS.values_at(*ChangeFlowCompiler::ASSERTIONS).freeze
+
+  def self.measure_lines(set)
+    set.cases.flat_map do |item|
+      steps = compile_quietly(item)
+      next [] unless steps
+
+      unread_capture_lines(item, steps) + static_text_lines(item, steps)
+    end
+  end
+
+  def self.compile_quietly(item)
+    ChangeFlowCompiler.new(item.steps, base_url: 'http://doctor.invalid', env: {}).compile
+  rescue ChangeFlowCompiler::Error
+    nil
+  end
+
+  def self.unread_capture_lines(item, steps)
+    read = steps.flat_map { |step| [ step[:var], step[:equalsVar] ] if step[:verb] == 'expectEqual' }.compact
+    steps.filter_map { |step| step[:as] if step[:verb] == 'capture' }.uniq.reject { |name| read.include?(name) }.map do |name|
+      "warning: testcases captured figure #{name} in #{item.qualified_id} is never compared " \
+        '(no expect_equal reads it)'
+    end
+  end
+
+  def self.static_text_lines(item, steps)
+    expectations = steps.select { |step| ASSERTION_VERBS.include?(step[:verb]) }
+    return [] if expectations.empty? || steps.any? { |step| %w[capture expectStable].include?(step[:verb]) }
+    return [] unless expectations.all? { |step| step[:verb] == 'expectText' }
+
+    [ "warning: testcases case '#{item.qualified_id}' asserts only static text (every expectation is a literal " \
+      'text match, nothing is measured)' ]
   end
 
   # A case naming a persona the lane does not define runs as nobody, so it is

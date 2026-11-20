@@ -89,7 +89,7 @@ class ChangeTestcasesReport
       <p class="meta">Run #{h(run_id)}#{commit ? " at #{h(commit[0, 12])}" : ''}. #{summary}</p>
       #{attention_section}
       <h2>Cases</h2>
-      <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th><th>Video</th></tr></thead>
+      <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Quarantine</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th><th>Video</th></tr></thead>
       <tbody>
       #{executed.map { |record| case_row(record) }.join("\n")}
       </tbody></table>
@@ -157,13 +157,19 @@ class ChangeTestcasesReport
 
   def case_row(record)
     cells = [ h(record.key), status_cell(record), h(record.persona), duration(record.duration_ms), record.attempts.size,
-              h(record.acceptance_verdict || 'not graded'), history_cell(record), thumbnails(record), video_cell(record) ]
+              h(record.acceptance_verdict || 'not graded'), quarantine_cell(record), history_cell(record), thumbnails(record), video_cell(record) ]
     "<tr>#{cells.map { |cell| "<td>#{cell}</td>" }.join}</tr>"
   end
 
   def status_cell(record)
     note = { newly_failing: 'newly failing', no_history: 'no history', flaky: 'flaky' }[trend(record)]
     "<span class=\"#{record.status}\">#{h(record.status)}</span>#{note ? " <span class=\"tag\">#{note}</span>" : ''}"
+  end
+
+  def quarantine_cell(record)
+    return '-' unless record.quarantined?
+
+    "<span class=\"tag\">quarantined</span> #{h(record.quarantine_reason)}"
   end
 
   def duration(ms) = ms ? format('%.1f s', ms / 1000.0) : '-'
@@ -265,7 +271,18 @@ class ChangeTestcasesReport
     elsif record.skipped?
       element.add_element('skipped')
     end
+    quarantine_property(element, record)
     element
+  end
+
+  # JUnit consumers read `<properties>`; a quarantined case carries the flag
+  # and its reason so a CI view can tell a shielded failure from a gating one.
+  def quarantine_property(element, record)
+    return unless record.quarantined?
+
+    properties = element.add_element('properties')
+    properties.add_element('property', 'name' => 'quarantined', 'value' => 'true')
+    properties.add_element('property', 'name' => 'quarantine_reason', 'value' => record.quarantine_reason.to_s)
   end
 
   def failure_text(record)

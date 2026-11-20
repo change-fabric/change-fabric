@@ -63,4 +63,21 @@ class ChangeCaseResultTest < Minitest::Test
     assert_equal durations, ChangeCaseResult.from_h(JSON.parse(result.to_json)).step_durations
     assert_equal [], ChangeCaseResult.new(key: "s/a", status: "pass").step_durations
   end
+
+  def test_quarantine_defaults_off_and_round_trips
+    plain = result("fail", "r1")
+    refute plain.quarantined?
+    assert_nil plain.quarantine_reason
+
+    held = ChangeCaseResult.new(key: "a/b", suite: "a", id: "b", status: "fail", quarantined: true,
+                                quarantine_reason: "flaky font load")
+    again = ChangeCaseResult.from_h(JSON.parse(held.to_json))
+    assert again.quarantined?
+    assert_equal "flaky font load", again.quarantine_reason
+  end
+
+  def test_a_ledger_line_written_before_quarantine_existed_still_loads
+    old = ChangeCaseResult.from_h("key" => "a/b", "suite" => "a", "id" => "b", "status" => "pass")
+    refute old.quarantined?
+  end
 end

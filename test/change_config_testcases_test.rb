@@ -296,4 +296,55 @@ class ChangeConfigTestcasesTest < Minitest::Test
   ensure
     ENV["HOME"] = previous
   end
+
+  MEASURE_SUITE = <<~YAML
+    suite_version: 5
+    suite: orders
+    cases:
+      - id: unread
+        acceptance: The header total is shown.
+        steps:
+          - goto: /orders
+          - capture: { var: header_total, selector: ".total", kind: number }
+          - expect_visible: "main"
+      - id: compared
+        acceptance: The header total matches the list.
+        steps:
+          - goto: /orders
+          - capture: { var: header_total, selector: ".total", kind: number }
+          - expect_equal: { var: header_total, selector: ".rows", kind: count }
+      - id: static
+        acceptance: The page says Orders.
+        steps:
+          - goto: /orders
+          - expect_text: { selector: "h1", equals: "Orders" }
+  YAML
+
+  def doctor_lines(suite)
+    with_config(base, suite: suite.sub("suite: checkout", "suite: checkout")) do |config, _root|
+      ChangeConfig.testcase_suite_lines(config)
+    end
+  end
+
+  def test_doctor_warns_about_a_captured_figure_nothing_compares
+    lines = doctor_lines(MEASURE_SUITE)
+
+    assert_includes lines, "warning: testcases captured figure header_total in orders/unread is never compared " \
+                           "(no expect_equal reads it)"
+    refute(lines.any? { |line| line.include?("orders/compared") && line.include?("never compared") })
+  end
+
+  def test_doctor_warns_about_a_case_asserting_only_static_text
+    lines = doctor_lines(MEASURE_SUITE)
+
+    assert(lines.any? { |line| line.include?("orders/static") && line.include?("asserts only static text") })
+    refute(lines.any? { |line| line.include?("orders/compared") && line.include?("static text") })
+    refute(lines.any? { |line| line.include?("orders/unread") && line.include?("static text") })
+  end
+
+  def test_doctor_does_not_flag_a_text_case_that_also_has_another_kind_of_expectation
+    suite = MEASURE_SUITE.sub("- expect_text: { selector: \"h1\", equals: \"Orders\" }",
+                              "- expect_text: { selector: \"h1\", equals: \"Orders\" }\n          - expect_count: { selector: \".row\", equals: 3 }")
+    refute(doctor_lines(suite).any? { |line| line.include?("orders/static") && line.include?("static text") })
+  end
 end

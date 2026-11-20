@@ -527,6 +527,35 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  def test_captured_values_with_their_read_time_reach_the_grader
+    with_suite do |dir|
+      result = ok_result(2)
+      result[0] = result[0].merge(
+        "vars" => { "header_total" => "69" },
+        "steps" => [ { "index" => 1, "verb" => "capture", "ok" => true, "captured" => "header_total", "found" => "69",
+                       "kind" => "number", "readAt" => "2026-11-20T10:00:00.000Z" } ]
+      )
+      grader = FakeGrader.new
+      lane(dir, {}, session: FakeSession.new(result), grader: grader).run
+      first = grader.observations.find { |item| item[:id] == "checkout/happy-path" }
+
+      assert_equal [ { var: "header_total", value: "69", kind: "number", read_at: "2026-11-20T10:00:00.000Z" } ],
+                   first[:captured]
+    end
+  end
+
+  def test_a_live_quarantine_is_recorded_on_the_case_result
+    with_suite(quarantined_suite("2026-09-30")) do |dir|
+      runner = lane(dir, {}, session: FakeSession.new(ok_result(2)), today: TODAY)
+      runner.run
+      records = runner.case_records.to_h { |record| [ record.id, record ] }
+
+      assert records["happy-path"].quarantined?
+      assert_equal "the sandbox gateway drops a redirect", records["happy-path"].quarantine_reason
+      refute records["empty-cart"].quarantined?
+    end
+  end
+
   def test_the_observation_reaches_the_grader
     with_suite do |dir|
       grader = FakeGrader.new

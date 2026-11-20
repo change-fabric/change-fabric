@@ -511,7 +511,7 @@ class ChangeFlowCompiler
         case "capture": {
           const value = await cfRead(page, step, timeout);
           state.vars[step.as] = value;
-          return { captured: step.as, found: value };
+          return { captured: step.as, found: value, kind: step.kind, readAt: new Date().toISOString() };
         }
         case "expectVisible":
           await cfWait(page, step, timeout, "visible");
