@@ -34,7 +34,9 @@ module ResourceProbe
   DECAY = 0.9
   SAMPLE_INTERVAL = 1.0
   FORWARDED_SIGNALS = %w[INT TERM HUP].freeze
-  SECRET_FLAG = /\A--?[\w-]*(token|secret|password|passwd|apikey|api-key|key|auth|credential)[\w-]*\z/i
+  # Flags whose value is a credential; -u and --user take user:password (curl, others).
+  SECRET_FLAG = Regexp.union(/\A--?[\w-]*(token|secret|password|passwd|apikey|api-key|key|auth|credential)[\w-]*\z/i, /\A(-u|--user|--proxy-user)\z/i)
+  ATTACHED_USER = /\A-[uU][^-].*:/
   SECRET_VALUE = %r{\A(sk-|ghp_|gho_|github_pat_|xox[abp]-|AKIA|AIza)|\A[A-Fa-f0-9]{32,}\z|\A(?=[A-Za-z0-9+_-]*\d)(?=[A-Za-z0-9+_-]*[A-Za-z])[A-Za-z0-9+_-]{40,}={0,2}\z}
   # Free text (an HTTP header, a quoted payload) is opaque: it may carry a credential.
   OPAQUE_TEXT = /\s|(authorization|bearer|password|passwd|secret|token|api[-_]?key)\s*[:=]/i
@@ -91,7 +93,7 @@ module ResourceProbe
         return "#{m[1]}=<redacted>"
       end
       return key_value(arg, root, cwd) if arg.start_with?('-') && arg.include?('=')
-      return '<redacted>' if arg.match?(SECRET_VALUE) || arg.match?(OPAQUE_TEXT)
+      return '<redacted>' if arg.match?(SECRET_VALUE) || arg.match?(OPAQUE_TEXT) || arg.match?(ATTACHED_USER)
 
       url_or_path(arg, root, cwd)
     end
@@ -469,7 +471,7 @@ module ResourceProbe
       return 2
     end
     # Nested under a probe: run the command as is, never wrap or record twice.
-    return passthrough(cmd, killer) if env[ACTIVE_ENV] == '1'
+    return passthrough(cmd, File.realpath(opts[:project]), killer) if env[ACTIVE_ENV] == '1'
 
     runner ||= Runner.new
     cwd = File.realpath(opts[:project])
@@ -477,8 +479,8 @@ module ResourceProbe
     outcome.signal ? killer.call(outcome.signal) : outcome.exit_code
   end
 
-  def self.passthrough(cmd, killer)
-    status = Process.wait2(Process.spawn(*cmd)).last
+  def self.passthrough(cmd, cwd, killer)
+    status = Process.wait2(Process.spawn(*cmd, chdir: cwd)).last
     status.termsig ? killer.call(Signal.signame(status.termsig)) : status.exitstatus
   rescue SystemCallError
     127

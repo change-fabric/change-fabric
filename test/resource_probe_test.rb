@@ -215,6 +215,27 @@ class ResourceProbeTest < Minitest::Test
     assert entry["command_redacted"]
   end
 
+  def test_basic_auth_flags_are_redacted
+    argv = [ "curl", "-u", "alice:hunter2", "--proxy-user=bob:pw456", "-ucarol:pw789", "--user", "dave:pw000", "https://example.invalid" ]
+    probe_with(FakeRunner.new(ok)).probe("auth", argv, cwd: @root)
+    raw = File.read(@store.path)
+    %w[hunter2 pw456 pw789 pw000 alice carol dave].each { |bad| refute_includes raw, bad }
+    assert_equal [ "curl", "-u", "<redacted>", "--proxy-user=<redacted>", "<redacted>", "--user", "<redacted>", "https://example.invalid" ],
+                 @store.ops["auth"]["command"]
+    assert @store.ops["auth"]["command_redacted"]
+  end
+
+  def test_nested_probe_runs_the_command_in_the_requested_project_dir
+    sub = File.join(@root, "sub")
+    FileUtils.mkdir_p(sub)
+    out = File.join(@root, "cwd.txt")
+    out_s = StringIO.new
+    code = RP.run([ "--project", sub, "probe", "t", "--", RbConfig.ruby, "-e", "File.write(ARGV[0], Dir.pwd)", out ],
+                  env: { "CF_PROBE_ACTIVE" => "1" }, out: out_s, err: StringIO.new, home: @home)
+    assert_equal 0, code
+    assert_equal File.realpath(sub), File.realpath(File.read(out))
+  end
+
   def test_repo_executable_is_recorded_so_replay_resolves_it
     tool = File.join(@root, "my-probe-tool")
     File.write(tool, "#!/bin/sh\nexit 0\n")
