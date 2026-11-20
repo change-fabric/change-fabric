@@ -82,6 +82,12 @@ class ChangeProdClassesTest < Minitest::Test
     assert_includes lines, "prod: changed db/migrate/9.rb touches the destructive_data door of op drop_col"
   end
 
+  def test_trailing_globstar_keeps_a_wildcard_prefix
+    cfg = config({}, doors: { "contracts_and_auth" => { "paths" => [ "services/*/db/**" ] } })
+    hits = Classes.linkage(cfg, [ "services/api/db/migrate/1.rb", "services/api/app/x.rb" ])
+    assert_equal [ [ "services/api/db/migrate/1.rb" ] ], hits.map { |hit| hit[:files] }
+  end
+
   def test_routine_never_links_even_when_a_path_matches
     cfg = config({ "tidy" => "routine" }, doors: { "routine" => { "paths" => [ "**" ] } })
     assert_empty Classes.linkage(cfg, [ "a.rb" ])
