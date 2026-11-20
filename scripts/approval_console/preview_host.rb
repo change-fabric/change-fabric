@@ -27,6 +27,11 @@ module ApprovalConsole
       pages + %w[/page/enroll /page/enroll-shown /page/register /page/notice]
     end
 
+    # Chromium treats the preview's plain-http host alias as a secure origin,
+    # so window.PublicKeyCredential exists and the page script enables the form
+    # exactly as it does over https. Without it a client state never forms.
+    def launch_args(url) = [ "--unsafely-treat-insecure-origin-as-secure=#{url}" ]
+
     # Yields the browserless session and the preview url the container uses.
     def with_session(&block)
       raise Unavailable, "docker is not available" unless ChangeDocker.available?

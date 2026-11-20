@@ -22,7 +22,10 @@ class ApprovalConsolePreviewScriptsTest < Minitest::Test
       @modules = []
     end
 
-    def run_function(code, **)
+    attr_reader :launch_args
+
+    def run_function(code, launch_args: nil, **)
+      @launch_args = launch_args
       @modules << code
       @answer.call(code)
     end
@@ -32,9 +35,15 @@ class ApprovalConsolePreviewScriptsTest < Minitest::Test
     Capture.targets.map do |route, state|
       entry = { "route" => route, "state" => state, "shot" => PNG }
       entry["first_load"] = first_load if first_load && route == Capture::FIRST_LOAD_ROUTE && !state
+      entry["observed"] = OBSERVED.fetch(state) if state
       entry
     end
   end
+
+  OBSERVED = {
+    "success" => { "result_kind" => "ok" }, "locked" => { "msg" => "Too many failed tries. Locked until 4:10 PM." },
+    "code-refused" => { "msg" => "That code did not match. Wait." }, "in-app" => { "hint_hidden" => false }
+  }.freeze
 
   GOOD = { "changes" => { "top" => 300, "bottom" => 380 }, "bar" => { "top" => 700, "bottom" => 844 }, "inner_height" => 844, "scroll_y" => 0 }.freeze
 
@@ -88,6 +97,24 @@ class ApprovalConsolePreviewScriptsTest < Minitest::Test
     assert_match(/what-changes line is missing/, Capture.first_load_problem({ "first_load" => GOOD.merge("changes" => nil) }, "390x844"))
   end
 
+  def test_a_client_state_that_never_formed_is_a_problem
+    stuck = { "route" => "/r", "state" => "success", "observed" => { "result_kind" => "info", "msg" => "This browser cannot use passkeys." } }
+    assert_match(/expected result_kind "ok", saw "info"/, Capture.state_problem(stuck))
+    assert_nil Capture.state_problem(stuck.merge("observed" => OBSERVED["success"]))
+    assert_nil Capture.state_problem({ "route" => "/r", "state" => nil })
+    assert_match(/expected msg/, Capture.state_problem({ "route" => "/r", "state" => "locked", "observed" => {} }))
+    assert_match(/expected hint_hidden false, saw true/, Capture.state_problem({ "route" => "/r", "state" => "in-app", "observed" => { "hint_hidden" => true } }))
+  end
+
+  def test_the_browser_treats_the_preview_origin_as_secure
+    assert_equal [ "--unsafely-treat-insecure-origin-as-secure=http://host.docker.internal:9" ], ApprovalConsole::PreviewHost.launch_args("http://host.docker.internal:9")
+    seen = nil
+    session = Object.new
+    session.define_singleton_method(:run_function) { |_code, **opts| seen = opts[:launch_args]; [] }
+    Dir.mktmpdir { |dir| Capture.new(out_dir: dir, session: session, url: "http://p:1").run }
+    assert_equal ApprovalConsole::PreviewHost.launch_args("http://p:1"), seen
+  end
+
   def test_run_surfaces_a_first_load_failure
     Dir.mktmpdir do |dir|
       session = FakeSession.new { entries(first_load: GOOD.merge("changes" => { "bottom" => 2000 })) }
@@ -116,6 +143,7 @@ class ApprovalConsolePreviewScriptsTest < Minitest::Test
     end
     results = A11y.scan(session, "http://p", routes: [ "/a", "/b" ])
     assert_equal %w[light dark], results.keys
+    assert_equal [ "--unsafely-treat-insecure-origin-as-secure=http://p" ], session.launch_args
     assert_includes modules[0], '"light"'
     assert_includes modules[1], '"dark"'
     assert(modules.all? { |m| m.include?("setBypassCSP(true)") })

@@ -22,6 +22,12 @@ module ApprovalConsole
       def log(_message) = nil
     end
 
+    # The lane calls run_function(code) with no browser flags; this adds the
+    # secure-origin flag so the pages scan in the same state a phone sees.
+    SecureOrigin = Struct.new(:session, :url) do
+      def run_function(code, **opts) = session.run_function(code, launch_args: PreviewHost.launch_args(url), **opts)
+    end
+
     module_function
 
     # The lane config for one color scheme. The page's strict CSP blocks the
@@ -34,7 +40,7 @@ module ApprovalConsole
     # Findings per scheme: { "light" => [Finding], "dark" => [Finding] }.
     def scan(session, url, routes: PreviewHost.routes)
       SCHEMES.to_h do |scheme|
-        [ scheme, ChangeLaneA11y.new(lane_config(scheme, routes), Context.new(nil, url, session)).run ]
+        [ scheme, ChangeLaneA11y.new(lane_config(scheme, routes), Context.new(nil, url, SecureOrigin.new(session, url))).run ]
       end
     end
 

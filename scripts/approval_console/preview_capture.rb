@@ -27,6 +27,12 @@ module ApprovalConsole
       [ "/type/step/state/pending", "code-refused" ], [ "/type/carve-out/state/pending", "in-app" ]
     ].freeze
     DEFAULT_OUT = File.join(Dir.home, "Desktop", "approval-console-preview")
+    # What the page must show once a client state has settled: the result
+    # block's kind, a prefix of the status line, or the in-app hint.
+    EXPECTED = {
+      "success" => { "result_kind" => "ok" }, "locked" => { "msg" => "Too many failed tries" },
+      "code-refused" => { "msg" => "That code did not match" }, "in-app" => { "hint_hidden" => false }
+    }.freeze
     FIRST_LOAD_ROUTE = "/type/carve-out/state/pending"
 
     Still = Struct.new(:route, :state, :viewport, :scheme, :base64, :error, keyword_init: true) do
@@ -69,6 +75,13 @@ module ApprovalConsole
                            inner_height: window.innerHeight, scroll_y: window.scrollY };
                 });
               }
+              if (state) {
+                entry.observed = await page.evaluate(() => {
+                  const $ = (id) => document.getElementById(id);
+                  return { result_hidden: $("result").hidden, result_kind: $("result").dataset.kind,
+                           msg: $("msg") ? $("msg").textContent : "", hint_hidden: $("inapp") ? $("inapp").hidden : null };
+                });
+              }
               entry.shot = await page.screenshot({ encoding: "base64", type: "png", fullPage: true });
             } catch (err) {
               entry.error = String(err && err.message ? err.message : err);
@@ -97,6 +110,21 @@ module ApprovalConsole
       nil
     end
 
+    # Why a client-state still did not reach its state, or nil. A screenshot
+    # of a form stuck in "cannot use passkeys" would otherwise pass as evidence.
+    def self.state_problem(entry)
+      expected = EXPECTED[entry["state"]]
+      return nil unless expected
+
+      seen = entry["observed"] || {}
+      expected.each do |key, want|
+        got = seen[key]
+        ok = key == "msg" ? got.to_s.start_with?(want) : got == want
+        return "#{entry['route']} #{entry['state']}: expected #{key} #{want.inspect}, saw #{got.inspect}" unless ok
+      end
+      nil
+    end
+
     def initialize(out_dir:, session:, url:)
       @out_dir = out_dir
       @session = session
@@ -110,13 +138,16 @@ module ApprovalConsole
       problems = []
       VIEWPORTS.each_key do |viewport|
         SCHEMES.each do |scheme|
-          results = Array(@session.run_function(self.class.capture_module(@url, self.class.targets, viewport, scheme), timeout_ms: 240_000))
+          results = Array(@session.run_function(self.class.capture_module(@url, self.class.targets, viewport, scheme),
+                                                    launch_args: PreviewHost.launch_args(@url), timeout_ms: 240_000))
           results.each do |entry|
             still = Still.new(route: entry["route"], state: entry["state"], viewport: viewport, scheme: scheme, base64: entry["shot"], error: entry["error"])
             write(still)
             stills << still
             problem = self.class.first_load_problem(entry, viewport)
             problems << "#{viewport} #{scheme}: #{problem}" if problem
+            state_problem = self.class.state_problem(entry)
+            problems << "#{viewport} #{scheme}: #{state_problem}" if state_problem
           end
         end
       end
