@@ -164,19 +164,43 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_equal [ 413, "too_large" ], [ status, data["error"] ]
   end
 
-  def carve_out_with_files(count)
-    files = Array.new(count) { |i| format("%<i>04d/", i: i) + ("d" * 195) + ".rb" }.sort
-    Canonical.build(type: "carve-out", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil,
-                    request_id: SecureRandom.uuid, created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z",
-                    summary: "merge PR 9", pr_url: "https://github.com/acme/app/pull/9", pr_title: "Big", base: "main", files: files)
+  def carve_out_body(count, width: 60)
+    files = Array.new(count) { |i| format("%<i>04d/", i: i) + ("d" * (width - 8)) + ".rb" }.sort
+    [ files, {
+      type: "carve-out", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil,
+      request_id: SecureRandom.uuid, created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z",
+      summary: "merge PR 9", pr_url: "https://github.com/acme/app/pull/9", pr_title: "Big", base: "main", files: files
+    } ]
   end
 
-  def test_a_3000_file_carve_out_with_200_character_paths_is_accepted
+  def carve_out_with_files(count, width: 60) = Canonical.build(carve_out_body(count, width: width).last)
+
+  def test_a_3000_file_carve_out_with_60_character_paths_is_accepted
     body = carve_out_with_files(Canonical::MAX_FILES)
     raw = JSON.generate("body" => body)
     assert_operator raw.bytesize, :>, 32 * 1024
     assert_operator raw.bytesize, :<, ApprovalConsoleApp::MAX_BODY
     assert_equal 201, create_request(body)[0]
+  end
+
+  def test_a_body_of_about_290_kb_passes_and_about_500_kb_is_refused_at_build_time
+    assert carve_out_with_files(1430, width: 200).bytesize.between?(280_000, Canonical::MAX_CANONICAL_BYTES)
+    _, attrs = carve_out_body(2500, width: 200)
+    error = assert_raises(Canonical::Invalid) { Canonical.build(attrs) }
+    assert_match(/body is \d{6} bytes \(2500 files\), over the 300000-byte limit/, error.message)
+  end
+
+  def test_the_server_refuses_an_oversize_body_before_any_store_write
+    files, attrs = carve_out_body(2500, width: 200)
+    oversize = Canonical.serialize(attrs.merge(v: 1))
+    assert_operator oversize.bytesize, :>, 450_000
+    assert_equal 2500, files.size
+    before = @store.items.dup
+    status, data = signed("POST", "/m/#{MID}/requests", { "body" => oversize })
+    assert_includes [ 400, 413 ], status
+    assert_equal "invalid_body", data["error"] if status == 400
+    assert_equal before, @store.items, "nothing was written"
+    assert_empty @dm.sent
   end
 
   def test_a_request_one_byte_over_the_limit_is_still_413

@@ -24,6 +24,10 @@ module ApprovalConsole
     # headroom and stays far under the 6 MB Function URL limit.
     MAX_FILES = 3000
     MAX_REQUEST_BYTES = 1024 * 1024
+    # The console stores the body in one DynamoDB item (400 KB cap) and keeps
+    # it again in the approved proof, so a body over this is refused at build
+    # time, on the client, before anything is sent or stored.
+    MAX_CANONICAL_BYTES = 300_000
     UUID = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
     SHA = /\A[0-9a-f]{40}\z/
     TIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/
@@ -115,9 +119,18 @@ module ApprovalConsole
       allowed = required + OPTIONAL.fetch(type, [])
       errors << "unexpected fields: #{(body.keys - allowed).sort.join(', ')}" unless (body.keys - allowed).empty?
       errors << "missing fields: #{(required - body.keys).sort.join(', ')}" unless (required - body.keys).empty?
+      errors.concat(size_errors(body))
       errors.concat(common_errors(body))
       errors.concat(payload_errors(type, body))
       errors
+    end
+
+    def size_errors(body)
+      bytes = serialize(body).bytesize
+      return [] if bytes <= MAX_CANONICAL_BYTES
+
+      files = body['files'].is_a?(Array) ? " (#{body['files'].size} files)" : ''
+      [ "body is #{bytes} bytes#{files}, over the #{MAX_CANONICAL_BYTES}-byte limit; split the change into smaller PRs" ]
     end
 
     def common_errors(body)
