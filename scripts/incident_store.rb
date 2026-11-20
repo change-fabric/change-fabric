@@ -65,8 +65,8 @@ class IncidentStore
     raise Invalid, 'a --repo slug is required' if @repo.empty?
 
     @root = File.expand_path(root)
-    forbidden = [ repo_path ].compact + known_roots.to_s.split(':').reject(&:empty?)
-    self.class.assert_outside_git!(@root, forbidden, 'incident store')
+    @forbidden = [ repo_path ].compact + known_roots.to_s.split(':').reject(&:empty?)
+    self.class.assert_outside_git!(@root, @forbidden, 'incident store')
   end
 
   # Resolves `path` to its nearest existing ancestor (walking up until a
@@ -138,7 +138,9 @@ class IncidentStore
 
     id = "#{stamp.utc.strftime('%Y-%m-%d')}-#{clean}"
     dir = File.join(repo_dir, id)
+    guard_dir!(repo_dir, 'repo directory')
     claim_repo_dir!
+    guard_dir!(dir, 'incident directory')
     reserve!(dir, id)
     FileUtils.mkdir_p(File.join(dir, 'evidence'))
     write_json(File.join(dir, 'incident.json'), new_record(id, client, severity, at))
@@ -163,7 +165,12 @@ class IncidentStore
     hits.first
   end
 
-  def path(id) = File.join(repo_dir, resolve(id))
+  def path(id)
+    guard_dir!(repo_dir, 'repo directory')
+    dir = File.join(repo_dir, resolve(id))
+    guard_dir!(dir, 'incident directory')
+    dir
+  end
 
   def read(id) = JSON.parse(File.read(File.join(path(id), 'incident.json')))
 
@@ -291,6 +298,10 @@ class IncidentStore
   private
 
   def repo_dir = File.join(@root, @repo)
+
+  # Every directory the store writes into is judged by its own realpath, so a
+  # checkout or a symlink into one is refused below the root as well.
+  def guard_dir!(dir, what) = self.class.assert_outside_git!(dir, @forbidden, what)
 
   # Two repo names can slug alike (a-b/c and a/b-c), so the first create writes
   # the full name beside the incidents and a different name is refused.

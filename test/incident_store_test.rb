@@ -169,6 +169,36 @@ class IncidentStoreTest < Minitest::Test
     end
   end
 
+  def checkout
+    repo = File.join(@tmp, "checkout")
+    FileUtils.mkdir_p(repo)
+    GitFixture.git_init(repo)
+    repo
+  end
+
+  def test_refuses_a_repo_dir_that_is_itself_a_checkout
+    FileUtils.mkdir_p(File.join(@root, "acme-web"))
+    GitFixture.git_init(File.join(@root, "acme-web"))
+    assert_invalid(/repo directory .* inside a git work tree/) { make }
+  end
+
+  def test_refuses_a_repo_dir_that_is_a_symlink_into_a_checkout
+    FileUtils.mkdir_p(@root)
+    File.symlink(checkout, File.join(@root, "acme-web"))
+    assert_invalid(/repo directory .* inside a git work tree/) { make }
+    assert_empty Dir.children(checkout).reject { |name| name == ".git" }
+  end
+
+  def test_refuses_an_id_dir_that_is_a_symlink_into_a_checkout
+    id = make
+    dir = File.join(@root, "acme-web", id)
+    FileUtils.remove_entry(dir)
+    File.symlink(checkout, dir)
+    assert_invalid(/incident directory .* inside a git work tree/) { store.append(id, at: T1, actor: "a", text: "t") }
+    assert_invalid(/incident directory .* inside a git work tree/) { make }
+    assert_empty Dir.children(checkout).reject { |name| name == ".git" }
+  end
+
   def test_a_plain_directory_is_accepted
     assert_equal @root, store.root
   end
