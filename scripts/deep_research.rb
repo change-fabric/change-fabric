@@ -141,7 +141,6 @@ module DeepResearch
         o.on('--run ID') { |v| opts[:run] = v }
         o.on('--pdf PATH') { |v| opts[:pdf] = v }
         o.on('--out-dir DIR') { |v| opts[:out_dir] = v }
-        o.on('--force') { opts[:force] = true }
       end.parse!(args)
       raise Refusal, 'ingest needs --run ID and --pdf ABSOLUTE_PATH' unless opts[:run] && opts[:pdf]
       raise Refusal, "pdf path must be absolute: #{opts[:pdf]}" unless opts[:pdf].start_with?('/')
@@ -164,7 +163,7 @@ module DeepResearch
       xml_path = File.join(dir, 'raw.xml.tmp')
       xml = extract(opts[:pdf], xml_path)
       refuse_secrets(DeepResearchParse.text(xml), xml_path)
-      check_run_id(xml, record, xml_path, opts[:force])
+      check_binding(xml, record)
       File.rename(xml_path, File.join(dir, 'raw.xml'))
       FileUtils.cp(opts[:pdf], File.join(dir, 'report.pdf'))
       record = DeepResearchStore.transition(dir, 'ingested', 'pdf_sha256' => sha)
@@ -177,7 +176,7 @@ module DeepResearch
       File.write(DeepResearchStore.report_path(dir), "#{JSON.pretty_generate(report)}\n")
       DeepResearchStore.transition(dir, 'done')
       DeepResearchStore.copy_out(dir, opts[:out_dir], %w[report.json prompt.md]) if opts[:out_dir]
-      report['diagnostics'].each { |d| @err.puts("diagnostic: #{d}") }
+      report['diagnostics'].uniq.each { |d| @err.puts("diagnostic: #{d}") }
       @out.puts("Report: #{DeepResearchStore.report_path(dir)}")
       OK
     end
@@ -195,14 +194,15 @@ module DeepResearch
       raise Refusal, "ingested text contains a secret pattern (#{kinds.join(', ')}); nothing kept"
     end
 
-    def check_run_id(xml, record, xml_path, force)
-      return if DeepResearchParse.page_one_text(xml).include?(record['id'])
-
-      @err.puts("warning: run id #{record['id']} is not on page 1 of this PDF")
-      return if force
-
-      FileUtils.rm_f(xml_path)
-      raise Refusal, 'this PDF may belong to a different run; rerun with --force to ingest it anyway'
+    # Binding rests on the explicit --run flag: a ChatGPT export holds the
+    # report only, not the prompt, so the run id is normally absent. Both
+    # checks here are advisory warnings, never refusals.
+    def check_binding(xml, record)
+      other = DeepResearchParse.text(xml).scan(/dr-\h{8}-\h{4}-\h{4}-\h{4}-\h{12}/).uniq - [ record['id'] ]
+      @err.puts("warning: this PDF names a different run (#{other.join(', ')}); ingesting as #{record['id']} per --run") if other.any?
+      found = DeepResearchParse.lines(xml).filter_map { |l| l.text[DeepResearchParse::HEADING_RE, 1]&.downcase }
+      missing = DeepResearchParse::HEADINGS - found
+      @err.puts("warning: report headings do not match the skeleton (missing: #{missing.join(', ')})") if missing.any?
     end
 
     def build_report(record, parsed, sha)

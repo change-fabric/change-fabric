@@ -21,7 +21,7 @@ class DeepResearchCliTest < Minitest::Test
     assert_equal 1, out.lines.grep(/\APaste .*prompt\.md into ChatGPT deep research.*attach it here/).size
     dir = DeepResearchStore.run_dir("s", id)
     assert_equal "pending", DeepResearchStore.read(dir)["state"]
-    assert_includes File.read(File.join(dir, "prompt.md")), "Deep research [#{id}]: A question"
+    assert_includes File.read(File.join(dir, "prompt.md")), "Run reference (bookkeeping only, no need to repeat it in the report): #{id}"
   end
 
   def test_prompt_refuses_a_sensitive_term_and_writes_nothing
@@ -107,13 +107,44 @@ class DeepResearchCliTest < Minitest::Test
     refute File.exist?(File.join(dir, "raw.xml.tmp"))
   end
 
-  def test_ingest_of_another_runs_pdf_needs_force
+  def test_ingest_binds_to_the_run_flag_without_the_run_id_in_the_pdf
+    # A ChatGPT export holds the report only, so the id is absent: no refusal, no --force.
     DeepResearchStore.create(record("id" => "dr-00000000-0000-4000-8000-0000000000ff"), "p")
-    args = [ "ingest", "--run", "dr-00000000-0000-4000-8000-0000000000ff", "--pdf", synthetic_pdf ]
-    code, _out, err = cli(*args, extractor: synthetic_xml)
-    assert_equal 2, code
-    assert_includes err, "different run"
-    assert_equal 0, cli(*args, "--force", extractor: synthetic_xml)[0]
+    code, out, err = cli("ingest", "--run", "dr-00000000-0000-4000-8000-0000000000ff", "--pdf", synthetic_pdf,
+                         extractor: StoredExtractor.new(File.read(fixture("chatgpt", "raw.xml"))))
+    assert_equal 0, code
+    assert_match(/Report: /, out)
+    refute_includes err, "different run"
+  end
+
+  def test_ingest_of_a_pdf_naming_another_run_warns_but_still_ingests
+    DeepResearchStore.create(record("id" => "dr-00000000-0000-4000-8000-0000000000ff"), "p")
+    code, _out, err = cli("ingest", "--run", "dr-00000000-0000-4000-8000-0000000000ff", "--pdf", synthetic_pdf,
+                          extractor: synthetic_xml)
+    assert_equal 0, code
+    assert_includes err, "names a different run (#{RUN_ID})"
+  end
+
+  def test_ingest_warns_when_headings_miss_the_skeleton
+    DeepResearchStore.create(record, "p")
+    thin = StoredExtractor.new(xml("Summary", "Some text.", "Findings", "1. A claim."))
+    code, _out, err = cli("ingest", "--run", RUN_ID, "--pdf", synthetic_pdf, extractor: thin)
+    assert_equal 0, code
+    assert_includes err, "headings do not match the skeleton (missing: sources, unverified, contested)"
+  end
+
+  def test_real_chatgpt_fixture_ingests_to_the_expected_report
+    DeepResearchStore.create(record, "p")
+    pdf = fixture("chatgpt", "report.pdf")
+    assert_equal 0, cli("ingest", "--run", RUN_ID, "--pdf", pdf,
+                        extractor: StoredExtractor.new(File.read(fixture("chatgpt", "raw.xml"))))[0]
+    report = JSON.parse(File.read(DeepResearchStore.report_path(DeepResearchStore.run_dir("synthetic", RUN_ID))))
+    expected = JSON.parse(File.read(fixture("chatgpt", "report.json")))
+    assert_equal [], DeepResearchSchema.validate(report)
+    assert_equal expected["findings"], report["findings"]
+    assert_equal expected["sources"], report["sources"]
+    assert_equal expected["citations"], report["citations"]
+    assert_equal "none", report["provenance"]["link_annotations"]
   end
 
   def test_ingesting_the_same_pdf_twice_is_a_no_op

@@ -7,7 +7,8 @@ class DeepResearchPromptTest < Minitest::Test
 
   def test_render_has_title_line_skeleton_and_primary_source_rule
     text = DeepResearchPrompt.render(question: "Why?", run_id: "dr-x")
-    assert_match(/\ADeep research \[dr-x\]: Why\?/, text)
+    assert_match(/\ADeep research: Why\?\n\nRun reference \(bookkeeping only[^)]*\): dr-x\n/, text)
+    refute_match(/must (appear|survive|include)/i, text)
     %w[Summary Findings Sources Unverified Contested].each { |h| assert_includes text, "## #{h}" }
     assert_includes text, "Prefer primary sources"
   end

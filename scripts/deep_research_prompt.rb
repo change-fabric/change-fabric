@@ -19,7 +19,9 @@ module DeepResearchPrompt
   # naming the file that crossed it.
   def render(question:, contexts: [], run_id: '')
     <<~PROMPT
-      Deep research [#{run_id}]: #{question.strip}
+      Deep research: #{question.strip}
+
+      Run reference (bookkeeping only, no need to repeat it in the report): #{run_id}
 
       #{context_block(contexts)}Prefer primary sources (official docs, specs, filings, source code) over secondary summaries.
 

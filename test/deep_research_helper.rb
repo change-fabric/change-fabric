@@ -40,13 +40,20 @@ module DeepResearchHelper
 
   def fixture(*parts) = File.join(FIXTURES, *parts)
 
-  # Hand-made pdftohtml xml: each entry is text or [text, href].
+  # Hand-made pdftohtml xml, one line per entry (20px apart). An entry is text,
+  # [text, href], or {frags: [[text, left], ...]} for several fragments that
+  # share a line, as a list marker and its item do in a ChatGPT export.
   def xml(*entries, page: 1)
-    body = entries.map do |text, href|
-      inner = href ? %(<a href="#{href}">#{text}</a>) : text
-      %(<text top="1" left="1" width="1" height="1" font="0">#{inner}</text>)
+    body = entries.each_with_index.flat_map do |entry, i|
+      top = 20 * (i + 1)
+      frags = entry.is_a?(Hash) ? entry[:frags] : [ [ *entry, 10 ] ]
+      frags.map do |text, href_or_left, left|
+        href, left = left ? [ href_or_left, left ] : [ nil, href_or_left ]
+        inner = href ? %(<a href="#{href}">#{text}</a>) : text
+        %(<text top="#{top}" left="#{left}" width="1" height="1" font="0">#{inner}</text>)
+      end
     end
-    %(<pdf2xml><page number="#{page}" position="absolute" top="0" left="0" height="1" width="1">#{body.join("\n")}</page></pdf2xml>)
+    %(<pdf2xml><page number="#{page}" position="absolute" top="0" left="0" height="10000" width="1">#{body.join("\n")}</page></pdf2xml>)
   end
 
   # Serves a stored raw.xml in place of the pdftohtml binary.

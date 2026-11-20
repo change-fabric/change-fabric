@@ -94,15 +94,59 @@ class DeepResearchParseTest < Minitest::Test
     assert_equal "a & b", parsed[:findings][0]["quote"]
   end
 
-  # The real ChatGPT export fixture. Defined only once the fixture is committed
-  # (the plan forbids merging P1 without it); it is never skipped or pending.
-  if File.exist?(File.join(DeepResearchHelper::FIXTURES, "chatgpt", "report.json"))
-    def test_chatgpt_fixture_matches_its_expected_report
-      expected = JSON.parse(File.read(fixture("chatgpt", "report.json")))
-      parsed = DeepResearchParse.parse(File.read(fixture("chatgpt", "raw.xml")))
-      assert_equal expected["sources"], parsed[:sources]
-      assert_equal expected["findings"].map { |f| f["source_ids"] }, parsed[:findings].map { |f| f["source_ids"] }
-      assert_equal expected["summary"], parsed[:summary]
-    end
+  def marked(number, text) = { frags: [ [ "#{number}. ", 10 ], [ text, 40 ] ] }
+
+  def test_ref_tokens_pair_with_sources_that_carry_the_same_ref_even_when_wrapped
+    token = "【"
+    parsed = parse("Summary", "Short.", "Findings",
+                   marked(1, "Claim one #{token}"), { frags: [ [ "42†L1-", 40 ] ] }, "L9】.",
+                   "Sources", marked(1, "Doc A: note. URL: https://example.org/a 【42†L1-L9】"),
+                   "Unverified", "Contested")
+    assert_equal [ %w[S1] ], parsed[:findings].map { |f| f["source_ids"] }
+    assert_equal "Claim one【42†L1-L9】.", parsed[:findings][0]["claim"]
+    assert_equal "Doc A", parsed[:sources][0]["title"]
+  end
+
+  def test_url_wrapped_across_lines_rejoins
+    parsed = parse("Sources", marked(1, "Doc URL: https://"), "www.example.org/articles/", "page 【42†L1-L2】")
+    assert_equal [ "https://www.example.org/articles/page" ], parsed[:sources].map { |s| s["url"] }
+  end
+
+  def test_a_ref_whose_source_has_no_url_is_named_in_a_diagnostic
+    parsed = parse("Findings", marked(1, "Claim 【27†L1-L2】."), "Sources", marked(1, "Blog post 【27†L1-L2】"))
+    assert_empty parsed[:sources]
+    assert_includes parsed[:diagnostics], "F1: ref 27 belongs to source 1, which has no URL"
+    assert_equal [ [] ], parsed[:findings].map { |f| f["source_ids"] }
+  end
+
+  def test_a_ref_with_no_source_entry_fails_closed
+    parsed = parse("Findings", marked(1, "Claim 【52†L1-L2】."), "Sources")
+    assert_includes parsed[:diagnostics], "F1: ref 52 has no source entry"
+  end
+
+  def test_a_none_reply_under_contested_is_not_a_finding
+    parsed = parse("Findings", marked(1, "Claim."), "Contested", { frags: [ [ "•", 10 ], [ "We found no direct contradictions.", 40 ] ] })
+    assert_equal [ "F1" ], parsed[:findings].map { |f| f["id"] }
+    assert_includes parsed[:diagnostics], "contested section reports none"
+  end
+
+  def test_page_number_footer_and_wrapped_hyphen_words
+    page = xml(marked(1, "version-"), "controlled text.").sub("</page>", %(<text top="9500" left="400" width="1" height="1" font="5">7</text></page>))
+    lines = DeepResearchParse.lines(page)
+    assert_equal 2, lines.size
+    assert_equal "version-controlled text.", DeepResearchParse.join(lines.map(&:text))
+  end
+
+  # The real ChatGPT export fixture (Patrick's first manual run). The export
+  # holds the report only: no prompt, no run id, no link annotations.
+  def test_chatgpt_fixture_matches_its_expected_report
+    expected = JSON.parse(File.read(fixture("chatgpt", "report.json")))
+    parsed = DeepResearchParse.parse(File.read(fixture("chatgpt", "raw.xml")))
+    assert_equal expected["sources"], parsed[:sources]
+    assert_equal expected["findings"].map { |f| f["source_ids"] }, parsed[:findings].map { |f| f["source_ids"] }
+    assert_equal expected["summary"], parsed[:summary]
+    assert_equal "none", parsed[:link_annotations]
+    assert_equal [ 16, 11 ], [ parsed[:findings].size, parsed[:sources].size ]
+    assert_equal 11, parsed[:findings].count { |f| f["source_ids"].any? }
   end
 end
