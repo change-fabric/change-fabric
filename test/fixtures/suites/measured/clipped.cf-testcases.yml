@@ -1,0 +1,11 @@
+# Class 4: a control clipped to zero width. The filter button must be as wide
+# as its sibling.
+suite: measured-clipped
+suite_version: 5
+cases:
+  - id: filter-button-visible
+    acceptance: The filter button has the same width as the sort button.
+    steps:
+      - goto: /search
+      - capture: { var: ref_w, selector: "button.ref", kind: rect.width }
+      - expect_equal: { var: ref_w, selector: "button.filter", kind: rect.width }

@@ -56,4 +56,11 @@ class ChangeCaseResultTest < Minitest::Test
   def test_an_unknown_status_is_refused
     assert_raises(ArgumentError) { result("passed", "r1") }
   end
+
+  def test_step_durations_round_trip_and_default_to_empty
+    durations = [ { "index" => 0, "verb" => "goto", "label" => "goto /", "started_at_ms" => 0, "duration_ms" => 12 } ]
+    result = ChangeCaseResult.new(key: "s/a", status: "pass", step_durations: durations)
+    assert_equal durations, ChangeCaseResult.from_h(JSON.parse(result.to_json)).step_durations
+    assert_equal [], ChangeCaseResult.new(key: "s/a", status: "pass").step_durations
+  end
 end

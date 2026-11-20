@@ -51,7 +51,7 @@ class ChangeFlowCompiler
 
   ACTIONS = %w[goto click fill select press wait_for screenshot capture].freeze
   ASSERTIONS = %w[expect_visible expect_hidden expect_text expect_url expect_status expect_count
-                  expect_equal].freeze
+                  expect_equal expect_stable].freeze
   # State waits poll the current page until a condition holds. Event waits
   # observe something that happens, so the runtime arms their listener before
   # the step that triggers it (the step before, unless `after: none`).
@@ -68,10 +68,19 @@ class ChangeFlowCompiler
   RUNTIME_VERBS = VERBS.to_h { |verb| [ verb, verb.gsub(/_(.)/) { Regexp.last_match(1).upcase } ] }.freeze
 
   # Step-level keys that are options rather than the verb itself.
-  OPTION_KEYS = %w[timeout_ms].freeze
+  OPTION_KEYS = %w[timeout_ms budget_ms budget_from label].freeze
+
+  # (suite_version 5) Numeric reads of geometry and scroll position.
+  # `rect.*` is the element's getBoundingClientRect(); `scroll_y` is
+  # window.scrollY, or the element's scrollTop when a selector is given.
+  MEASURED_KINDS = %w[rect.x rect.y rect.width rect.height rect.bottom scroll_y].freeze
+
+  # What expect_stable can judge: the kinds the first-paint recorder samples.
+  STABLE_KINDS = %w[rect.x rect.y rect.width rect.height rect.bottom].freeze
 
   # What capture and expect_equal read from a selector.
-  READ_KINDS = %w[text number count].freeze
+  READ_KINDS = (%w[text number count] + MEASURED_KINDS).freeze
+  TAG_NAME = /\A[A-Za-z0-9_-]+\z/
   VAR_NAME = /\A[A-Za-z_][A-Za-z0-9_]*\z/
 
   # --- the JS runtime ---------------------------------------------------------
@@ -195,6 +204,14 @@ class ChangeFlowCompiler
     // first number in that text, or the count of matching elements.
     async function cfRead(page, step, timeoutMs) {
       if (step.kind === "count") return cfCount(page, step);
+      if (step.kind === "scroll_y") {
+        if (!step.selector) return page.evaluate(() => window.scrollY);
+        return (await cfWait(page, step, timeoutMs)).evaluate((node) => node.scrollTop);
+      }
+      if (step.kind.indexOf("rect.") === 0) {
+        const rectKey = step.kind.slice(5);
+        return (await cfWait(page, step, timeoutMs)).evaluate((node, key) => node.getBoundingClientRect()[key], rectKey);
+      }
       const text = await cfText(page, step, timeoutMs);
       if (step.kind === "text") return text;
       const match = text.replace(/,/g, "").match(/-?\\d+(\\.\\d+)?/);
@@ -331,6 +348,121 @@ class ChangeFlowCompiler
       }
     }
 
+    // Installed before the first navigation (a new-document script, which is
+    // Chrome's Page.addScriptToEvaluateOnNewDocument), so layout is recorded
+    // from the start rather than guessed at later. It buffers layout-shift
+    // entries with the tracked selectors each one touched, and records each
+    // tracked selector's rect on the first animation frame it exists.
+    const cfMeasureInit = (selectors) => {
+      const layout = { shifts: [], first: {}, samples: {} };
+      window.__cfLayout = layout;
+      const rectOf = (node) => {
+        const r = node.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom };
+      };
+      const find = (selector) => { try { return document.querySelector(selector); } catch (err) { return null; } };
+      try {
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            const touched = [];
+            for (const source of entry.sources || []) {
+              for (const selector of selectors) {
+                const el = find(selector);
+                if (el && source.node && (el === source.node || el.contains(source.node) || source.node.contains(el)) && touched.indexOf(selector) === -1) touched.push(selector);
+              }
+            }
+            layout.shifts.push({ value: entry.value, at: entry.startTime, input: entry.hadRecentInput, selectors: touched });
+          }
+        }).observe({ type: "layout-shift", buffered: true });
+      } catch (err) { void err; }
+      const pending = new Set();
+      const snap = () => {
+        for (const selector of selectors) {
+          if (layout.first[selector] || pending.has(selector) || !find(selector)) continue;
+          pending.add(selector);
+          requestAnimationFrame(() => {
+            const el = find(selector);
+            if (el && !layout.first[selector]) layout.first[selector] = rectOf(el);
+          });
+        }
+      };
+      try { new MutationObserver(snap).observe(document, { childList: true, subtree: true }); } catch (err) { void err; }
+      snap();
+      // Every animation frame, a tracked rect that changed is sampled, so a
+      // figure that moves during load and then comes back is still seen.
+      const tick = () => {
+        for (const selector of selectors) {
+          const el = find(selector);
+          if (!el) continue;
+          const rect = rectOf(el);
+          const list = layout.samples[selector] || (layout.samples[selector] = []);
+          const last = list[list.length - 1];
+          const same = last && last.x === rect.x && last.y === rect.y && last.width === rect.width && last.height === rect.height;
+          if (!same && list.length < 5000) list.push(rect);
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    };
+
+    // Installs the recorder once per page; the testcases lane calls this before
+    // a seeded landing navigation, and cfRunFlow calls it again harmlessly.
+    async function cfInstallMeasure(page, steps) {
+      if (page.__cfMeasureInstalled || !steps.some((step) => step.verb === "expectStable")) return;
+      page.__cfMeasureInstalled = true;
+      const selectors = steps.filter((step) => step.verb === "expectStable" && step.selector && !step.locator).map((step) => step.selector);
+      await page.evaluateOnNewDocument(cfMeasureInit, Array.from(new Set(selectors)));
+    }
+
+    // Network idle that counts requests already in flight (tracked from the
+    // start of the walk, not from now) and fails when idle is never reached.
+    async function cfWaitIdle(state, idleMs, timeoutMs, label) {
+      const deadline = Date.now() + timeoutMs;
+      const began = Date.now();
+      while (Date.now() < deadline) {
+        const quietFor = Date.now() - Math.max(state.lastActivity, began);
+        if (state.inflight.size === 0 && quietFor >= idleMs) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      cfFail(`${label}: the network was not idle for ${idleMs}ms within ${timeoutMs}ms`);
+    }
+
+    // Waits for fonts and network idle, then judges the whole window from
+    // first paint to now, not first against last: the largest deviation of any
+    // sampled value from the first recorded one must stay within tolerancePx
+    // (a header that moves 20 px during load and returns fails), and the layout
+    // shift attributed to the element (entries whose sources touched it, minus
+    // those right after input) must stay within maxCls.
+    async function cfExpectStable(page, step, state, timeoutMs) {
+      // Fonts get the step's own deadline: a stalled font request fails the
+      // step by name instead of running the whole browserless call out.
+      const fontsReady = page.evaluate(() => (document.fonts ? document.fonts.ready.then(() => true) : true)).catch(() => true);
+      let fontTimer = null;
+      const fontDeadline = new Promise((resolve) => { fontTimer = setTimeout(() => resolve("timeout"), timeoutMs); });
+      const fontOutcome = await Promise.race([ fontsReady, fontDeadline ]);
+      clearTimeout(fontTimer);
+      if (fontOutcome === "timeout") cfFail(`${step.label}: document.fonts.ready was not settled within ${timeoutMs}ms`);
+      await cfWaitIdle(state, 500, timeoutMs, step.label);
+      const last = await cfRead(page, step, timeoutMs);
+      state.vars[step.var] = last;
+      const layout = await page.evaluate(() => window.__cfLayout || null).catch(() => null);
+      const key = step.kind.indexOf("rect.") === 0 ? step.kind.slice(5) : null;
+      const sampled = layout && step.selector && key ? (layout.samples[step.selector] || []).map((rect) => rect[key]) : [];
+      const recorded = layout && step.selector && key && layout.first[step.selector] ? layout.first[step.selector][key] : sampled[0];
+      // No recording is no evidence: never substitute the final value.
+      if (recorded === undefined) cfFail(`no first-paint recording for ${step.selector}: the element did not exist in a page instrumented before navigation, so stability cannot be judged`);
+      const first = recorded;
+      const values = [ first ].concat(sampled, [ last ]);
+      const worst = values.reduce((far, value) => (Math.abs(value - first) > Math.abs(far - first) ? value : far), first);
+      const deviation = Math.abs(worst - first);
+      const shifts = layout && step.selector ? layout.shifts.filter((entry) => entry.selectors.indexOf(step.selector) !== -1) : [];
+      const cls = shifts.filter((entry) => !entry.input).reduce((sum, entry) => sum + entry.value, 0);
+      const where = step.selector || "the window";
+      if (deviation > step.tolerancePx) cfFail(`${step.kind} of ${where} moved from ${first} to ${worst} (deviation ${deviation}, tolerance ${step.tolerancePx}px)`);
+      if (cls > step.maxCls) cfFail(`layout shift ${cls.toFixed(4)} attributed to ${where} exceeds max_cls ${step.maxCls}`);
+      return { found: last, first: first, deviation: deviation, cls: cls, samples: sampled.length, recorded: recorded !== undefined, shifts: shifts };
+    }
+
     async function cfRunStep(page, step, state) {
       const timeout = step.timeoutMs;
       switch (step.verb) {
@@ -414,9 +546,16 @@ class ChangeFlowCompiler
           const expected = cfVar(state, step.var);
           const actual = step.equalsVar !== null ? cfVar(state, step.equalsVar) : await cfRead(page, step, timeout);
           const source = step.equalsVar !== null ? step.equalsVar : step.selector;
+          if (step.tolerance !== undefined) {
+            const gap = Math.abs(Number(actual) - Number(expected));
+            if (!(gap <= step.tolerance)) cfFail(`expected ${source} = ${JSON.stringify(actual)} to be within ${step.tolerance} of ${step.var} = ${JSON.stringify(expected)}`);
+            return { found: actual, expected: expected };
+          }
           if (String(actual) !== String(expected)) cfFail(`expected ${source} = ${JSON.stringify(actual)} to equal ${step.var} = ${JSON.stringify(expected)}`);
           return { found: actual, expected: expected };
         }
+        case "expectStable":
+          return cfExpectStable(page, step, state, timeout);
         case "eval":
           return { value: await page.evaluate("(async () => {" + step.script + "})()") };
         default:
@@ -431,6 +570,21 @@ class ChangeFlowCompiler
       const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), armed: null };
       const results = [];
       const pending = steps.filter((step) => step.index >= (options.startAt || 0));
+      await cfInstallMeasure(page, steps);
+      const watching = steps.some((step) => step.verb === "expectStable");
+      const inflight = new Set();
+      // Every request event stamps lastActivity, so a request that starts and
+      // finishes between two polls still breaks the quiet window.
+      const touch = () => { state.lastActivity = Date.now(); };
+      const track = { request: (request) => { touch(); inflight.add(request); }, requestfinished: (request) => { touch(); inflight.delete(request); }, requestfailed: (request) => { touch(); inflight.delete(request); } };
+      if (watching) for (const [event, fn] of Object.entries(track)) page.on(event, fn);
+      state.inflight = inflight;
+      state.lastActivity = 0;
+      // Every step records when it started (ms from the walk's start) and how
+      // long it ran; a step's `budgetMs` is judged on the span from the start
+      // of its `budgetFrom` step (or its own start) to its own end.
+      const walkStart = Date.now();
+      const startedAtByTag = new Map();
       for (let position = 0; position < pending.length; position += 1) {
         const step = pending[position];
         const next = pending[position + 1];
@@ -438,6 +592,9 @@ class ChangeFlowCompiler
         // this step causes is observed even when it lands immediately.
         if (cfIsEventWait(next) && next.after === "previous" && !cfIsEventWait(step)) state.armed = cfArm(page, next);
         const record = { index: step.index, verb: step.verb, label: step.label, raw: step.raw === true, ok: true, error: null };
+        const startedAt = Date.now();
+        record.startedAtMs = startedAt - walkStart;
+        if (step.tag) { record.tag = step.tag; startedAtByTag.set(step.tag, startedAt); }
         try {
           const detail = await cfRunStep(page, step, state);
           if (detail) Object.assign(record, detail);
@@ -445,11 +602,29 @@ class ChangeFlowCompiler
           record.ok = false;
           record.error = String(err);
         }
+        const endedAt = Date.now();
+        record.durationMs = endedAt - startedAt;
+        if (record.ok && step.budgetMs !== undefined) {
+          const known = step.budgetFrom === undefined || startedAtByTag.has(step.budgetFrom);
+          const from = step.budgetFrom !== undefined && known ? startedAtByTag.get(step.budgetFrom) : startedAt;
+          const span = endedAt - from;
+          record.spanMs = span;
+          if (!known) {
+            // A resumed walk starts after the labelled step, so the origin is
+            // gone; measuring only this step would pass a span it never saw.
+            record.ok = false;
+            record.error = `step ${step.index + 1} budget_from ${step.budgetFrom} started before this walk resumed, so its span cannot be measured`;
+          } else if (span > step.budgetMs) {
+            record.ok = false;
+            record.error = `span ${step.budgetFrom !== undefined ? step.budgetFrom : "step " + (step.index + 1)}..${step.tag || "step " + (step.index + 1)} took ${span}ms, budget ${step.budgetMs}ms`;
+          }
+        }
         results.push(record);
         const stop = (options.afterStep && (await options.afterStep(step, record))) || !record.ok;
         if (stop) break;
       }
       if (state.armed) state.armed.dispose();
+      if (watching) for (const [event, fn] of Object.entries(track)) page.off(event, fn);
       results.vars = state.vars;
       return results;
     }
@@ -526,6 +701,7 @@ class ChangeFlowCompiler
     @timeout_ms = Integer(timeout_ms)
     @viewport = viewport && compile_viewport(viewport, 'flow')
     @env = env
+    @tags = {}
   end
 
   # The compiled steps, credentials included. Hand this to the container and
@@ -536,6 +712,7 @@ class ChangeFlowCompiler
       @raw_steps.each_with_index.map do |raw, index|
         step = compile_step(raw, index, captured.dup)
         captured << step[:as] if step[:verb] == 'capture'
+        captured << step[:var] if step[:verb] == 'expectStable'
         step
       end
     end
@@ -575,9 +752,46 @@ class ChangeFlowCompiler
   # `captured` names the variables earlier steps captured, so expect_equal can
   # refuse one that nothing set.
   def compile_step(raw, index, captured)
-    verb, value, timeout = split_step(raw, index)
+    verb, value, timeout, options = split_step(raw, index)
     compiled = with_locator(send(:"compile_#{verb}", value, captured))
-    compiled.merge(verb: RUNTIME_VERBS.fetch(verb), index: index, timeoutMs: Integer(timeout || @timeout_ms))
+    compiled = compiled.merge(verb: RUNTIME_VERBS.fetch(verb), index: index, timeoutMs: Integer(timeout || @timeout_ms))
+    compiled = compiled.merge(tag: tag_for(options['label'], index)) if options['label']
+    options['budget_ms'] ? compiled.merge(budget_options(options, index)) : budget_from_alone(options, compiled, index)
+  end
+
+  # (suite_version 5) A step's own name, which `budget_from` points at. A name
+  # is a word, and may be used once in a case.
+  def tag_for(raw, index)
+    name = raw.to_s
+    raise Error, "step #{index + 1} label must be a word (letters, digits, underscore, dash), got #{raw.inspect}" unless name.match?(TAG_NAME)
+    raise Error, "step #{index + 1} reuses the label #{name}" if @tags.key?(name)
+
+    @tags[name] = index
+    name
+  end
+
+  # (suite_version 5) A budget is a verdict, not a timeout: the step still
+  # passes or fails on its own, and then fails for the span from `budget_from`'s
+  # start (or its own start) to its own end exceeding `budget_ms`.
+  def budget_options(options, index)
+    budget = options['budget_ms']
+    budget = Integer(budget.to_s, exception: false) unless budget.is_a?(Integer)
+    raise Error, "step #{index + 1} budget_ms must be a positive integer, got #{options['budget_ms'].inspect}" unless budget&.positive?
+
+    from = options['budget_from']
+    return { budgetMs: budget } if from.nil?
+
+    unless @tags.key?(from.to_s) && @tags[from.to_s] < index
+      raise Error, "step #{index + 1} budget_from #{from} is not the label of an earlier step"
+    end
+
+    { budgetMs: budget, budgetFrom: from.to_s }
+  end
+
+  def budget_from_alone(options, compiled, index)
+    raise Error, "step #{index + 1} budget_from needs a budget_ms" if options['budget_from']
+
+    compiled
   end
 
   # A text/nth selector carries a locator the runtime resolves in the page; a
@@ -605,15 +819,16 @@ class ChangeFlowCompiler
     raise Error, "step #{index + 1} names more than one verb: #{verbs.sort.join(', ')}" if verbs.size > 1
 
     value = keyed.fetch(verbs.first)
-    [ verbs.first, value, keyed['timeout_ms'] || inner_timeout(value) ]
+    options = %w[budget_ms budget_from label].to_h { |key| [ key, keyed[key] || inner_option(value, key) ] }.compact
+    [ verbs.first, value, keyed['timeout_ms'] || inner_option(value, 'timeout_ms'), options ]
   end
 
   # A step-level `timeout_ms` wins over one inside the verb's own mapping
   # (`wait_for: { selector:, timeout_ms: }`); the flow default comes last.
-  def inner_timeout(value)
+  def inner_option(value, key)
     return nil unless value.is_a?(Hash)
 
-    value['timeout_ms']
+    value[key] || value[key.to_sym]
   end
 
   # --- actions ---------------------------------------------------------------
@@ -793,10 +1008,52 @@ class ChangeFlowCompiler
   # so a count on one page can be checked against a list on another.
   def compile_capture(value, _captured)
     spec = spec_for(value, 'selector')
-    selector = require_string(spec, 'selector', 'capture')
-    name = var_name(spec['as'], 'capture', 'as')
     kind = read_kind(spec, 'capture')
-    { selector: selector, as: name, kind: kind, label: "capture #{kind} of #{selector} as #{name}" }
+    selector = read_selector(spec, 'capture', kind)
+    name = var_name(spec['as'] || spec['var'], 'capture', 'as')
+    { selector: selector, as: name, kind: kind, label: "capture #{kind} of #{selector || 'the window'} as #{name}" }
+  end
+
+  # The recorder resolves selectors with document.querySelector in the page, so
+  # a text or nth locator, or a `::-p-` selector, has no first-paint history.
+  # Refused here rather than passed with nothing measured.
+  def recordable_selector!(selector)
+    return unless ChangeFlowSelector.locator(selector) || selector.include?('::-p-')
+
+    raise Error, "expect_stable needs a plain CSS selector (the first-paint recorder cannot resolve #{selector.inspect})"
+  end
+
+  # `scroll_y` alone reads the window; every other kind reads an element.
+  def read_selector(spec, verb, kind)
+    return require_string(spec, 'selector', verb) unless kind == 'scroll_y'
+
+    spec['selector'].to_s.empty? ? nil : spec['selector'].to_s
+  end
+
+  # (suite_version 5) A figure must not move between first paint and the point
+  # the page settles (fonts ready, network idle): no sampled value may deviate
+  # from the first by more than `tolerance_px`, and the layout shift attributed
+  # to the element may not exceed `max_cls` (default 0). The last value is kept
+  # in `var`.
+  def compile_expect_stable(value, _captured)
+    spec = spec_for(value, 'var')
+    name = var_name(spec['var'], 'expect_stable', 'var')
+    kind = (spec['kind'] || 'rect.y').to_s
+    raise Error, "expect_stable kind must be one of #{STABLE_KINDS.join(', ')}, got #{kind}" unless STABLE_KINDS.include?(kind)
+
+    tolerance = spec.fetch('tolerance_px', 0)
+    raise Error, "expect_stable tolerance_px must be a number of 0 or more, got #{tolerance.inspect}" unless tolerance.is_a?(Numeric) && tolerance >= 0
+
+    wait = (spec['wait'] || 'fonts').to_s
+    raise Error, "expect_stable wait must be fonts, got #{wait}" unless wait == 'fonts'
+
+    max_cls = spec.fetch('max_cls', 0)
+    raise Error, "expect_stable max_cls must be a number of 0 or more, got #{max_cls.inspect}" unless max_cls.is_a?(Numeric) && max_cls >= 0
+
+    selector = read_selector(spec, 'expect_stable', kind)
+    recordable_selector!(selector)
+    { var: name, selector: selector, kind: kind, tolerancePx: tolerance, maxCls: max_cls,
+      label: "expect_stable #{kind} of #{selector || 'the window'} within #{tolerance}px" }
   end
 
   # --- assertions -------------------------------------------------------------
@@ -849,19 +1106,35 @@ class ChangeFlowCompiler
     spec = spec_for(value, 'var')
     name = captured_var(spec['var'], 'var', captured)
     sources = spec.slice('selector', 'equals_var').keys
-    raise Error, 'expect_equal needs one of selector or equals_var' if sources.empty?
+    window_scroll = spec['kind'].to_s == 'scroll_y' && sources.empty?
+    raise Error, 'expect_equal needs one of selector or equals_var' if sources.empty? && !window_scroll
     raise Error, 'expect_equal names both selector and equals_var' if sources.size > 1
 
+    tolerance = equal_tolerance(spec)
     if spec.key?('equals_var')
       other = captured_var(spec['equals_var'], 'equals_var', captured)
-      return { var: name, equalsVar: other, selector: nil, kind: nil, label: "expect_equal #{other} equals #{name}" }
+      return with_tolerance({ var: name, equalsVar: other, selector: nil, kind: nil, label: "expect_equal #{other} equals #{name}" }, tolerance)
     end
 
-    selector = require_string(spec, 'selector', 'expect_equal')
     kind = read_kind(spec, 'expect_equal')
-    { var: name, equalsVar: nil, selector: selector, kind: kind,
-      label: "expect_equal #{kind} of #{selector} equals #{name}" }
+    selector = read_selector(spec, 'expect_equal', kind)
+    with_tolerance({ var: name, equalsVar: nil, selector: selector, kind: kind,
+                     label: "expect_equal #{kind} of #{selector || 'the window'} equals #{name}" }, tolerance)
   end
+
+  # (suite_version 5) `tolerance` makes the compare numeric, within that
+  # distance. Absent, the compare is the v4 string compare and the compiled
+  # step carries no extra key.
+  def equal_tolerance(spec)
+    return nil unless spec.key?('tolerance')
+
+    tolerance = spec['tolerance']
+    raise Error, "expect_equal tolerance must be a number of 0 or more, got #{tolerance.inspect}" unless tolerance.is_a?(Numeric) && tolerance >= 0
+
+    tolerance
+  end
+
+  def with_tolerance(step, tolerance) = tolerance.nil? ? step : step.merge(tolerance: tolerance)
 
   def captured_var(raw, key, captured)
     name = var_name(raw, 'expect_equal', key)

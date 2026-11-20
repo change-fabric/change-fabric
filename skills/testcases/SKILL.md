@@ -91,6 +91,25 @@ fetch`). Set `lanes.testcases.launch_args:
 ["--disable-features=LocalNetworkAccessChecks"]` in CHANGE.md (spec 0.16.0) to
 launch the lane's browser with that flag.
 
+### Measure it, do not just see it
+
+Declare `suite_version: 5` to measure geometry, scroll and timing in the real
+browser (full vocabulary in `reference/suite-file-spec.md`): `capture` with
+`kind: rect.y`, `rect.bottom`, `rect.width` or `scroll_y`; `expect_equal` with
+`tolerance`; `expect_stable` for a figure that must not move after first
+paint; and `budget_ms` with `budget_from` for a timed interaction.
+
+```yaml
+- goto: /dashboard
+- expect_stable: { var: hdr_y, selector: "main h1", kind: rect.y, tolerance_px: 2 }
+- click: "button.save"
+  label: save
+- wait_for_text: { text: "Saved.", budget_ms: 1500, budget_from: save }
+```
+
+A UI fix ships with a case like this, whose measured read fails on the base and
+passes on the head.
+
 ### Run cases as different users
 
 Name logins once in `CHANGE.md` and let a case pick one (suite_version 3):

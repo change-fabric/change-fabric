@@ -1,0 +1,66 @@
+{
+  "home": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "#sign-in",
+      "label": "click #sign-in",
+      "verb": "click",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "match": {
+        "pattern": "^/api/session$",
+        "pathOnly": true,
+        "description": "\"/api/session\""
+      },
+      "status": 200,
+      "after": "previous",
+      "label": "wait_for_response \"/api/session\" status 200",
+      "verb": "waitForResponse",
+      "index": 2,
+      "timeoutMs": 15000
+    },
+    {
+      "match": {
+        "pattern": "^/home$",
+        "pathOnly": true,
+        "description": "\"/home\""
+      },
+      "label": "wait_for_url \"/home\"",
+      "verb": "waitForUrl",
+      "index": 3,
+      "timeoutMs": 15000
+    },
+    {
+      "text": "Welcome",
+      "selector": null,
+      "label": "wait_for_text \"Welcome\"",
+      "verb": "waitForText",
+      "index": 4,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": ".spinner",
+      "label": "wait_until_hidden .spinner",
+      "verb": "waitUntilHidden",
+      "index": 5,
+      "timeoutMs": 15000
+    },
+    {
+      "idleMs": 300,
+      "after": "previous",
+      "label": "wait_for_network_idle 300ms",
+      "verb": "waitForNetworkIdle",
+      "index": 6,
+      "timeoutMs": 15000
+    }
+  ]
+}

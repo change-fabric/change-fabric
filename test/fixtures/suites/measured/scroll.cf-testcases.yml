@@ -1,0 +1,14 @@
+# Class 1: a scroll fix verified only by a mocked unit test. The measured read
+# is the scroll position before leaving and after coming back.
+suite: measured-scroll
+suite_version: 5
+cases:
+  - id: list-scroll-restores
+    acceptance: Coming back to the list restores the scroll position.
+    steps:
+      - goto: /items
+      - eval: { script: "window.scrollTo(0, 1200); return window.scrollY;" }
+      - capture: { var: y_before, kind: scroll_y }
+      - click: "#open"
+      - wait_for_network_idle: { idle_ms: 500 }
+      - expect_equal: { var: y_before, kind: scroll_y }

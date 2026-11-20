@@ -2,6 +2,9 @@
 
 require "minitest/autorun"
 require "open3"
+require "json"
+require "tmpdir"
+require "yaml"
 require_relative "../scripts/change_docker"
 
 class ChangeDockerTest < Minitest::Test
@@ -342,5 +345,118 @@ class ChangeDockerTest < Minitest::Test
     argv = ChangeDocker.browserless_command("cf-change-bl-x", nil, 1234, "tok", [], { "/tmp/run dir" => "/cf-run" })
     assert_includes argv, 'type=bind,"source=/tmp/run dir",target=/cf-run'
     assert_operator argv.index("--mount"), :<, argv.index(ChangeDocker::BROWSERLESS_IMAGE)
+  end
+
+  # --- measured-verification containers and networks --------------------------
+
+  def test_browser_names_are_cf_scoped_and_deterministic_per_run
+    id = "run-#{SecureRandom.hex(3)}"
+    assert_equal "cf-qa-#{id}", ChangeDocker.browser_name(id)
+    assert_equal "cf-qa-#{id}-1", ChangeDocker.browser_name(id)
+    assert_equal "cf-qa-#{id}-2", ChangeDocker.browser_name(id)
+  end
+
+  def test_browser_name_keeps_only_docker_name_characters
+    assert_match(/\Acf-qa-a-b-c\z/, ChangeDocker.browser_name("a b/c"))
+  end
+
+  def test_browserless_command_caps_memory_from_config
+    Dir.mktmpdir do |dir|
+      shipped = File.join(dir, "shipped.yml")
+      user = File.join(dir, "user.yml")
+      assert_equal "2g", ChangeDocker.browser_memory(user_file: user, shipped_file: shipped)
+      File.write(shipped, "defaults:\n  browser_memory: 3g\n")
+      assert_equal "3g", ChangeDocker.browser_memory(user_file: user, shipped_file: shipped)
+      File.write(user, "defaults:\n  browser_memory: 1536M\n")
+      assert_equal "1536m", ChangeDocker.browser_memory(user_file: user, shipped_file: shipped)
+      File.write(user, "defaults:\n  browser_memory: lots\n")
+      assert_equal "3g", ChangeDocker.browser_memory(user_file: user, shipped_file: shipped)
+    end
+    argv = ChangeDocker.browserless_command("cf-qa-x", nil, 1234, "tok", memory: "512m")
+    assert_includes argv.each_cons(2).to_a, [ "--memory", "512m" ]
+    assert_operator argv.index("--memory"), :<, argv.index(ChangeDocker::BROWSERLESS_IMAGE)
+  end
+
+  def test_the_shipped_config_sets_a_browser_memory_default
+    assert_equal "2g", YAML.safe_load_file(File.expand_path("../config/resource_floors.yml", __dir__)).dig("defaults", "browser_memory")
+  end
+
+  def test_an_ephemeral_network_is_labeled_and_removed_when_the_block_raises
+    skip "docker not available" unless ChangeDocker.available?
+
+    names = []
+    20.times do
+      assert_raises(RuntimeError) do
+        ChangeDocker.with_network(nil) do |net|
+          names << net.name
+          info = JSON.parse(Open3.capture2e("docker", "network", "inspect", net.name).first).first
+          assert_equal "1", info["Labels"]["cf.owned"]
+          assert_match(/\A\d+\z/, info["Labels"]["cf.created_at"])
+          raise "forced"
+        end
+      end
+    end
+    leaked = names.select { |name| Open3.capture2e("docker", "network", "inspect", name).last.success? }
+    assert_empty leaked, "networks left behind after a raise"
+  end
+
+  # The sweep is driven through an injected runner, so each guard is asserted
+  # without docker: labeled, idle and old removes; unlabeled, young, in use and
+  # unparseable ages never do.
+  class NetworkRunner
+    attr_reader :removed
+
+    def initialize(networks)
+      @networks = networks
+      @removed = []
+    end
+
+    def call(*argv)
+      case argv[2]
+      when "ls" then @networks.keys.join("\n")
+      when "inspect" then JSON.generate([ @networks.fetch(argv[3]) ])
+      when "rm" then @removed << argv[3] && ""
+      end
+    end
+  end
+
+  def network(labels:, containers: {}) = { "Labels" => labels, "Containers" => containers }
+
+  def test_the_sweep_removes_only_idle_old_labeled_networks
+    now = Time.at(1_800_000_000)
+    old = { "cf.owned" => "1", "cf.created_at" => (now.to_i - 7200).to_s }
+    runner = NetworkRunner.new(
+      "stale" => network(labels: old),
+      "young" => network(labels: old.merge("cf.created_at" => (now.to_i - 60).to_s)),
+      "in-use" => network(labels: old, containers: { "abc" => {} }),
+      "unlabeled" => network(labels: {}),
+      "no-age" => network(labels: { "cf.owned" => "1" }),
+      "bad-age" => network(labels: { "cf.owned" => "1", "cf.created_at" => "soon" })
+    )
+    assert_equal [ "stale" ], ChangeDocker.sweep_stale_networks(now: now, runner: runner)
+    assert_equal [ "stale" ], runner.removed
+  end
+
+  def test_the_sweep_lists_by_label_so_it_never_asks_for_unlabeled_networks
+    seen = []
+    ChangeDocker.sweep_stale_networks(runner: ->(*argv) { seen << argv; "" })
+    assert_equal [ %w[docker network ls --filter label=cf.owned=1 --format {{.Name}}] ], seen
+  end
+
+  def test_the_sweep_survives_a_docker_that_fails
+    assert_equal [], ChangeDocker.sweep_stale_networks(runner: ->(*_argv) { raise "daemon down" })
+  end
+
+  def test_an_unlabeled_real_network_survives_the_sweep
+    skip "docker not available" unless ChangeDocker.available?
+
+    name = "cf-change-test-#{SecureRandom.hex(4)}"
+    Open3.capture2e("docker", "network", "create", name)
+    begin
+      ChangeDocker.sweep_stale_networks(min_age_s: 0)
+      assert Open3.capture2e("docker", "network", "inspect", name).last.success?, "an unlabeled network must survive"
+    ensure
+      Open3.capture2e("docker", "network", "rm", name)
+    end
   end
 end

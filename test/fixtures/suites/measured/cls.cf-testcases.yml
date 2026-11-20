@@ -1,0 +1,11 @@
+# Class 2, layout-shift score: a 30 px move is inside the pixel tolerance given here but the
+# browser scores it as a layout shift attributed to the header, and max_cls
+# defaults to 0.
+suite: measured-cls
+suite_version: 5
+cases:
+  - id: header-no-layout-shift
+    acceptance: The dashboard header takes no layout shift while the page loads.
+    steps:
+      - goto: /dashboard
+      - expect_stable: { var: hdr_y, selector: "main h1", kind: rect.y, tolerance_px: 100 }

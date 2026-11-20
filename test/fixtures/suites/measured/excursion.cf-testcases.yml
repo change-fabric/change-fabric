@@ -1,0 +1,10 @@
+# Class 2, excursion: the header moves 20 px during load and then returns. A
+# first-versus-last compare would pass it; the whole window must not.
+suite: measured-excursion
+suite_version: 5
+cases:
+  - id: header-no-excursion
+    acceptance: The dashboard header never moves while the page loads.
+    steps:
+      - goto: /dashboard
+      - expect_stable: { var: hdr_y, selector: "main h1", kind: rect.y, tolerance_px: 2, max_cls: 1 }

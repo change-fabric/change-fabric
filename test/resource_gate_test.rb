@@ -511,7 +511,27 @@ class ResourceGateTest < Minitest::Test
     def pids.stop_matching = [ 7 ]
     r = RG::Reclaimer.new(project: @project, runner: runner, pids: pids)
     assert_equal [ 7 ], r.reclaim_safe
-    assert_equal [ %w[docker image prune -f], %w[docker builder prune -f] ], runner.argvs
+    assert_equal [ %w[docker image prune -f], %w[docker builder prune -f] ], runner.argvs.first(2)
+  end
+
+  # The stale-network sweep is a tier-1 safe reclaim: a labeled, idle, old
+  # network is removed through the same runner, and the gate never prunes
+  # anything it cannot name.
+  def test_reclaimer_sweeps_a_stale_labeled_network
+    old = (Time.now - 7200).to_i
+    inspect = JSON.generate([ { "Labels" => { "cf.owned" => "1", "cf.created_at" => old.to_s }, "Containers" => {} } ])
+    runner = FakeRunner.new("docker image prune -f" => "", "docker builder prune -f" => "",
+                            "docker network ls" => "cf-change-aaaa\n", "docker network inspect" => inspect,
+                            "docker network rm" => "")
+    RG::Reclaimer.new(project: @project, runner: runner).reclaim_safe
+    assert_includes runner.argvs, %w[docker network ls --filter label=cf.owned=1 --format {{.Name}}]
+    assert_includes runner.argvs, %w[docker network rm cf-change-aaaa]
+  end
+
+  def test_reclaimer_survives_a_failed_network_sweep
+    runner = FakeRunner.new("docker image prune -f" => "", "docker builder prune -f" => "",
+                            "docker network ls" => RG::MeasurementError.new("reclaim", "x"))
+    assert_equal [], RG::Reclaimer.new(project: @project, runner: runner).reclaim_safe
   end
 
   def test_reclaimer_survives_a_failed_prune

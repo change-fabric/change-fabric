@@ -1,0 +1,10 @@
+# Class 2: a layout shift after data loads. The header's y is read at first
+# paint and again once the page settles.
+suite: measured-shift
+suite_version: 5
+cases:
+  - id: header-no-shift
+    acceptance: The dashboard header does not move after the data loads.
+    steps:
+      - goto: /dashboard
+      - expect_stable: { var: hdr_y, selector: "main h1", kind: rect.y, tolerance_px: 2 }

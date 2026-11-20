@@ -649,4 +649,155 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_match(/not a valid JavaScript regex/, result["steps"].last["error"])
     assert_equal 0, result["left"]
   end
+
+  # --- suite v5: measured reads, stability, budgets ------------------------------
+
+  def test_the_measured_kinds_compile_to_numeric_reads
+    %w[rect.x rect.y rect.width rect.height rect.bottom].each do |kind|
+      step = one("capture" => { "selector" => ".bar", "as" => "v", "kind" => kind })
+      assert_equal kind, step[:kind]
+      assert_equal ".bar", step[:selector]
+    end
+  end
+
+  def test_scroll_y_needs_no_selector_and_other_kinds_still_do
+    step = one("capture" => { "as" => "y", "kind" => "scroll_y" })
+    assert_nil step[:selector]
+    assert_nil step[:locator]
+    assert_raises(ChangeFlowCompiler::Error) { one("capture" => { "as" => "w", "kind" => "rect.width" }) }
+  end
+
+  def test_capture_accepts_var_as_the_name
+    assert_equal "y", one("capture" => { "var" => "y", "kind" => "scroll_y" })[:as]
+  end
+
+  def test_expect_equal_tolerance_is_optional_and_numeric
+    captured = { "capture" => { "selector" => ".bar", "as" => "a", "kind" => "rect.bottom" } }
+    plain = compile([ captured, { "expect_equal" => { "var" => "a", "selector" => ".row", "kind" => "rect.y" } } ]).last
+    refute plain.key?(:tolerance), "no tolerance means the v4 string compare, with no new key"
+    toleranced = compile([ captured, { "expect_equal" => { "var" => "a", "selector" => ".row", "kind" => "rect.y", "tolerance" => 1.5 } } ]).last
+    assert_equal 1.5, toleranced[:tolerance]
+    assert_raises(ChangeFlowCompiler::Error) do
+      compile([ captured, { "expect_equal" => { "var" => "a", "selector" => ".row", "kind" => "rect.y", "tolerance" => -1 } } ])
+    end
+  end
+
+  def test_expect_stable_compiles_and_registers_its_var
+    steps = compile([ { "expect_stable" => { "var" => "hdr", "selector" => "main h1", "kind" => "rect.y", "tolerance_px" => 2 } },
+                      { "expect_equal" => { "var" => "hdr", "selector" => "main h1", "kind" => "rect.y" } } ])
+    assert_equal "expectStable", steps.first[:verb]
+    assert_equal 2, steps.first[:tolerancePx]
+    assert_equal "rect.y", steps.first[:kind]
+  end
+
+  def test_expect_stable_refuses_a_text_kind_a_bad_tolerance_and_an_unknown_wait
+    base = { "var" => "h", "selector" => "h1", "kind" => "rect.y" }
+    assert_raises(ChangeFlowCompiler::Error) { one("expect_stable" => base.merge("kind" => "text")) }
+    %w[number count scroll_y].each { |kind| assert_raises(ChangeFlowCompiler::Error, kind) { one("expect_stable" => base.merge("kind" => kind)) } }
+    [ "text=Dashboard", "h1 >> nth=0", "::-p-text(Dashboard)" ].each do |selector|
+      error = assert_raises(ChangeFlowCompiler::Error, selector) { one("expect_stable" => base.merge("selector" => selector)) }
+      assert_match(/plain CSS selector/, error.message)
+    end
+    assert_raises(ChangeFlowCompiler::Error) { one("expect_stable" => base.merge("tolerance_px" => -1)) }
+    assert_raises(ChangeFlowCompiler::Error) { one("expect_stable" => base.merge("wait" => "load")) }
+    assert_equal "expectStable", one("expect_stable" => base.merge("wait" => "fonts"))[:verb]
+  end
+
+  def test_expect_stable_max_cls_defaults_to_zero_and_must_be_a_number
+    base = { "var" => "h", "selector" => "h1" }
+    assert_equal 0, one("expect_stable" => base)[:maxCls]
+    assert_equal 0.1, one("expect_stable" => base.merge("max_cls" => 0.1))[:maxCls]
+    assert_raises(ChangeFlowCompiler::Error) { one("expect_stable" => base.merge("max_cls" => -1)) }
+  end
+
+  def test_expect_stable_judges_every_sample_not_first_against_last
+    js = ChangeFlowCompiler.new([ { "expect_stable" => { "var" => "h", "selector" => "h1" } } ], base_url: "https://app.example.org").function_module
+    assert_includes js, "layout.samples"
+    assert_includes js, "[ first ].concat(sampled, [ last ])"
+    assert_includes js, "exceeds max_cls"
+    assert_includes js, "cfWaitIdle(state, 500"
+    assert_includes js, "state.inflight"
+    assert_includes js, "no first-paint recording"
+    assert_includes js, "state.lastActivity"
+  end
+
+  def test_a_flow_with_expect_stable_installs_the_init_script_before_the_first_step_runs
+    js = ChangeFlowCompiler.new([ { "goto" => "/" }, { "expect_stable" => { "var" => "h", "selector" => "h1" } } ],
+                                base_url: "https://app.example.org").function_module
+    assert_includes js, "cfInstallMeasure(page, steps)"
+    assert_includes js, "evaluateOnNewDocument"
+    assert_includes js, 'type: "layout-shift"'
+    assert_operator js.index("cfInstallMeasure(page, steps)", js.index("async function cfRunFlow")), :<, js.index("cfRunStep(page, step, state)", js.index("async function cfRunFlow"))
+  end
+
+  def test_budget_and_label_ride_on_the_step
+    steps = compile([ { "click" => "#save", "label" => "save" },
+                      { "wait_for_text" => { "text" => "Saved", "budget_ms" => 1500, "budget_from" => "save" } } ])
+    assert_equal "save", steps.first[:tag]
+    assert_equal 1500, steps.last[:budgetMs]
+    assert_equal "save", steps.last[:budgetFrom]
+  end
+
+  def test_a_budget_without_a_label_spans_the_step_itself
+    step = one("wait_for_text" => "Saved", "budget_ms" => 900)
+    assert_equal 900, step[:budgetMs]
+    refute step.key?(:budgetFrom)
+  end
+
+  def test_an_unknown_or_later_budget_from_label_is_refused
+    unknown = [ { "click" => "#a" }, { "wait_for_text" => { "text" => "x", "budget_ms" => 10, "budget_from" => "nope" } } ]
+    assert_raises(ChangeFlowCompiler::Error) { compile(unknown) }
+    later = [ { "wait_for_text" => { "text" => "x", "budget_ms" => 10, "budget_from" => "late" } }, { "click" => "#a", "label" => "late" } ]
+    error = assert_raises(ChangeFlowCompiler::Error) { compile(later) }
+    assert_match(/not the label of an earlier step/, error.message)
+  end
+
+  def test_budget_and_label_validation
+    assert_raises(ChangeFlowCompiler::Error) { one("click" => "#a", "budget_ms" => 0) }
+    assert_raises(ChangeFlowCompiler::Error) { one("click" => "#a", "budget_from" => "x") }
+    assert_raises(ChangeFlowCompiler::Error) { one("click" => "#a", "label" => "two words") }
+    assert_raises(ChangeFlowCompiler::Error) { compile([ { "click" => "#a", "label" => "x" }, { "click" => "#b", "label" => "x" } ]) }
+  end
+
+  # The consumer's hard requirement: v4 suites compile to the same steps they
+  # always did. The goldens were generated from the compiler before suite v5.
+  # (The shared JS runtime gained step timing, which changes the module text
+  # but never a compiled step.)
+  COMPAT = File.expand_path("fixtures/suites/compat", __dir__)
+
+  %w[v4 v4-seventeen].each do |name|
+    define_method(:"test_#{name.tr('-', '_')}_compiles_byte_identical") do
+      require_relative "../scripts/change_suite"
+      suite = ChangeSuite.load_file(File.join(COMPAT, "#{name}.cf-testcases.yml"))
+      current = suite.cases.to_h { |item| [ item.id, ChangeFlowCompiler.new(item.steps, base_url: "http://app.test").compile ] }
+      golden = File.read(File.join(COMPAT, "#{name}.compiled.json"))
+      assert_equal golden, "#{JSON.pretty_generate(current)}\n"
+    end
+  end
+
+  def test_the_seventeen_case_fixture_has_seventeen_cases
+    require_relative "../scripts/change_suite"
+    assert_equal 17, ChangeSuite.load_file(File.join(COMPAT, "v4-seventeen.cf-testcases.yml")).cases.size
+  end
+
+  def test_a_budget_whose_origin_is_gone_after_a_resume_fails_rather_than_measuring_less
+    js = ChangeFlowCompiler.new([ { "click" => "#a", "label" => "go" },
+                                  { "wait_for_text" => { "text" => "x", "budget_ms" => 10, "budget_from" => "go" } } ],
+                                base_url: "https://app.example.org").function_module
+    assert_includes js, "started before this walk resumed"
+  end
+
+  def test_budget_origins_live_in_a_map_so_a_label_cannot_hit_a_prototype_setter
+    js = ChangeFlowCompiler.new([ { "click" => "#a", "label" => "__proto__" },
+                                  { "wait_for_text" => { "text" => "x", "budget_ms" => 1, "budget_from" => "__proto__" } } ],
+                                base_url: "https://app.example.org").function_module
+    assert_includes js, "new Map()"
+    assert_includes js, "startedAtByTag.set(step.tag, startedAt)"
+    refute_includes js, "startedAtByTag["
+  end
+
+  def test_expect_stable_bounds_the_font_wait_by_the_step_timeout
+    js = ChangeFlowCompiler.new([ { "expect_stable" => { "var" => "h", "selector" => "h1" } } ], base_url: "https://app.example.org").function_module
+    assert_includes js, "document.fonts.ready was not settled within"
+  end
 end

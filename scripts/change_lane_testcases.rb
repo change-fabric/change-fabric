@@ -118,8 +118,19 @@ class ChangeLaneTestcases < ChangeLane
         status: record_status(result), attempts: result[:attempt_log],
         duration_ms: result[:duration_ms], started_at: result[:started_at], commit: commit,
         run_id: run_id, evidence_dir: result[:record]&.dig('evidenceDir'),
-        acceptance_verdict: result[:verdict]&.verdict
+        acceptance_verdict: result[:verdict]&.verdict, step_durations: step_durations(result[:record])
       )
+    end
+  end
+
+  # `{index, verb, label, started_at_ms, duration_ms}` per step the final
+  # attempt ran. `label` is the author's own name for the step when it has one.
+  def step_durations(record)
+    Array(record&.dig('steps')).filter_map do |step|
+      next unless step['durationMs']
+
+      { 'index' => step['index'], 'verb' => step['verb'], 'label' => step['tag'] || step['label'],
+        'started_at_ms' => step['startedAtMs'], 'duration_ms' => step['durationMs'] }
     end
   end
 
@@ -1260,6 +1271,7 @@ class ChangeLaneTestcases < ChangeLane
             // step navigates anyway.
             const first = testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
             if (persona && persona.seed && persona.seed.landing && first && first.verb !== "goto") {
+              await cfInstallMeasure(session.page, testCase.steps);
               await session.page.goto(persona.seed.landing, { waitUntil: "domcontentloaded" });
             }
             let expired = null;

@@ -1,0 +1,489 @@
+{
+  "home-loads": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "equals": 200,
+      "label": "expect_status 200",
+      "verb": "expectStatus",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "h1",
+      "label": "expect_visible h1",
+      "verb": "expectVisible",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "nav-about": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "a[href='/about']",
+      "label": "click a[href='/about']",
+      "verb": "click",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": null,
+      "urlContains": "/about",
+      "state": null,
+      "label": "wait_for url_contains /about",
+      "verb": "waitFor",
+      "index": 2,
+      "timeoutMs": 15000
+    },
+    {
+      "equals": null,
+      "contains": "/about",
+      "label": "expect_url contains \"/about\"",
+      "verb": "expectUrl",
+      "index": 3,
+      "timeoutMs": 15000
+    }
+  ],
+  "search-form": [
+    {
+      "url": "http://app.test/search",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/search",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "#q",
+      "value": "widgets",
+      "label": "fill #q with \"widgets\"",
+      "verb": "fill",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "key": "Enter",
+      "selector": "#q",
+      "label": "press Enter in #q",
+      "verb": "press",
+      "index": 2,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": ".results",
+      "urlContains": null,
+      "state": null,
+      "label": "wait_for selector .results",
+      "verb": "waitFor",
+      "index": 3,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": ".results li",
+      "equals": 3,
+      "label": "expect_count .results li equals 3",
+      "verb": "expectCount",
+      "index": 4,
+      "timeoutMs": 15000
+    }
+  ],
+  "select-sort": [
+    {
+      "url": "http://app.test/search",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/search",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "#sort",
+      "value": "price",
+      "label": "select \"price\" in #sort",
+      "verb": "select",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "#sort",
+      "equals": null,
+      "contains": "Price",
+      "label": "expect_text #sort contains \"Price\"",
+      "verb": "expectText",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "capture-count": [
+    {
+      "url": "http://app.test/items",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/items",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": ".badge",
+      "as": "badge",
+      "kind": "number",
+      "label": "capture number of .badge as badge",
+      "verb": "capture",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "tbody tr",
+      "as": "rows",
+      "kind": "count",
+      "label": "capture count of tbody tr as rows",
+      "verb": "capture",
+      "index": 2,
+      "timeoutMs": 15000
+    },
+    {
+      "var": "badge",
+      "equalsVar": "rows",
+      "selector": null,
+      "kind": null,
+      "label": "expect_equal rows equals badge",
+      "verb": "expectEqual",
+      "index": 3,
+      "timeoutMs": 15000
+    }
+  ],
+  "capture-text": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "h1",
+      "as": "title",
+      "kind": "text",
+      "label": "capture text of h1 as title",
+      "verb": "capture",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "url": "http://app.test/about",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/about",
+      "verb": "goto",
+      "index": 2,
+      "timeoutMs": 15000
+    },
+    {
+      "var": "title",
+      "equalsVar": null,
+      "selector": "h1",
+      "kind": "text",
+      "label": "expect_equal text of h1 equals title",
+      "verb": "expectEqual",
+      "index": 3,
+      "timeoutMs": 15000
+    }
+  ],
+  "screenshot": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "name": "home",
+      "fullPage": true,
+      "viewport": null,
+      "label": "screenshot home full page",
+      "verb": "screenshot",
+      "index": 1,
+      "timeoutMs": 15000
+    }
+  ],
+  "screenshot-phone": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "name": "phone",
+      "fullPage": false,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "label": "screenshot phone at 390x844",
+      "verb": "screenshot",
+      "index": 1,
+      "timeoutMs": 15000
+    }
+  ],
+  "wait-url": [
+    {
+      "url": "http://app.test/start",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/start",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "match": {
+        "pattern": "^/dashboard$",
+        "pathOnly": true,
+        "description": "\"/dashboard\""
+      },
+      "label": "wait_for_url \"/dashboard\"",
+      "verb": "waitForUrl",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "equals": "http://app.test/dashboard",
+      "contains": null,
+      "label": "expect_url equals \"http://app.test/dashboard\"",
+      "verb": "expectUrl",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "wait-text": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "button.save",
+      "label": "click button.save",
+      "verb": "click",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "text": "Saved",
+      "selector": null,
+      "label": "wait_for_text \"Saved\"",
+      "verb": "waitForText",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "wait-hidden": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": ".spinner",
+      "label": "wait_until_hidden .spinner",
+      "verb": "waitUntilHidden",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": ".spinner",
+      "label": "expect_hidden .spinner",
+      "verb": "expectHidden",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "wait-response": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "button.load",
+      "label": "click button.load",
+      "verb": "click",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "match": {
+        "pattern": "^/api/items$",
+        "pathOnly": true,
+        "description": "\"/api/items\""
+      },
+      "status": 200,
+      "after": "previous",
+      "label": "wait_for_response \"/api/items\" status 200",
+      "verb": "waitForResponse",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "wait-idle": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "idleMs": 300,
+      "after": "previous",
+      "label": "wait_for_network_idle 300ms",
+      "verb": "waitForNetworkIdle",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "main",
+      "label": "expect_visible main",
+      "verb": "expectVisible",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "text-selector": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "text=Contact",
+      "label": "click text=Contact",
+      "locator": {
+        "css": null,
+        "hasText": "Contact",
+        "textIs": null,
+        "nth": null
+      },
+      "verb": "click",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "text=Contact us",
+      "label": "expect_visible text=Contact us",
+      "locator": {
+        "css": null,
+        "hasText": "Contact us",
+        "textIs": null,
+        "nth": null
+      },
+      "verb": "expectVisible",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "nth-selector": [
+    {
+      "url": "http://app.test/items",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/items",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "tbody tr >> nth=-1",
+      "label": "click tbody tr >> nth=-1",
+      "locator": {
+        "css": "tbody tr",
+        "hasText": null,
+        "textIs": null,
+        "nth": -1
+      },
+      "verb": "click",
+      "index": 1,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": ".detail",
+      "label": "expect_visible .detail",
+      "verb": "expectVisible",
+      "index": 2,
+      "timeoutMs": 15000
+    }
+  ],
+  "step-timeout": [
+    {
+      "url": "http://app.test/report",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/report",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "selector": "button.run",
+      "label": "click button.run",
+      "verb": "click",
+      "index": 1,
+      "timeoutMs": 30000
+    },
+    {
+      "selector": ".done",
+      "urlContains": null,
+      "state": null,
+      "label": "wait_for selector .done",
+      "verb": "waitFor",
+      "index": 2,
+      "timeoutMs": 30000
+    }
+  ],
+  "eval-escape": [
+    {
+      "url": "http://app.test/",
+      "waitUntil": "domcontentloaded",
+      "label": "goto http://app.test/",
+      "verb": "goto",
+      "index": 0,
+      "timeoutMs": 15000
+    },
+    {
+      "script": "return document.title;",
+      "raw": true,
+      "label": "eval raw JS (declarative contract bypassed): return document.title;",
+      "verb": "eval",
+      "index": 1,
+      "timeoutMs": 15000
+    }
+  ]
+}

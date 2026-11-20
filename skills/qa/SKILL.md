@@ -125,6 +125,14 @@ Task it to:
   `:text-is`, `>> nth=N` forms listed there, nothing else. A cross-page
   check (a count on one page equals a list length on another) is a
   `capture` then `expect_equal`, never `eval`.
+- Return `measurements` for any claim a number can settle: each figure to
+  measure, its selector (plain CSS, or none for `scroll_y`), its read kind
+  (`rect.x|y|width|height|bottom`, `scroll_y`, `number`, `count`), and the
+  expected relation with an as-of time ("badge equals the row count, as of
+  now"). A fix is done when a number measured in a real browser says so, so a
+  layout, scroll or timing claim is a measurement, not a visual impression.
+  A figure that must not move after load is an `expect_stable`; an
+  interaction with a time limit is a `budget_ms` on the wait that confirms it.
 - Fill a `screenshot` block alongside them, so the before/after phase needs no
   second relevance call of its own. Set `screenshot.ui_surface` true when the
   change touches a user-facing or browser-drivable surface, false when there is
@@ -192,6 +200,22 @@ to:
    Use only the selector syntax in
    `skills/testcases/reference/suite-file-spec.md` (Step verbs); any other
    Playwright form is refused at compile time.
+
+   Measured reads (suite_version 5): `capture` also takes `kind: rect.x`,
+   `rect.y`, `rect.width`, `rect.height`, `rect.bottom` and `scroll_y`;
+   `expect_equal` takes `tolerance: N` for a numeric compare;
+   `expect_stable: { var, selector, kind, tolerance_px }` fails when a figure
+   moves after first paint; any step takes `label:`, and `budget_ms` with
+   `budget_from: <label>` fails a step whose span from that label's start
+   exceeds the budget. A flow file that uses them declares
+   `suite_version: 5` when it is promoted to a suite.
+
+   Second-read rule. A mismatch is never reported on the first read. Revisit
+   the same page, read once more, and compare again: a value that differed
+   and then matched is drift (report it as a warning, with both values and
+   the as-of time); a value that differs again is a failure. A figure that
+   changes because the test itself acted (a signup mid-run) is drift too, not
+   a defect, until the second read says otherwise.
 
    ```yaml
    base_url: http://127.0.0.1:3000
@@ -332,6 +356,21 @@ For each passing flow:
 | ID | Action | Requires | When unmet |
 |---|---|---|---|
 | QA-1 | Edit the PR body's `## Demo` section (phase 5) | Inherits SS-1: every upload succeeded | No edit; report the local file paths instead, same as cf:screenshot |
+
+## Browserless notes
+
+- cf's own browserless container sets `TIMEOUT=115000`. A job that drops at
+  30 s is on another endpoint, whose own `TIMEOUT` is its default of 30000;
+  raise it there, not here.
+- Browser containers are named `cf-qa-<run_id>[-<n>]`, carry
+  `--memory <cap>` from `defaults.browser_memory` in the resource-floors
+  config (default `2g`), and their run network is labeled `cf.owned=1` and
+  removed on every exit path. Stale labeled networks (idle, over an hour old)
+  are swept at lane start and by the resource gate's safe reclaim.
+- One-time cleanup. Networks leaked before the labels existed carry none, so
+  the label sweep leaves them. Run `ruby ~/.claude/cf/bin/change_run.rb sweep` once
+  (or `docker network ls --filter name=cf-change-` and remove what is idle)
+  to clear them.
 
 ## Failure modes
 
