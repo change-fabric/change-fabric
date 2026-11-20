@@ -52,7 +52,7 @@ fresh session that will execute the plan.
 ## Resource floors
 
 Every `workflow.js` keeps the template's resource gate. `gate()` runs
-`scripts/resource_gate.rb check --json --reclaim-safe` and returns its JSON.
+`~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe` (run from the target repo) and returns its JSON.
 It must be the statement right after Phase 0's `phase("Resource floors")`, the
 first statement after `phase(spec.title)` in the PHASES loop, and the
 statement before every `parallel(` (an `if (!g || !g.ok)` guard may sit

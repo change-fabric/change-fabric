@@ -92,19 +92,23 @@ const PHASE_SCHEMA = {
   required: [ "landed", "files", "verification" ]
 }
 
-// Mirrors the JSON of `scripts/resource_gate.rb check --json`.
+// Mirrors the JSON of `resource_gate.rb check --json`.
 const GATE_SCHEMA = {
   type: "object",
   properties: {
     ok: { type: "boolean" },
-    ram_available_mb: { type: "number" },
-    disk_free_gb: { type: "number" },
-    need: { type: "object" },
+    error: { type: [ "string", "null" ] },
+    notes: { type: "array", items: { type: "string" } },
+    ram_available_mb: { type: [ "number", "null" ] },
+    disk_free_gb: { type: [ "number", "null" ] },
+    need: { type: [ "object", "null" ] },
     reclaimed: { type: "object" },
     candidates: { type: "array", items: { type: "object" } },
     provisional: { type: "boolean" }
   },
-  required: [ "ok", "ram_available_mb", "disk_free_gb", "need", "reclaimed", "candidates", "provisional" ]
+  // A measurement error (exit 4) returns ok:false with null readings, so only
+  // ok is required.
+  required: [ "ok" ]
 }
 
 const input = typeof args === "string" ? JSON.parse(args) : (args ?? {})
@@ -122,8 +126,8 @@ async function gate(where, batchName) {
   return await agent(
     "Resource gate at: " + where + ". Repository: " + REPO_PATH + " ('~' is your home; " +
     "expand it for tools that need a literal path).\n\n" +
-    "From the repo root run exactly:\n" +
-    "ruby scripts/resource_gate.rb check --json --reclaim-safe --batch " + batch +
+    "From the repo root (the gate is installed under ~/.claude/cf/bin, not in the repo) run exactly:\n" +
+    "ruby ~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe --batch " + batch +
     " --worktrees " + FANOUT.worktrees + "\n" +
     "and return its JSON verbatim. If the command is missing or exits 4, return ok false " +
     "with the failure in need. Never delete anything beyond what the command itself does, " +
@@ -143,7 +147,7 @@ function preamble(phaseName) {
     "\"Decisions (settled, do not re-litigate)\" section records answers the user " +
     "already gave; treat those as fixed and do not reopen them.\n\n" +
     "Before any heavy step (test suite, docker build, change boot or lanes), run the " +
-    "resource gate: ruby scripts/resource_gate.rb check --json --reclaim-safe. If it " +
+    "resource gate: ruby ~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe. If it " +
     "reports ok false, stop, set landed false, and put the gate JSON in notes.\n\n" +
     "Repository: " + REPO_PATH + "\n" +
     "Phase: " + phaseName + "\n\n"

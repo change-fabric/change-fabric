@@ -27,6 +27,19 @@ class ResourceGateLintTest < Minitest::Test
     assert_empty ResourceGateLint.check(File.read(TEMPLATE))
   end
 
+  def test_template_calls_the_installed_gate_not_a_repo_script
+    text = File.read(TEMPLATE)
+    assert_includes text, "ruby ~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe"
+    refute_includes text, "ruby scripts/resource_gate.rb"
+  end
+
+  def test_template_gate_schema_accepts_a_measurement_error
+    schema = File.read(TEMPLATE)[/const GATE_SCHEMA = \{.*?\n\}\n/m]
+    assert_includes schema, 'ram_available_mb: { type: [ "number", "null" ] }'
+    assert_includes schema, 'need: { type: [ "object", "null" ] }'
+    assert_includes schema, 'required: [ "ok" ]'
+  end
+
   def test_phase0_without_gate_fails
     assert_equal [ "phase0" ], rules("phase0_missing.js")
   end
