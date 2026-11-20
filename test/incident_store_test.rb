@@ -405,6 +405,26 @@ class IncidentStoreTest < Minitest::Test
     s.set(id, { "hotfix.pr_url" => "https://example.test/pr/1" }, at: T2)
   end
 
+  def test_changing_the_probe_voids_its_recorded_result
+    id = make
+    s = ready_to_verify(id)
+    s.set(id, { "probe" => "curl /other" }, at: T2)
+    assert_nil inc(id)["probe_result"]
+    assert_invalid(/probe has not passed/) { s.set(id, { "status" => "verified" }, at: T2) }
+    s.set(id, { "probe_result" => "pass" }, at: T2)
+    s.set(id, { "probe" => "curl /other" }, at: T2)
+    assert_equal "pass", inc(id)["probe_result"]["result"]
+    s.set(id, { "probe_expected" => "204" }, at: T2)
+    assert_nil inc(id)["probe_result"]
+  end
+
+  def test_repo_names_that_slug_alike_do_not_share_a_directory
+    IncidentStore.new(repo: "a-b/c", root: @root).create(slug: "x", at: T0)
+    assert_invalid(/already belongs to a-b\/c/) { IncidentStore.new(repo: "a/b-c", root: @root).create(slug: "y", at: T0) }
+    assert_equal "2026-03-02-z", IncidentStore.new(repo: "a-b/c", root: @root).create(slug: "z", at: T0)
+    assert_equal "2026-03-02-x", IncidentStore.new(repo: "a-b-c", root: @root).resolve("2026-03-02-x")
+  end
+
   def test_verified_succeeds_with_everything_and_stamps_fixed_at
     id = make
     ready_to_verify(id)

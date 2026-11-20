@@ -140,6 +140,7 @@ class IncidentStore
     dir = File.join(repo_dir, id)
     raise Invalid, "incident #{id} already exists for #{@repo}" if File.exist?(dir)
 
+    claim_repo_dir!
     FileUtils.mkdir_p(File.join(dir, 'evidence'))
     write_json(File.join(dir, 'incident.json'), new_record(id, client, severity, at))
     write_json(File.join(dir, 'ops.json'), [])
@@ -290,6 +291,18 @@ class IncidentStore
 
   def repo_dir = File.join(@root, @repo)
 
+  # Two repo names can slug alike (a-b/c and a/b-c), so the first create writes
+  # the full name beside the incidents and a different name is refused.
+  def claim_repo_dir!
+    FileUtils.mkdir_p(repo_dir)
+    marker = File.join(repo_dir, '.repo')
+    File.write(marker, "#{@repo_name}\n") unless File.exist?(marker)
+    owner = File.read(marker).strip
+    return if owner == @repo_name || !@repo_name.include?('/') || !owner.include?('/')
+
+    raise Invalid, "#{repo_dir} already belongs to #{owner}; #{@repo_name} slugs to the same directory"
+  end
+
   def new_record(id, client, severity, at)
     { 'schema' => SCHEMA, 'id' => id, 'repo' => @repo_name, 'client' => blank?(client) ? nil : client.to_s.strip,
       'status' => 'open', 'severity' => severity, 'detected_at' => time(at).utc.iso8601, 'mitigated_at' => nil,
@@ -304,7 +317,7 @@ class IncidentStore
 
   def bound_to_version?(key) = key == 'probe_result' || key.start_with?('regression.')
 
-  def evidence_key?(key) = bound_to_version?(key) || %w[serving_version serving_source hotfix.fix_version
+  def evidence_key?(key) = bound_to_version?(key) || %w[probe probe_expected serving_version serving_source hotfix.fix_version
                                                        hotfix.serving_version hotfix.serving_source].include?(key)
 
   # Once verified, later evidence cannot quietly contradict it: the table has no
@@ -332,6 +345,8 @@ class IncidentStore
   def plain(inc, key, value)
     raise Invalid, "severity must be one of #{SEVERITIES.join(', ')}" if key == 'severity' && !SEVERITIES.include?(value)
 
+    # A result belongs to the check that produced it; a changed check voids it.
+    inc['probe_result'] = nil if %w[probe probe_expected].include?(key) && inc[key] != value.to_s.strip
     inc[key] = value.to_s.strip
   end
 
