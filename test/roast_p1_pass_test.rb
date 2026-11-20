@@ -13,6 +13,7 @@ class RoastP1PassTest < Minitest::Test
   CALLERS = %w[
     skills/roast/SKILL.md skills/plan/SKILL.md skills/design/SKILL.md skills/walkthrough/SKILL.md
     skills/prototype/SKILL.md skills/drive/SKILL.md skills/brainstorm/SKILL.md
+    skills/change/reference/CHANGE-frontmatter-spec.md
   ].freeze
 
   def test_every_caller_points_at_the_pass_and_the_followups_key

@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.26.0
+Schema version: 0.27.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -554,8 +554,8 @@ Placeholders: `<adapter>` is any name under `change_config.execution.adapters`;
 `change_config.trackers`.
 
 Some limits are fixed by design and the schema rejects a looser value: every
-written message must roast at 9 or more (`roast_target` from 9 to 10), at most
-4 roast rounds, at most $2 of roast spend per plan run, and held messages
+written message must roast at 8 or more (`roast_target` from 8 to 10), at most
+5 roast rounds, at most $2 of roast spend per plan run, and held messages
 surface at least every 15 minutes.
 
 | Field | Type | Required | Description |
@@ -572,8 +572,8 @@ surface at least every 15 minutes.
 | `change_config.outbound.spend_usd_cap` | number | no (default 2.0) | (0.19.0) Roast and classification spend cap per plan run, in USD, above 0 and at most 2.0. Reaching it holds every pending roast-gated send. |
 | `change_config.outbound.hold_flush_minutes` | integer | no (default 15) | (0.19.0) Held messages surface at the next phase boundary or after this many minutes, from 1 to 15. |
 | `change_config.outbound.stale_hold_hours` | integer | no (default 24) | (0.19.0) A hold older than this fires a `stale_hold` watcher event. |
-| `change_config.outbound.roast_target` | number | no (default 9) | (0.19.0) Minimum roast score for a written message, from 9 to 10. There is no lower setting and no fallback when the roast cannot run: the message holds. |
-| `change_config.outbound.roast_rounds` | integer | no (default 4) | (0.19.0) Roast rounds per message, from 1 to 4. Below target after the last round holds. |
+| `change_config.outbound.roast_target` | number | no (default 8) | (0.19.0; 0.27.0 lowered the floor from 9 to 8) Minimum roast score for a written message, from 8 to 10. There is no lower setting and no fallback when the roast cannot run: the message holds. |
+| `change_config.outbound.roast_rounds` | integer | no (default 5) | (0.19.0; 0.27.0 raised the cap from 4 to 5) Roast rounds per message, from 1 to 5. Below target after the last round holds. Open P1s at the stop (the roast `followups` list) of a held message go through the local P1 pass, and the message is scanned again, never roasted again. |
 | `change_config.outbound.templates` | list of `name@version` | no | (0.19.0) The fixed templates enabled for this repo (for example `pr_link@1`). Templates take typed values only, are not roasted, and are still scanned. |
 | `change_config.outbound.channels.<channel>.deliver` | `send` or `draft` | no (default `send`) | (0.19.0) `draft` writes the message locally for a human to promote instead of sending it. |
 | `change_config.outbound.channels.<channel>.provider` | string | no | (0.19.0) `slack` only. The enrolled provider whose token the channel uses. |
@@ -1133,7 +1133,7 @@ fixed by design and the schema rejects a looser value:
   `everyone`).
 - A money-affecting rollout never advances automatically, at the rollout or
   any stage, and after a breach it stays off until a human approves.
-- The triage diagnosis must roast at 9 or more; at most 2 fix attempts in at
+- The triage diagnosis must roast at 8 or more (0.27.0); at most 2 fix attempts in at
   most 60 minutes; re-enable only the first stage's cohort, which must be kind
   `adapter_selector`; every page trigger stays on; dispatch pages within 10
   minutes and acknowledgement within 20.
@@ -1164,7 +1164,7 @@ agent token's scope.
 | `change_policy.delivery.rollouts.<rollout>.on_breach.triage.fix_budget_minutes` | integer | no (default 60) | (0.24.0) Minutes the triage agent has to land a fix and prove it on staging, 1 to 60. |
 | `change_policy.delivery.rollouts.<rollout>.on_breach.triage.fix_attempts` | integer | no (default 2) | (0.24.0) Fix attempts, 1 to 2. A failed merge gate or a red staging run ends an attempt. |
 | `change_policy.delivery.rollouts.<rollout>.on_breach.triage.gate.kind` | `roast` | yes when `gate` is set | (0.24.0) The diagnosis gate. |
-| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.gate.min_score` | number | no (default 9) | (0.24.0) The roast score the diagnosis must reach, 9 to 10. |
+| `change_policy.delivery.rollouts.<rollout>.on_breach.triage.gate.min_score` | number | no (default 9) | (0.24.0; floor 8 from 0.27.0) The roast score the diagnosis must reach, 8 to 10. |
 | `change_policy.delivery.rollouts.<rollout>.on_breach.triage.notify` | `dm` | no (default `dm`) | (0.24.0) A DM at breach and at resolution. |
 | `change_policy.delivery.rollouts.<rollout>.on_breach.triage.page_human_when` | list | no (default all four) | (0.24.0) Must list every trigger: `gate_failed`, `budget_exhausted`, `one_way_door`, `rebreach_after_fix`. |
 | `change_policy.delivery.rollouts.<rollout>.on_breach.triage.dispatch_timeout_minutes` | integer | no (default 10) | (0.24.0) A triage agent not started within this pages, 1 to 10. |
@@ -1907,3 +1907,7 @@ root `RELEASING.md`.
   (`receipt_key_fingerprint`, `rp_id`) and
   `change_policy.admin_bypass.carve_out_paths`. Approval policy is read from
   the default branch or PR base, and run-time trust verifies proofs.
+- 0.27.0: lowers the outbound roast floor. `change_config.outbound.roast_target`
+  is now 8 to 10 (default 8), `roast_rounds` 1 to 5 (default 5), and the
+  triage diagnosis roast gate `min_score` floor is 8. Open P1s at the stop go
+  through the local P1 pass, not another roast.

@@ -18,7 +18,7 @@ require 'yaml'
 # The floors are fixed by design and the schema rejects anything looser:
 # flag-off is always the first breach response, `everyone` is always a human
 # checkpoint, a money-affecting rollout never advances automatically, the
-# triage roast gate never drops below 9, at most 2 fix attempts in at most 60
+# triage roast gate never drops below 8, at most 2 fix attempts in at most 60
 # minutes, re-enable only on the first (internal) cohort, every page trigger
 # stays on, telemetry older than 180s is never fresh, and a heartbeat gap over
 # 10 minutes always alerts.
@@ -70,7 +70,7 @@ module ChangeDeliverySchema
   # Schema-fixed ceilings and floors.
   MAX_TELEMETRY_AGE_S = 180
   MAX_HEARTBEAT_GAP_MINUTES = 10
-  MIN_ROAST_SCORE = 9
+  MIN_ROAST_SCORE = 8
   MAX_FIX_ATTEMPTS = 2
   MAX_FIX_BUDGET_MINUTES = 60
   MAX_DISPATCH_TIMEOUT_MINUTES = 10

@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.27.0": {
+    version: "0.27.0",
+    date: "2026-11-19",
+    headline: "Roast floor 8: outbound messages and triage diagnoses may now stop at a score of 8.",
+    highlights: [
+      {
+        title: "outbound.roast_target and roast_rounds",
+        body:
+          "roast_target is now 8 to 10 (default 8) and roast_rounds 1 to 5 (default 5). The triage gate min_score floor is 8. Open P1s go through the local P1 pass, not another roast.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. Every value valid before stays valid.",
+  },
   "0.26.0": {
     version: "0.26.0",
     date: "2026-11-19",
