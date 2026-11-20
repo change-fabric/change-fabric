@@ -1000,7 +1000,7 @@ module Roast
       end
       return if opts[:estimate_only]
 
-      opts[:key_cwd] = key_cwd_for(opts, inputs)
+      opts[:key_cwd] = key_cwd_for(opts, inputs, effective)
       critic = Roast.critique(**inputs, cache_root: opts[:cache], http: http, key_cwd: opts[:key_cwd], allow_sensitive: opts[:allow_sensitive], raw_dir: opts[:out_dir], out: out,
                                         docker: docker, max_usd: opts[:max_usd], backend: effective == 'codex' ? opts[:backend] : 'api',
                                         pin: opts[:pin] || {}, codex_runner: codex_runner, probed: true)
@@ -1008,11 +1008,12 @@ module Roast
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{inputs[:round]}.json")} score #{critic['score']}/10")
     end
 
-    # The directory the API key is looked up against. A cached round and a
-    # codex-only run make no paid call, so they need no project unless one was
-    # named.
-    def key_cwd_for(opts, inputs)
-      free = opts[:backend] == 'codex' || Roast.cached?(opts[:cache], **inputs)
+    # The directory the API key is looked up against. A cached round and a run
+    # routed to codex make no paid call, so they need no project unless one was
+    # named. If auto later falls back to the API in a scratchpad, the key lookup
+    # fails loudly with the --project fix.
+    def key_cwd_for(opts, inputs, effective)
+      free = effective == 'codex' || Roast.cached?(opts[:cache], **inputs)
       free && !opts[:project] ? Dir.pwd : KeyProject.resolve(argv_project: opts[:project])
     end
 
