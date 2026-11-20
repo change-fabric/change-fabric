@@ -418,15 +418,11 @@ class ChangeFlowCompiler
     // start of the walk, not from now) and fails when idle is never reached.
     async function cfWaitIdle(state, idleMs, timeoutMs, label) {
       const deadline = Date.now() + timeoutMs;
-      let quietSince = state.inflight.size === 0 ? Date.now() : null;
+      const began = Date.now();
       while (Date.now() < deadline) {
-        if (state.inflight.size === 0) {
-          if (quietSince === null) quietSince = Date.now();
-          if (Date.now() - quietSince >= idleMs) return;
-        } else {
-          quietSince = null;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        const quietFor = Date.now() - Math.max(state.lastActivity, began);
+        if (state.inflight.size === 0 && quietFor >= idleMs) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
       }
       cfFail(`${label}: the network was not idle for ${idleMs}ms within ${timeoutMs}ms`);
     }
@@ -570,9 +566,13 @@ class ChangeFlowCompiler
       await cfInstallMeasure(page, steps);
       const watching = steps.some((step) => step.verb === "expectStable");
       const inflight = new Set();
-      const track = { request: (request) => inflight.add(request), requestfinished: (request) => inflight.delete(request), requestfailed: (request) => inflight.delete(request) };
+      // Every request event stamps lastActivity, so a request that starts and
+      // finishes between two polls still breaks the quiet window.
+      const touch = () => { state.lastActivity = Date.now(); };
+      const track = { request: (request) => { touch(); inflight.add(request); }, requestfinished: (request) => { touch(); inflight.delete(request); }, requestfailed: (request) => { touch(); inflight.delete(request); } };
       if (watching) for (const [event, fn] of Object.entries(track)) page.on(event, fn);
       state.inflight = inflight;
+      state.lastActivity = 0;
       // Every step records when it started (ms from the walk's start) and how
       // long it ran; a step's `budgetMs` is judged on the span from the start
       // of its `budgetFrom` step (or its own start) to its own end.
@@ -598,10 +598,16 @@ class ChangeFlowCompiler
         const endedAt = Date.now();
         record.durationMs = endedAt - startedAt;
         if (record.ok && step.budgetMs !== undefined) {
-          const from = step.budgetFrom !== undefined && startedAtByTag[step.budgetFrom] !== undefined ? startedAtByTag[step.budgetFrom] : startedAt;
+          const known = step.budgetFrom === undefined || startedAtByTag[step.budgetFrom] !== undefined;
+          const from = step.budgetFrom !== undefined && known ? startedAtByTag[step.budgetFrom] : startedAt;
           const span = endedAt - from;
           record.spanMs = span;
-          if (span > step.budgetMs) {
+          if (!known) {
+            // A resumed walk starts after the labelled step, so the origin is
+            // gone; measuring only this step would pass a span it never saw.
+            record.ok = false;
+            record.error = `step ${step.index + 1} budget_from ${step.budgetFrom} started before this walk resumed, so its span cannot be measured`;
+          } else if (span > step.budgetMs) {
             record.ok = false;
             record.error = `span ${step.budgetFrom !== undefined ? step.budgetFrom : "step " + (step.index + 1)}..${step.tag || "step " + (step.index + 1)} took ${span}ms, budget ${step.budgetMs}ms`;
           }

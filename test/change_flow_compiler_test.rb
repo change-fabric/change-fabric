@@ -718,6 +718,7 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_includes js, "cfWaitIdle(state, 500"
     assert_includes js, "state.inflight"
     assert_includes js, "no first-paint recording"
+    assert_includes js, "state.lastActivity"
   end
 
   def test_a_flow_with_expect_stable_installs_the_init_script_before_the_first_step_runs
@@ -777,5 +778,12 @@ class ChangeFlowCompilerTest < Minitest::Test
   def test_the_seventeen_case_fixture_has_seventeen_cases
     require_relative "../scripts/change_suite"
     assert_equal 17, ChangeSuite.load_file(File.join(COMPAT, "v4-seventeen.cf-testcases.yml")).cases.size
+  end
+
+  def test_a_budget_whose_origin_is_gone_after_a_resume_fails_rather_than_measuring_less
+    js = ChangeFlowCompiler.new([ { "click" => "#a", "label" => "go" },
+                                  { "wait_for_text" => { "text" => "x", "budget_ms" => 10, "budget_from" => "go" } } ],
+                                base_url: "https://app.example.org").function_module
+    assert_includes js, "started before this walk resumed"
   end
 end
