@@ -65,7 +65,7 @@ work tree or under the repo checkout or any path in `CF_KNOWN_REPO_ROOTS`
    matches, stop before writing code and ask Patrick with AskUserQuestion. The
    PR body carries the line `Incident: <id>`. Record the PR URL and merge SHA
    with `set --pr-url ... --merge-sha ...`. Advisory limit: 2 attempts or 60
-   minutes, then page Patrick and leave the incident at `mitigated`.
+   minutes, then page Patrick and leave the incident at `fixing`.
 5. **Tag and deploy.** Hand Patrick a tag script under
    `~/.claude/cf/manual/`. Record it as an op (`--kind tag`). Never push a tag.
 6. **Verify.** Read-only. Rerun the probe, and read the serving version from

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require_relative "../scripts/incident_store"
 
 # cf:incident is a skill protocol over scripts/incident_store.rb. These checks
 # pin the rules the protocol states in prose, so a rewrite cannot quietly drop
@@ -73,5 +74,31 @@ class IncidentSkillTest < Minitest::Test
     [ "Detection", "What happened", "Mitigation", "Fix", "Prevention", "Follow-ups" ].each do |name|
       assert_match(/^## #{name}$/, text)
     end
+  end
+
+  def status_section = flat[/## Status (.*?) ## Models/, 1]
+
+  def test_the_status_section_matches_the_store_transition_table_exactly
+    described = {}
+    status_section.split(";").each do |clause|
+      from, tos = clause.strip.sub(/\.\s*`set` cannot jump\.?\z/, "").sub(/\s*\(only via .*?\)/, "").split(" to ", 2)
+      described[from.delete("`").strip] = tos.scan(/`(\w+)`/).flatten
+    end
+    described.transform_values! { |tos| tos.sort }
+    expected = IncidentStore::STATUS_FLOW.reject { |_, tos| tos.empty? }.transform_values(&:sort)
+    assert_equal expected, described
+  end
+
+  def test_every_status_the_skill_names_is_a_real_state
+    names = IncidentStore::STATUS_FLOW.keys
+    named = flat.scan(/(?:--status|leave the incident at|unless status is|sets|status becomes) `?(\w+)`?/).flatten
+    named.reject! { |word| %w[approved running succeeded failed].include?(word) }
+    refute_empty named
+    assert_empty named - names
+  end
+
+  def test_the_attempt_limit_leaves_the_incident_at_fixing
+    assert_match(/2 attempts or 60 minutes, then page Patrick and leave the incident at `fixing`/, flat)
+    assert_includes IncidentStore::STATUS_FLOW.fetch("open"), "fixing"
   end
 end
