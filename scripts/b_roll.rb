@@ -342,8 +342,9 @@ if __FILE__ == $PROGRAM_NAME
   key_cwd = Dir.pwd
   begin
     model = flag.call('--model', BRoll::MODEL)
-    cached = File.file?(BRoll.cached_path(cache, BRoll.asset_key(source_image: image, prompt: prompt, seconds: seconds, model: model)))
-    key_cwd = cached && !project ? Dir.pwd : KeyProject.resolve(argv_project: project)
+    key = BRoll.asset_key(source_image: image, prompt: prompt, seconds: seconds, model: model) unless project
+    cached = !project && File.file?(BRoll.cached_path(cache, key))
+    key_cwd = cached ? Dir.pwd : KeyProject.resolve(argv_project: project)
     puts BRoll.generate(source_image: image, prompt: prompt, seconds: seconds, cache_root: cache,
                         model: model, budget: budget, key_cwd: key_cwd)
   rescue KeyProject::Invalid => e
