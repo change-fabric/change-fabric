@@ -36,6 +36,14 @@
 //     malformed answer fails loudly instead of steering the run.
 //  6. Return a single object at the end. That is the workflow's result and
 //     the only thing the calling session sees.
+//  7. Keep the resource gate. `gate()` runs as the first thing after Phase 0's
+//     `phase("Resource floors")`, as the first statement after
+//     `phase(spec.title)` in the PHASES loop, and as the statement right before
+//     every `parallel(` (a guard `if (!g || !g.ok) {...}` may sit between the
+//     gate and the `parallel(`). Declare FANOUT literally: one batch per
+//     `parallel()` block, `[{op, count}]` each. plan_check.rb runs
+//     scripts/resource_gate_lint.rb and fails a script whose gate is missing,
+//     late, commented out or after a return.
 //
 // Model roles: pick per call. The classifier role for high-volume mechanically
 // bounded classification, the critic role for the low volume, high stakes calls
@@ -46,6 +54,7 @@ export const meta = {
   name: "PLAN-SLUG",
   description: "ONE LINE, WHAT THIS BUILD DOES, TAKEN FROM goal.md",
   phases: [
+    { title: "Resource floors" },
     { title: "PHASE ONE TITLE" },
     { title: "PHASE TWO TITLE" },
     { title: "Verify" }
@@ -64,6 +73,13 @@ export const meta = {
 const REPO_PATH = "~/HOME-RELATIVE REPO PATH FROM THE PLAN"
 const PLAN_PATH = "~/HOME-RELATIVE plan.md PATH"
 
+// Fan-out declaration, literal. One batch per parallel() block: the heavy ops
+// that run at the same time, as [{op, count}]. Separate batches run one after
+// another. `worktrees` is how many worktrees the plan keeps live at once. The
+// batch named "phase" is the PHASES loop (one phase agent at a time). Ops are
+// the names the probe records (rake_test, change_boot, change_lanes, ...).
+const FANOUT = { worktrees: 1, batches: { phase: [{ op: "rake_test", count: 1 }] } }
+
 // Declare a schema wherever a result drives control flow.
 const PHASE_SCHEMA = {
   type: "object",
@@ -76,12 +92,45 @@ const PHASE_SCHEMA = {
   required: [ "landed", "files", "verification" ]
 }
 
+// Mirrors the JSON of `scripts/resource_gate.rb check --json`.
+const GATE_SCHEMA = {
+  type: "object",
+  properties: {
+    ok: { type: "boolean" },
+    ram_available_mb: { type: "number" },
+    disk_free_gb: { type: "number" },
+    need: { type: "object" },
+    reclaimed: { type: "object" },
+    candidates: { type: "array", items: { type: "object" } },
+    provisional: { type: "boolean" }
+  },
+  required: [ "ok", "ram_available_mb", "disk_free_gb", "need", "reclaimed", "candidates", "provisional" ]
+}
+
 const input = typeof args === "string" ? JSON.parse(args) : (args ?? {})
 const stopOnFailure = input.stopOnFailure ?? true
 // Optional list of phase titles to run. Empty (the default) runs every phase
 // end to end; a non-empty list runs only the named phases, which is how a
 // caller who asked to be checked in with runs one phase at a time.
 const only = Array.isArray(input.only) ? input.only : []
+
+// The resource gate. The script has no tools, so an agent runs the CLI and
+// returns its JSON verbatim. Tier 1 reclaim is automatic; tier 2 comes back as
+// ok:false with candidates and the executing session asks the user.
+async function gate(where, batchName) {
+  const batch = FANOUT.batches[batchName].map((b) => b.op + ":" + b.count).join(",")
+  return await agent(
+    "Resource gate at: " + where + ". Repository: " + REPO_PATH + " ('~' is your home; " +
+    "expand it for tools that need a literal path).\n\n" +
+    "From the repo root run exactly:\n" +
+    "ruby scripts/resource_gate.rb check --json --reclaim-safe --batch " + batch +
+    " --worktrees " + FANOUT.worktrees + "\n" +
+    "and return its JSON verbatim. If the command is missing or exits 4, return ok false " +
+    "with the failure in need. Never delete anything beyond what the command itself does, " +
+    "and never touch other projects' containers or credentials.",
+    { model: {{model-js:classifier}}, phase: "Resource floors", label: "gate: " + where, schema: GATE_SCHEMA }
+  )
+}
 
 // Common preamble for every phase agent. The plan is the source of truth, so
 // each agent reads it rather than trusting a paraphrase in this script.
@@ -93,6 +142,9 @@ function preamble(phaseName) {
     " first, in full, then do only the phase named below. The plan's " +
     "\"Decisions (settled, do not re-litigate)\" section records answers the user " +
     "already gave; treat those as fixed and do not reopen them.\n\n" +
+    "Before any heavy step (test suite, docker build, change boot or lanes), run the " +
+    "resource gate: ruby scripts/resource_gate.rb check --json --reclaim-safe. If it " +
+    "reports ok false, stop, set landed false, and put the gate JSON in notes.\n\n" +
     "Repository: " + REPO_PATH + "\n" +
     "Phase: " + phaseName + "\n\n"
 }
@@ -114,9 +166,28 @@ const PHASES = [
 ]
 
 const results = []
+let stoppedBy = null
+
+// Phase 0: resource floors before any work. Tier 2 reclaim is the user's call,
+// so a failed gate returns early and the executing session asks.
+if (only.length === 0 || only.includes("Resource floors")) {
+  phase("Resource floors")
+  const first = await gate("Phase 0", "phase")
+  if (!first || !first.ok) {
+    log("Stopping: below resource floor at Phase 0")
+    return { plan: PLAN_PATH, stopped: "resource-floor", gate: first, phases: results }
+  }
+}
+
 for (const spec of PHASES) {
   if (only.length > 0 && !only.includes(spec.title)) continue
   phase(spec.title)
+  const g = await gate("start of " + spec.title, "phase")
+  if (!g || !g.ok) {
+    stoppedBy = { phase: spec.title, gate: g }
+    log("Stopping: below resource floor at " + spec.title)
+    break
+  }
   const result = await agent(
     preamble(spec.title) + spec.instruction +
     "\n\nWhen the work is done, run this and report its real output, do not assume it:\n" +
@@ -136,11 +207,19 @@ for (const spec of PHASES) {
 // independent, and fan back in to a single sequential agent wherever two units
 // would otherwise write the same files. Delete this block if the plan has no
 // independent work; a parallel() over dependent phases corrupts the tree.
+// Every parallel() needs its own FANOUT batch and a gate as the statement
+// before it (batch "fanout" below, added to FANOUT.batches):
 //
+// const fan = await gate("before fan-out", "fanout")
+// if (!fan || !fan.ok) return { plan: PLAN_PATH, stopped: "resource-floor", gate: fan, phases: results }
 // const reviews = await parallel(
 //   INDEPENDENT_UNITS.map((unit) => () => agent(preamble(unit.title) + unit.instruction,
 //     { model: {{model-js:worker}}, phase: "PHASE ONE TITLE", label: unit.title, schema: PHASE_SCHEMA }))
 // )
+
+if (stoppedBy) {
+  return { plan: PLAN_PATH, stopped: "resource-floor", gate: stoppedBy, phases: results }
+}
 
 const landed = results.filter((r) => r.landed)
 // The plan-wide acceptance suite only means something once every phase has
