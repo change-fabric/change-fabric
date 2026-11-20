@@ -5,6 +5,7 @@ require "securerandom"
 require_relative "../approval_console/infra/lambda/console"
 require_relative "../approval_console/infra/lambda/clients"
 require_relative "support/soft_authenticator"
+require_relative "../scripts/change_pr_facts"
 require_relative "support/console_fakes"
 
 class ApprovalConsoleLambdaTest < Minitest::Test
@@ -159,8 +160,40 @@ class ApprovalConsoleLambdaTest < Minitest::Test
   end
 
   def test_create_request_rejects_oversize_bodies_before_any_work
-    status, data = call("POST", "/m/#{MID}/requests", "x" * 33_000)
+    status, data = call("POST", "/m/#{MID}/requests", "x" * (ApprovalConsoleApp::MAX_BODY + 1))
     assert_equal [ 413, "too_large" ], [ status, data["error"] ]
+  end
+
+  def carve_out_with_files(count)
+    files = Array.new(count) { |i| format("%<i>04d/", i: i) + ("d" * 195) + ".rb" }.sort
+    Canonical.build(type: "carve-out", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil,
+                    request_id: SecureRandom.uuid, created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z",
+                    summary: "merge PR 9", pr_url: "https://github.com/acme/app/pull/9", pr_title: "Big", base: "main", files: files)
+  end
+
+  def test_a_3000_file_carve_out_with_200_character_paths_is_accepted
+    body = carve_out_with_files(Canonical::MAX_FILES)
+    raw = JSON.generate("body" => body)
+    assert_operator raw.bytesize, :>, 32 * 1024
+    assert_operator raw.bytesize, :<, ApprovalConsoleApp::MAX_BODY
+    assert_equal 201, create_request(body)[0]
+  end
+
+  def test_a_request_one_byte_over_the_limit_is_still_413
+    over = "x" * (ApprovalConsoleApp::MAX_BODY + 1)
+    assert_equal 413, call("POST", "/m/#{MID}/requests", over)[0]
+    exact = "x" * ApprovalConsoleApp::MAX_BODY
+    refute_equal 413, call("POST", "/m/#{MID}/requests", exact)[0]
+  end
+
+  def test_the_file_count_and_body_limits_are_shared_between_client_and_server
+    assert_equal ApprovalConsole::Canonical::MAX_REQUEST_BYTES, ApprovalConsoleApp::MAX_BODY
+    assert_equal ApprovalConsole::Canonical::MAX_FILES, ChangePrFacts::MAX_FILES
+    assert_operator ApprovalConsoleApp::MAX_BODY, :<, 6 * 1024 * 1024
+  end
+
+  def test_more_than_the_file_limit_is_not_a_valid_body
+    assert_raises(Canonical::Invalid) { carve_out_with_files(Canonical::MAX_FILES + 1) }
   end
 
   def test_requests_are_limited_per_machine_per_hour

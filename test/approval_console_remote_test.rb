@@ -522,6 +522,11 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     assert_match(/head moved/, err)
   end
 
+  def test_the_client_refuses_a_request_over_the_shared_limit_before_sending
+    error = assert_raises(ApprovalConsole::Client::Refused) { client.create_request("x" * ApprovalConsole::Canonical::MAX_REQUEST_BYTES) }
+    assert_equal 413, error.status
+  end
+
   def test_request_for_a_carve_out_fails_closed_when_the_pr_facts_are_unreadable
     big = Array.new(3) { |i| { "filename" => "f#{i}" } }
     [ fake_gh(files: big, changed: 3000), fake_gh(files: big, changed: 5), ->(*) { raise ChangePrFacts::Unreadable, "gh down" } ].each do |gh|

@@ -18,6 +18,12 @@ module ApprovalConsole
     TYPES = %w[step override prod-op carve-out money release].freeze
     SCOPES = %w[merge tag].freeze
     MAX_LIFETIME = 3600
+    # A carve-out signs its whole file list. The client and the Lambda share
+    # this ceiling: 3000 paths of about 200 bytes, JSON-encoded twice (the body
+    # is a string inside the request JSON), is about 620 KB, so 1 MiB leaves
+    # headroom and stays far under the 6 MB Function URL limit.
+    MAX_FILES = 3000
+    MAX_REQUEST_BYTES = 1024 * 1024
     UUID = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
     SHA = /\A[0-9a-f]{40}\z/
     TIME = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/
@@ -165,7 +171,7 @@ module ApprovalConsole
       errors << 'pr_title is empty' unless nonempty?(body['pr_title'])
       errors << 'base is empty' unless nonempty?(body['base'])
       files = body['files']
-      errors << 'files must be a sorted, unique array of non-empty strings' unless files.is_a?(Array) && files.all? { |f| nonempty?(f) } && files == files.uniq.sort
+      errors << "files must be a sorted, unique array of at most #{MAX_FILES} non-empty strings" unless files.is_a?(Array) && files.size <= MAX_FILES && files.all? { |f| nonempty?(f) } && files == files.uniq.sort
       errors
     end
 

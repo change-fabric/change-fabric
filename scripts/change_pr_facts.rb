@@ -11,6 +11,7 @@ module ChangePrFacts
   # Raised when the PR facts cannot be read completely; callers fail closed.
   class Unreadable < StandardError; end
 
+  # The approval console signs at most this many files (Canonical::MAX_FILES).
   MAX_FILES = 3000
   PR_URL = %r{\Ahttps://([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/(\d+)/?\z}
 
