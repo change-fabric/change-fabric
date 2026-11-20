@@ -410,8 +410,7 @@ class ApprovalConsoleRemoteTest < Minitest::Test
   # The gate builds its own ProofCheck on the wall clock, so pin Time.now to
   # the test clock (just after the receipt) or a fixed-date receipt ages out
   # as real days pass. Verdicts are computed inside the pinned window.
-  def scoped_gate(scope, profile: nil)
-    at = @now + 60
+  def scoped_gate(scope, profile: nil, at: @now + 60)
     original = Time.method(:now)
     Time.define_singleton_method(:now) { |*| at }
     gate = ChangeGateCheck.new(sha: SHA, profile: profile, root: @repo, proof_level: "passkey", proof_store: @store,
@@ -437,6 +436,13 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     fresh, = remote_approve(override_attrs(reason: LONG_REASON))
     ChangeOverrideStore.new(SHA).record(reason: LONG_REASON, recorded_by: "t", proof: fresh.proof)
     assert scoped_gate("merge").overridden?
+  end
+
+  def test_a_phone_override_is_judged_on_the_pinned_clock_not_the_wall_clock
+    result, = remote_approve(override_attrs(reason: LONG_REASON))
+    ChangeOverrideStore.new(SHA).record(reason: LONG_REASON, recorded_by: "t", proof: result.proof)
+    assert scoped_gate("merge", at: @now + 60).overridden?
+    refute scoped_gate("merge", at: @now + 90_000).overridden?, "a receipt past 24h no longer unlocks the gate"
   end
 
   def test_an_unscoped_phone_override_unlocks_both_gates
