@@ -831,14 +831,13 @@ class IncidentReportTest < Minitest::Test
     assert(@shell.roast_calls.all? { |argv| argv[argv.index("--project") + 1] == Dir.pwd })
   end
 
-  def test_roast_from_a_scratchpad_without_project_stops_before_any_paid_call
+  def test_roast_from_a_scratchpad_without_project_leaves_the_children_to_decide
     scratch = make_scratchpad!
     drafted_and_scanned
     code, err = Dir.chdir(scratch) { roast_cli("roast", "--at", T1) }
-    assert_equal 4, code
-    assert_includes err, "Fix: re-run with --project <repo root>"
-    assert_includes err, scratch
-    assert_empty @shell.roast_calls
+    assert_equal 0, code, err
+    assert_equal 2, @shell.roast_calls.size
+    assert(@shell.roast_calls.none? { |argv| argv.include?("--project") })
   ensure
     remove_scratchpad!
   end

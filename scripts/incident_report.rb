@@ -752,7 +752,10 @@ module IncidentReport
     # The project whose key the roast children use, resolved once here and
     # forwarded to each as --project; a child never re-derives it from its cwd.
     def cmd_roast
-      project = KeyProject.resolve(argv_project: @opts['project'])
+      project = KeyProject.resolve_lazily(argv_project: @opts['project'])
+      # An unresolved scratchpad is not forwarded (a child refuses it); the
+      # children stop with the fix only if they need a paid key.
+      project = nil if KeyProject.scratch_root?(KeyProject.real_path(project))
       @report.roast(at: opt('at'), repo_dir: @opts['repo-dir'] || Dir.pwd, max_usd: @opts['max-usd'], project: project).each do |name, r|
         @out.puts("roast #{name}: #{r['score']}/10 (target #{r['target']}), P0 open #{r['p0_open']}")
       end
