@@ -48,7 +48,7 @@ cap, the cap stops with the P0 reported as blocking, a score of 8 or more with
 no P0 stops, otherwise continue. Open P1s become local follow-ups, never
 another paid round.
 
-Enforcer: scripts/roast.rb, scripts/roast_followups.rb, scripts/walkthrough_roast.rb, test/roast_test.rb, test/roast_followups_test.rb, test/walkthrough_roast_test.rb
+Enforcer: scripts/roast.rb, scripts/roast_followups.rb, scripts/walkthrough_roast.rb, test/roast_test.rb, test/roast_followups_test.rb, test/walkthrough_roast_test.rb, skills/roast/SKILL.md, test/roast_p1_pass_test.rb
 
 ## Push is gated on a design review
 

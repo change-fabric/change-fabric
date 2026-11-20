@@ -87,7 +87,7 @@ It reads the same history (stills rounds and earlier video rounds with their res
 
    Accept what is right even when it stings. Rebut only with a reason grounded in the brief, DESIGN.md, or the user's stated constraints; a rebuttal with no such ground is an accept. The next round's critic sees these and may hold the line.
 4. Apply the accepted fixes to the artifact (screens, DESIGN.md, tokens), keeping to the tokens and the cf:usability, cf:fractal, and cf:prototyping rules (load cf:fractal by name before applying a layout or spacing fix, so a fix reuses an existing module instead of inventing one). Do not touch what the roast did not raise.
-5. Re-capture the screenshots, then run `roast.rb decide`. On `continue`, go to step 2 for the next round; on `stop`, finish. When the stop is blocking, report the open P0 as blocking and do not present the run as done. When it printed `followups:`, see Open P1s at the stop.
+5. Re-capture the screenshots, then run `roast.rb decide`. On `continue`, go to step 2 for the next round; on `stop`, finish. When the stop is blocking, report the open P0 as blocking and do not present the run as done. When it printed `followups:`, run the local pass in Open P1s at the stop; never another `roast.rb` round for a P1.
 
 ## Stop rule
 
@@ -112,6 +112,16 @@ On rows 3 and 5, `decide` prints a `followups:` block, one line per open P1 with
 - `scripts/roast_followups.rb` (`RoastFollowups.upsert`) keys by id: a rerun of `decide` appends new ids and never resets an entry whose outcome is not `pending`.
 - Every `unresolved` and `escalated` follow-up is listed in the caller's final report, never only recorded in the json.
 - cf:walkthrough `--final` refuses a fidelity follow-up still `pending` or `unresolved`.
+
+The pass is code: `RoastFollowups::Pass` in `scripts/roast_followups.rb`, run over `round-N.response.json` as `Pass.new(classify:, ask:, mitigate:, judge:, away:).run(path)`. It never calls `roast.rb`. The caller wires four roles:
+
+- `classify`: a `{{model:classifier}}` agent. It returns `needs_human` (true for judgment calls, taste, scope or money) and a one-line reason. It runs first on every pending follow-up, before any fix.
+- `ask`: AskUserQuestion with the follow-up and the reason. Approval carries Patrick's direction into the fix; a decline sets `declined_by_human` and nothing is fixed.
+- `mitigate`: a `{{model:worker}}` agent (background when there is more than one P1, else this session) that applies the fix and returns a note. It may return a `decision` when the fix raises a new human question; that goes back through `classify`.
+- `judge`: a local `{{model:critic}}` agent, never the paid roast, that reads the fixed artifact and the P1 and answers `resolved` or `unresolved`.
+- `away`: true when the session is in away mode (`cf:away`). A follow-up that needs a human becomes `escalated` with its `escalation_reason`; `ask` and `mitigate` are never called for it.
+
+Outcomes: `resolved` gives `mitigated`; `unresolved` retries once (`attempts` 2) and then ends `unresolved`. List every `unresolved`, `escalated` and `declined_by_human` follow-up in the final report.
 
 ## Judgment the user keeps
 

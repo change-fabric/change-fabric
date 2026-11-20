@@ -94,4 +94,88 @@ module RoastFollowups
 
   # The id-and-problem line decide prints for each follow-up.
   def line(entry) = "- #{entry['id']} (#{entry['where']}): #{entry['problem']}"
+
+  # The local P1 pass as code. Callers inject four roles: classify (a classifier
+  # agent), ask (AskUserQuestion), mitigate (a worker agent or this session) and
+  # judge (a local critic, never the paid roast). Pass never calls roast.rb.
+  #
+  #   classify: ->(entry) { { needs_human: bool, reason: str } }
+  #   ask:      ->(entry, reason) { { approved: bool, direction: str } }
+  #   mitigate: ->(entry, direction) { note_str } (or { note:, decision: str } when
+  #             the fix raised a new human decision, which is classified again)
+  #   judge:    ->(entry) { :resolved | :unresolved }
+  class Pass
+    def initialize(classify:, ask:, mitigate:, judge:, away: false)
+      @classify = classify
+      @ask = ask
+      @mitigate = mitigate
+      @judge = judge
+      @away = away
+    end
+
+    # Runs every pending follow-up in the response file and persists each
+    # outcome through RoastFollowups.upsert. Returns the entries it settled.
+    def run(path)
+      RoastFollowups.followups(path).select { |e| e['outcome'] == 'pending' }.map do |entry|
+        settled = settle(entry.dup)
+        RoastFollowups.upsert(path, [ settled ])
+        settled
+      end
+    end
+
+    private
+
+    # Classify first, then mitigate and judge with one retry.
+    def settle(entry)
+      direction = gate(entry)
+      return entry if direction == :stop
+
+      decisions = 0
+      until entry['attempts'] >= MAX_ATTEMPTS
+        entry['attempts'] += 1
+        result = @mitigate.call(entry, direction)
+        decision = result.is_a?(Hash) ? (result[:decision] || result['decision']) : nil
+        entry['note'] = (result.is_a?(Hash) ? (result[:note] || result['note']) : result).to_s
+        if decision
+          # A raised decision is not a judged fix: refund the attempt, bounded
+          # so a worker that keeps asking cannot loop forever.
+          entry['attempts'] -= 1
+          return finish(entry, 'unresolved') if (decisions += 1) > MAX_ATTEMPTS
+
+          direction = gate(entry, decision)
+          return entry if direction == :stop
+
+          next
+        end
+        entry['judge_verdict'] = @judge.call(entry).to_s
+        return finish(entry, 'mitigated') if entry['judge_verdict'] == 'resolved'
+      end
+      finish(entry, 'unresolved')
+    end
+
+    # Returns the human direction (nil when none needed) or :stop after setting
+    # a terminal outcome (escalated or declined_by_human).
+    def gate(entry, decision = nil)
+      subject = decision ? entry.merge('problem' => decision) : entry
+      verdict = @classify.call(subject)
+      return nil unless verdict[:needs_human]
+
+      reason = verdict[:reason].to_s
+      if @away
+        entry['escalation_reason'] = reason
+        finish(entry, 'escalated')
+        return :stop
+      end
+      answer = @ask.call(subject, reason)
+      return answer[:direction].to_s if answer[:approved]
+
+      finish(entry, 'declined_by_human')
+      :stop
+    end
+
+    def finish(entry, outcome)
+      entry['outcome'] = outcome
+      entry
+    end
+  end
 end

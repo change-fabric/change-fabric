@@ -125,7 +125,7 @@ Only when the user wants look-and-feel exploration. Generate with cf:image (`ima
 
 ## Roast (optional)
 
-Only when the user wants the draft's mock screens stress-tested. Load cf:roast by name: it is paid, runs a capped multi-round loop against an OpenAI vision critic, and logs each round to `roast/`. Never auto-run. On exit 4, load the installed cf:enroll with its `cf_enroll` line verbatim, then re-run once. Exit 5 means openai is deferred for this project: relay the note and keep the draft unroasted.
+Only when the user wants the draft's mock screens stress-tested. Load cf:roast by name: it is paid, runs a capped multi-round loop against an OpenAI vision critic, and logs each round to `roast/`. Never auto-run. On exit 4, load the installed cf:enroll with its `cf_enroll` line verbatim, then re-run once. Exit 5 means openai is deferred for this project: relay the note and keep the draft unroasted. When `roast.rb decide` stops with `followups:`, run the local pass in cf:roast's "Open P1s at the stop" section over `roast/round-N.response.json` and report every `unresolved` or `escalated` follow-up; never another paid round for a P1.
 
 ## Output and lint
 
