@@ -135,6 +135,12 @@ module IncidentReport
       end
     end
 
+    # host[:port], the form JavaScript's URL#host gives (a default port is omitted).
+    def authority(url)
+      uri = URI.parse(url)
+      uri.port == uri.default_port ? uri.host : "#{uri.host}:#{uri.port}"
+    end
+
     # A route as path plus query: a full URL is reduced to it.
     def route_of(url)
       uri = URI.parse(url)
@@ -167,7 +173,7 @@ module IncidentReport
     # The browserless /function module. Policy lives in `decide`, which the
     # tests drive with a fake page under node.
     def module_source(base:, hosts:, routes:, viewports:, masks:, cookie: nil)
-      cfg = { base: base, base_host: URI.parse(base).host, hosts: hosts, routes: routes, masks: masks, cookie: cookie,
+      cfg = { base: base, base_host: authority(base), hosts: hosts, routes: routes, masks: masks, cookie: cookie,
               viewports: viewports.map { |name, (w, h)| { name: name, width: w, height: h } } }
       MODULE_JS.sub('__CFG__') { JSON.generate(cfg) }
     end
@@ -265,7 +271,7 @@ module IncidentReport
         { 'file' => file, 'route' => shot['route'], 'viewport' => shot['viewport'], 'final_url' => shot['final_url'],
           'sha256' => IncidentReport.sha256_file(File.join(screens, file)) }
       end
-      record = { 'captured_at' => Time.parse(at).utc.iso8601, 'host' => URI.parse(base).host, 'version' => version.to_s,
+      record = { 'captured_at' => Time.parse(at).utc.iso8601, 'host' => authority(base), 'version' => version.to_s,
                  'read_only' => true, 'shots' => shots, 'blocked' => Array(result['blocked']) }
       File.write(File.join(screens, 'captures.json'), "#{JSON.pretty_generate(record)}\n")
       record
@@ -690,7 +696,7 @@ module IncidentReport
       Capture.check!(routes: routes, allowed: Capture.allowed_routes(Array(@opts['suite'])), session: @opts['session'],
                      session_approved_by: @opts['session-approved-by'])
       record = Capture.run(browser: browser_for, dir: File.join(@report.dir, 'evidence'), base: base, routes: routes, at: opt('at'),
-                           hosts: [ URI.parse(base).host ] + Array(@opts['allow-host']), viewports: Capture.viewports(@opts['viewports']),
+                           hosts: [ Capture.authority(base) ] + Array(@opts['allow-host']), viewports: Capture.viewports(@opts['viewports']),
                            masks: Capture::DEFAULT_MASKS + @opts['mask-selectors'].to_s.split(',').map(&:strip).reject(&:empty?),
                            version: @opts['version'] || @report.incident.dig('hotfix', 'serving_version'), cookie: session_cookie)
       @report.store.append(@report.id, at: opt('at'), actor: 'report', text: "captured #{record['shots'].size} read-only screenshot(s) of #{record['host']}")

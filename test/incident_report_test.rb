@@ -369,6 +369,19 @@ class IncidentReportTest < Minitest::Test
     assert_nil cookies["https://cdn.example.test/a.css"]
   end
 
+  def test_a_production_url_with_a_nondefault_port_is_captured
+    assert_equal "app.example.test:8443", IncidentReport::Capture.authority("https://app.example.test:8443/")
+    assert_equal "app.example.test", IncidentReport::Capture.authority("https://app.example.test:443/")
+    skip "node is not installed" unless NODE
+    code = IncidentReport::Capture.module_source(base: "https://app.example.test:8443", hosts: [ "app.example.test:8443" ], routes: [ "/status" ],
+                                                 viewports: { "desktop" => [ 1, 1 ] }, masks: [])
+    File.write(File.join(@tmp, "mod.mjs"), code)
+    File.write(File.join(@tmp, "harness.mjs"), HARNESS)
+    out, err, status = Open3.capture3("node", File.join(@tmp, "harness.mjs"), File.join(@tmp, "mod.mjs"), JSON.generate("pages" => {}))
+    assert status.success?, err
+    assert_equal 1, JSON.parse(out)["result"]["shots"].size
+  end
+
   def test_an_off_host_subresource_is_aborted_but_the_capture_succeeds
     run = run_module("/status" => { "requests" => [ { "method" => "GET", "url" => "https://tracker.example.net/p.gif" } ] })
     assert_equal "abort", run["events"].find { |e| e["url"].include?("tracker") }["outcome"]
