@@ -107,7 +107,8 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     [ result, out.string, status ]
   end
 
-  def pending_request_body = @db.items.values.find { |item| item["sk"].to_s.start_with?("REQ#") }["body"]
+  # Newest request first: a test that approves twice must answer the second.
+  def pending_request_body = @db.items.values.reverse.find { |item| item["sk"].to_s.start_with?("REQ#") }["body"]
 
   def terminal(attrs, typed: code)
     stdin = StringIO.new("#{typed}\n")
@@ -406,9 +407,19 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     assert_match(/rpId pin/, wrong.trust_clause)
   end
 
+  # The gate builds its own ProofCheck on the wall clock, so pin Time.now to
+  # the test clock (just after the receipt) or a fixed-date receipt ages out
+  # as real days pass. Verdicts are computed inside the pinned window.
   def scoped_gate(scope, profile: nil)
-    ChangeGateCheck.new(sha: SHA, profile: profile, root: @repo, proof_level: "passkey", proof_store: @store,
-                        proof_pins: authoritative_pins, scope: scope)
+    at = @now + 60
+    original = Time.method(:now)
+    Time.define_singleton_method(:now) { |*| at }
+    gate = ChangeGateCheck.new(sha: SHA, profile: profile, root: @repo, proof_level: "passkey", proof_store: @store,
+                               proof_pins: authoritative_pins, scope: scope)
+    gate.overridden?
+    gate
+  ensure
+    Time.define_singleton_method(:now, original)
   end
 
   def test_a_merge_scoped_phone_override_unlocks_the_merge_gate_only
