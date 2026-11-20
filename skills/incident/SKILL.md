@@ -72,7 +72,9 @@ work tree or under the repo checkout or any path in `CF_KNOWN_REPO_ROOTS`
    its named source: `set --serving-version <v> --serving-source
    deploy_api|version_endpoint` (a tag alone never establishes it) plus
    `--fix-version <v>`. Record `--probe-result pass` only while the fix is the
-   serving version, and one `--regression <name>=pass|fail` per P0 row. Then
+   serving version, and one `--regression <name>=pass|fail` per P0 row, also
+   only while the fix is serving (each result binds to the serving version).
+   Verified evidence is frozen afterward. Then
    `set --status verified`; the store refuses it unless every rule holds.
    Inconclusive evidence, including an auth failure, is recorded with
    `--probe-result inconclusive|auth_failure`, which sets `unverified`: page

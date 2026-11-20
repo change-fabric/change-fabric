@@ -292,6 +292,8 @@ class IncidentStoreTest < Minitest::Test
   def test_set_cannot_close_and_rejects_unknown_keys_and_bad_values
     id = reach_reported_id
     assert_invalid(/close command/) { store.set(id, { "status" => "closed" }, at: T2) }
+    id = make("other")
+    store.set(id, { "status" => "fixing" }, at: T1)
     assert_invalid(/unknown key "colour"/) { store.set(id, { "colour" => "red" }, at: T2) }
     assert_invalid(/severity/) { store.set(id, { "severity" => "sev0" }, at: T2) }
     assert_invalid(/serving_source/) { store.set(id, { "serving_source" => "tag" }, at: T2) }
@@ -363,11 +365,44 @@ class IncidentStoreTest < Minitest::Test
     s.set(id, { "status" => "fixing", "probe" => "curl /health", "hotfix.fix_version" => "v1.2.1",
                 "serving_version" => "v1.2.0", "serving_source" => "deploy_api" }, at: T1)
     s.set(id, { "probe_result" => "pass", "regression.login" => "pass" }, at: T1)
-    s.set(id, { "serving_version" => "v1.2.1" }, at: T2)
+    s.set(id, { "serving_version" => "v1.2.1", "regression.login" => "pass" }, at: T2)
     assert_invalid(/probe passed while serving "v1.2.0"/) { s.set(id, { "status" => "verified" }, at: T2) }
     s.set(id, { "probe_result" => "pass" }, at: T2)
     s.set(id, { "status" => "verified" }, at: T2)
     assert_equal "verified", inc(id)["status"]
+  end
+
+  def test_regression_rows_passed_on_the_rolled_back_version_do_not_count
+    id = make
+    s = store
+    s.set(id, { "status" => "fixing", "probe" => "curl /h", "hotfix.fix_version" => "v1.2.1",
+                "serving_version" => "v1.2.0", "serving_source" => "deploy_api", "regression.login" => "pass" }, at: T1)
+    s.set(id, { "serving_version" => "v1.2.1", "probe_result" => "pass" }, at: T2)
+    assert_invalid(/passed on a version other than the fix: login/) { s.set(id, { "status" => "verified" }, at: T2) }
+    s.set(id, { "regression.login" => "pass" }, at: T2)
+    s.set(id, { "status" => "verified" }, at: T2)
+    assert_equal "verified", inc(id)["status"]
+  end
+
+  def test_version_fields_apply_before_the_results_bound_to_them
+    id = make
+    s = store
+    s.set(id, { "status" => "fixing", "probe" => "curl /h" }, at: T1)
+    s.set(id, { "probe_result" => "pass", "regression.login" => "pass", "serving_version" => "v2" }, at: T1)
+    assert_equal "v2", inc(id)["probe_result"]["serving_version"]
+    assert_equal "v2", inc(id)["regressions"]["login"]["serving_version"]
+  end
+
+  def test_verified_evidence_is_frozen
+    id = make
+    s = reach_reported(id)
+    assert_invalid(/reported evidence is frozen; cannot change probe_result/) do
+      s.set(id, { "probe_result" => "auth_failure" }, at: T2)
+    end
+    assert_invalid(/frozen/) { s.set(id, { "regression.login" => "fail" }, at: T2) }
+    assert_invalid(/frozen/) { s.set(id, { "serving_version" => "v0" }, at: T2) }
+    assert_equal "reported", inc(id)["status"]
+    s.set(id, { "hotfix.pr_url" => "https://example.test/pr/1" }, at: T2)
   end
 
   def test_verified_succeeds_with_everything_and_stamps_fixed_at
@@ -430,7 +465,6 @@ class IncidentStoreTest < Minitest::Test
     id = make
     s = reach_reported(id)
     record_hotfix(s, id)
-    s.set(id, { "hotfix.serving_version" => "v1.2.1" }, at: T2)
     write_rca(id)
     s.follow_up_add(id, title: "prevent", at: T2)
     assert_invalid(/follow-ups not tracked or accepted: 1/) { s.close(id, at: T2) }
@@ -507,7 +541,7 @@ class IncidentStoreTest < Minitest::Test
                           "--regression", "login=pass", "--regression", "pay=fail", "hotfix.pr_url=https://x.test/1").first
       record = inc(id)
       assert_equal "fixing", record["status"]
-      assert_equal({ "login" => "pass", "pay" => "fail" }, record["regressions"])
+      assert_equal({ "login" => "pass", "pay" => "fail" }, record["regressions"].transform_values { |row| row["result"] })
       assert_equal "https://x.test/1", record["hotfix"]["pr_url"]
       assert_equal 0, cli("follow-up", "add", "--id", id, "--title", "t", "--at", T1).first
       assert_equal 0, cli("follow-up", "update", "--id", id, "--n", "1", "--accepted-untracked", "--by", "patrick", "--at", T1).first

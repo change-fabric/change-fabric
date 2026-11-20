@@ -222,7 +222,9 @@ class IncidentStore
       file = File.join(dir, 'incident.json')
       inc = read_json(file)
       status = changes['status']
-      (changes.keys - [ 'status' ]).each { |key| apply_key(inc, key, changes[key], stamp, notes) }
+      keys = changes.keys - [ 'status' ]
+      refuse_frozen_evidence!(inc, keys)
+      ordered(keys).each { |key| apply_key(inc, key, changes[key], stamp, notes) }
       status ||= auto_unverified(inc)
       change_status(inc, status, stamp, notes) if status
       write_json(file, inc)
@@ -296,6 +298,26 @@ class IncidentStore
       'hotfix' => HOTFIX_KEYS.to_h { |key| [ key, nil ] }, 'follow_ups' => [] }
   end
 
+  # Results bind to the serving version, so version fields apply first whatever
+  # order the caller gave the flags in.
+  def ordered(keys) = keys.partition { |key| !bound_to_version?(key) }.flatten
+
+  def bound_to_version?(key) = key == 'probe_result' || key.start_with?('regression.')
+
+  def evidence_key?(key) = bound_to_version?(key) || %w[serving_version serving_source hotfix.fix_version
+                                                       hotfix.serving_version hotfix.serving_source].include?(key)
+
+  # Once verified, later evidence cannot quietly contradict it: the table has no
+  # way back, so a verified incident's evidence is frozen.
+  def refuse_frozen_evidence!(inc, keys)
+    return unless %w[verified reported closed].include?(inc['status'])
+
+    frozen = keys.select { |key| evidence_key?(key) }
+    return if frozen.empty?
+
+    raise Invalid, "#{inc['status']} evidence is frozen; cannot change #{frozen.join(', ')}"
+  end
+
   def apply_key(inc, key, value, stamp, notes)
     case key
     when *PLAIN_KEYS then plain(inc, key, value)
@@ -325,7 +347,7 @@ class IncidentStore
   def regression(inc, name, value, notes)
     raise Invalid, "regression #{name} must be pass or fail" unless %w[pass fail].include?(value)
 
-    inc['regressions'][name] = value
+    inc['regressions'][name] = { 'result' => value, 'serving_version' => inc['hotfix']['serving_version'] }
     notes << "regression #{name} #{value}"
   end
 
@@ -384,7 +406,7 @@ class IncidentStore
     found << 'serving_version needs --serving-source deploy_api or version_endpoint' unless SERVING_SOURCES.include?(hot['serving_source'])
     found << "serving_version #{hot['serving_version'].inspect} does not equal fix_version" if blank?(hot['serving_version']) || hot['serving_version'] != fix
     found.concat(probe_problems(inc['probe_result'], fix))
-    found.concat(regression_problems(inc['regressions']))
+    found.concat(regression_problems(inc['regressions'], fix))
     found
   end
 
@@ -395,11 +417,16 @@ class IncidentStore
     [ "probe passed while serving #{result['serving_version'].inspect}, not the fix" ]
   end
 
-  def regression_problems(rows)
+  # Each row passed while serving the fix, or it does not count.
+  def regression_problems(rows, fix)
     return [ 'no P0 regression rows recorded' ] if rows.empty?
 
-    failing = rows.reject { |_, value| value == 'pass' }.keys
-    failing.empty? ? [] : [ "P0 regression rows not passing: #{failing.sort.join(', ')}" ]
+    failing = rows.reject { |_, row| row['result'] == 'pass' }.keys
+    stale = rows.select { |_, row| row['result'] == 'pass' && row['serving_version'] != fix }.keys
+    found = []
+    found << "P0 regression rows not passing: #{failing.sort.join(', ')}" unless failing.empty?
+    found << "P0 regression rows passed on a version other than the fix: #{stale.sort.join(', ')}" unless stale.empty?
+    found
   end
 
   def close_problems(inc, dir)
