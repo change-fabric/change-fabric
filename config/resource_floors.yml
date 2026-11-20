@@ -1,0 +1,23 @@
+# Resource floors for the cf gate (scripts/resource_gate.rb).
+# Override chain: this file, then ~/.claude/cf/config/resource_floors.yml, then
+# env CF_FLOOR_RAM_MB and CF_FLOOR_DISK_GB. Overrides can only RAISE a floor;
+# a lower value is ignored with a warning. The platform minimums live in the
+# script, not here.
+version: 1
+floors:
+  ram_mb: 2048
+  disk_gb: 10
+headroom:
+  fresh: 1.25
+  stale: 1.5
+  default: 2.0
+ttl_days: 30
+# Cautious defaults by repo kind when an op has no stored profile. Pick one
+# language kind (node, then ruby, then other); docker adds on top when the repo
+# has a Dockerfile or compose file. ram_mb is multiplied by the default
+# headroom; disk_gb is a per-worktree delta.
+defaults:
+  node: { ram_mb: 4096, disk_gb: 8 }
+  ruby: { ram_mb: 2048, disk_gb: 4 }
+  other: { ram_mb: 2048, disk_gb: 4 }
+  docker: { ram_mb: 6144, disk_gb: 20 }
