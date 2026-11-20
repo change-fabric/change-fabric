@@ -8,6 +8,7 @@ require 'timeout'
 require 'yaml'
 require_relative 'cf_pids'
 require_relative 'cf_project_identity'
+require_relative 'resource_fingerprint'
 
 # Fail-closed gate on available RAM and free disk before cf spawns heavy work.
 #
@@ -448,11 +449,15 @@ module ResourceGate
     list
   end
 
-  # The stored profile's ops for a project, or {} when none is recorded yet.
+  # The stored profile's ops for a project, or {} when none is recorded yet. An
+  # op whose fingerprint no longer matches the repo is marked stale.
   def self.load_profile(project, home: Dir.home)
-    slug = CfProjectIdentity.for(project).slug
-    data = JSON.parse(File.read(File.join(home, '.claude', 'cf', 'benchmarks', slug, 'profile.json')))
-    data['ops'].is_a?(Hash) ? data['ops'] : {}
+    ident = CfProjectIdentity.for(project)
+    data = JSON.parse(File.read(File.join(home, '.claude', 'cf', 'benchmarks', ident.slug, 'profile.json')))
+    return {} unless data['ops'].is_a?(Hash)
+
+    current = ResourceFingerprint.compute(CfProjectIdentity.checkout_root(File.realpath(project)) || ident.root)
+    data['ops'].transform_values { |e| e.is_a?(Hash) && e['fingerprint'] != current ? e.merge('stale' => true) : e }
   rescue StandardError
     {}
   end
