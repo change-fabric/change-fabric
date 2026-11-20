@@ -676,6 +676,14 @@ class IncidentReportTest < Minitest::Test
     assert_equal({ "summary" => "draft", "pdf" => "draft" }, rep.states)
   end
 
+  def test_a_very_long_route_still_gets_a_savable_filename
+    route = "/search?q=#{'a' * 300}"
+    shot = { "route" => route, "viewport" => "desktop", "png" => Base64.strict_encode64(PNG), "final_url" => "https://app.example.test/search" }
+    record = IncidentReport::Capture.write(File.join(@tmp, "ev3"), { "shots" => [ shot ] }, base: "https://app.example.test", at: T1, version: "v")
+    assert_operator record["shots"].first["file"].length, :<, 100
+    assert File.file?(File.join(@tmp, "ev3", "screens", record["shots"].first["file"]))
+  end
+
   def test_routes_that_normalize_to_one_slug_keep_separate_screenshots
     refute_equal shot_file("desktop", "/foo/bar"), shot_file("desktop", "/foo-bar")
     shots = [ "/foo/bar", "/foo-bar" ].map { |r| { "route" => r, "viewport" => "desktop", "png" => Base64.strict_encode64(PNG + r), "final_url" => "https://app.example.test#{r}" } }

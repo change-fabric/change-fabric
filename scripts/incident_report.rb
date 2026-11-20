@@ -278,7 +278,7 @@ module IncidentReport
     end
 
     def route_slug(route)
-      slug = route.to_s.gsub(/[^A-Za-z0-9]+/, '-').gsub(/\A-+|-+\z/, '')
+      slug = route.to_s.gsub(/[^A-Za-z0-9]+/, '-').gsub(/\A-+|-+\z/, '')[0, 60].to_s.delete_suffix('-')
       slug.empty? ? 'root' : slug
     end
   end
