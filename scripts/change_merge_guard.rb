@@ -119,6 +119,7 @@ class ChangeMergeGuard
   end
 
   def carve_out_problem(policy, base, sha, url, files)
+    return "a carve-out must merge now, not with --auto: auto-merge lands a later head than the one approved." if GuardedCommand.tokens(command).include?('--auto')
     return "the merge must carry --match-head-commit #{sha} (the head the approval binds)." unless match_head_commit(command) == sha
 
     repo = ChangePrFacts.repo_id(url)

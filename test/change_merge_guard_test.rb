@@ -460,6 +460,11 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
     assert_match(/must carry --match-head-commit/, verdict("gh pr merge 612 --squash --match-head-commit #{'d' * 40}"))
   end
 
+  def test_a_deferred_auto_merge_is_denied_even_with_a_record
+    approve
+    assert_match(/not with --auto/, verdict("gh pr merge 612 --squash --auto --match-head-commit #{HEAD}"))
+  end
+
   def test_a_gh_failure_while_classifying_is_denied
     failing = ->(_url) { raise ChangePrFacts::Unreadable, "gh api failed" }
     assert_match(/could not be classified \(gh api failed\)/, verdict(files: failing))
