@@ -8,6 +8,9 @@ require_relative 'change_policy'
 require_relative 'change_gate_check'
 require_relative 'change_tag_refs'
 require_relative 'guarded_command'
+require_relative 'change_release_store'
+require_relative 'approval_console/local_store'
+require_relative 'approval_console/proof_check'
 
 # PreToolUse hook: gates publishing a protected release tag on a passing
 # comprehensive cf:change run for its commit. Publishing is a `git push` that
@@ -18,6 +21,12 @@ require_relative 'guarded_command'
 # with a reason, fails open on anything it cannot determine, bypassable the
 # same way (CF_ALLOW_UNGATED_MERGE=1, or a change_override.rb record) - one
 # escape hatch shared by both guards, not a second one for tags.
+#
+# Under `require_approval_proof: passkey` a protected tag also needs a phone
+# release approval: a ChangeReleaseStore record for this repo, tag and exact
+# commit whose receipt passes the release row of the claim table and is under
+# 24h old now. A standing override does not waive it; the one escape hatch
+# stays CF_ALLOW_UNGATED_MERGE.
 #
 # A local `git tag` is free and private; this hook never fires on it. The
 # gated moment is publication - the tag becoming visible to whatever deploys
@@ -194,10 +203,54 @@ class ChangeTagGuard
   # is asked first; a rule that already fails the gate does not also need its
   # ancestor/prior-tag conditions spelled out in the same deny.
   def tag_violations(policy, tag, sha, root)
-    policy.tag_rules_for(tag).filter_map do |_pattern, rule|
-      rule_violation(policy, tag, rule, sha, root)
-    end
+    rules = policy.tag_rules_for(tag)
+    reasons = rules.filter_map { |_pattern, rule| rule_violation(policy, tag, rule, sha, root) }
+    release = rules.empty? ? nil : release_violation(policy, tag, sha)
+    reasons << release if release
+    reasons
   end
+
+  # Under `require_approval_proof: passkey`, publishing a protected tag needs
+  # Patrick's phone approval of this exact tag and commit. Fails closed on any
+  # store or receipt problem, and when the destination repository has no
+  # identity to compare the signed repo against.
+  def release_violation(policy, tag, sha)
+    return nil unless policy.require_approval_proof == 'passkey'
+
+    problem = release_problem(policy, tag, sha)
+    return nil unless problem
+
+    "publishing tag '#{tag}' needs a phone release approval: #{problem} Request it with approval_console.rb " \
+      "request --type release --tag #{tag} --sha #{sha}, record it with approval_console.rb record <id>, then push. " \
+      "#{ChangeGateCheck.escape_note}"
+  rescue StandardError => e
+    "publishing tag '#{tag}' needs a phone release approval and it could not be checked (#{e.message}); the guard fails closed. " \
+      "#{ChangeGateCheck.escape_note}"
+  end
+
+  def release_problem(policy, tag, sha)
+    repo = release_repo or return 'the destination repository has no host/owner/repo identity to bind the approval to.'
+    record = ChangeReleaseStore.new.lookup(repo: repo, tag: tag, sha: sha)
+    return "no phone-approved release is recorded for #{tag} at commit #{sha[0, 12]}." unless record
+
+    proof = record['proof']
+    expected = { 'type' => 'release', 'repo' => repo, 'sha' => sha, 'profile' => nil, 'tag' => tag, 'commit' => sha }
+    check = ApprovalConsole::ProofCheck.new(level: 'passkey', store: proof_store, pins: policy.approval_pins, now: Time.now)
+    problem = check.receipt_problem(proof, expected)
+    return "the recorded release receipt is refused: #{problem}." if problem
+    return nil if ApprovalConsole::ProofCheck.fresh?(proof, at: Time.now)
+
+    'the release receipt is 24h old or older (or dated in the future); request a new approval.'
+  end
+
+  # "repo:host/owner/name" of the repository this tag publishes to, as the
+  # console signs it, or nil when the destination has no parsed identity.
+  def release_repo
+    identity = @source.respond_to?(:identity) ? @source.identity : nil
+    identity ? "repo:#{identity.join('/')}" : nil
+  end
+
+  def proof_store = ApprovalConsole::LocalStore.new
 
   def rule_violation(policy, tag, rule, sha, root)
     gate_violation(policy, tag, rule, sha, root) ||

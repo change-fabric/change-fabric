@@ -130,9 +130,20 @@ the merge or tag guards, the review gate, the sensitive-term or secret hooks,
 the `change_policy` block, these merge rules, or a release workflow is a
 carve-out (paths in `CHANGE.md`): the merge guard merges it only at the head
 Patrick's phone approved, with `--match-head-commit <sha>`, failing closed on
-a gh error. Tags go in a `~/.claude/cf/manual/` script.
+a gh error.
 
 Enforcer: scripts/change_merge_guard.rb, CHANGE.md
+
+## Tags push only after a phone release approval
+
+Under `require_approval_proof: passkey`, pushing a protected tag or running
+`gh release create` needs a ChangeReleaseStore record for the exact repo, tag
+and commit, whose passkey receipt is under 24h old, besides the cf:change pass.
+The agent requests it (`approval_console.rb request --type release`), Patrick
+approves on the phone, the agent records it, then pushes the tag. A standing
+override does not waive it.
+
+Enforcer: scripts/change_tag_guard.rb
 
 ## One PR at a time, rebased, linear history
 

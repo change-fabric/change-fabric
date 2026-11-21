@@ -6,6 +6,8 @@ require "yaml"
 require_relative "#{SKILL_SCRIPTS}/change_tag_guard"
 require_relative "#{SKILL_SCRIPTS}/change_gate_store"
 require_relative "#{SKILL_SCRIPTS}/change_override_store"
+require_relative "#{SKILL_SCRIPTS}/change_release_store"
+require_relative "support/phone_console"
 
 # A guard with only repo_root stubbed, so the decision logic (ChangeTagRefs
 # resolution, the CHANGE.md policy read, the gate store read, the git-backed
@@ -16,13 +18,18 @@ class StubTagGuard < ChangeTagGuard
   # (origin/<trunk>, fetched from the fixture's bare @origin), exercising the
   # production base-read path. Pass an explicit ChangePolicy, nil, or
   # :unreadable to force the #553 fail-closed/fail-open branches directly.
-  def initialize(event, root:, base_policy: :same_as_root)
+  def initialize(event, root:, base_policy: :same_as_root, repo: nil, proof_store: nil)
     super(event)
     @root = root
     @stub_base_policy = base_policy
+    @stub_repo = repo
+    @stub_proof_store = proof_store
   end
 
   private
+
+  def release_repo = @stub_repo
+  def proof_store = @stub_proof_store || super
 
   def repo_root = @root
 
@@ -38,6 +45,8 @@ class StubTagGuard < ChangeTagGuard
 end
 
 class ChangeTagGuardTest < Minitest::Test
+  include PhoneConsole
+
   def setup
     @home = Dir.mktmpdir
     @prev_home = Dir.home
@@ -93,6 +102,133 @@ class ChangeTagGuardTest < Minitest::Test
 
     parsed = JSON.parse(io.string).dig("hookSpecificOutput")
     [ parsed["permissionDecision"], parsed["permissionDecisionReason"] ]
+  end
+
+  RELEASE_REPO = "repo:github.com/acme/widgets"
+
+  def passkey_policy
+    <<~YAML
+      change_policy:
+        require_approval_proof: passkey
+        approval_pins:
+          receipt_key_fingerprint: "#{authoritative_pins["receipt_key_fingerprint"]}"
+          rp_id: #{HOST}
+        promotion:
+          tag:skills/v*: { require_change_pass: true }
+    YAML
+  end
+
+  # A tagged commit with a passing run and the passkey policy on origin/main.
+  def release_fixture(now: Time.now.utc)
+    start_phone_console(now: now)
+    write_change_md(passkey_policy)
+    git("tag", "skills/v1.0.0")
+    record_pass
+  end
+
+  def release_attrs(tag: "skills/v1.0.0", sha: head_sha, repo: RELEASE_REPO)
+    { "type" => "release", "repo" => repo, "sha" => sha, "profile" => nil, "tag" => tag, "commit" => sha }
+  end
+
+  def approve_release(tag: "skills/v1.0.0", sha: head_sha, proof: nil)
+    ChangeReleaseStore.new.record(repo: RELEASE_REPO, tag: tag, sha: sha, proof: proof || phone_proof(release_attrs(tag: tag, sha: sha)),
+                                  policy_sha: POLICY_SHA, recorded_by: "t")
+  end
+
+  def release_verdict(command = "git push origin skills/v1.0.0", repo: RELEASE_REPO)
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    StubTagGuard.new(event, root: @repo, repo: repo, proof_store: @store).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason")
+  end
+
+  def test_a_protected_tag_without_a_release_record_is_denied
+    release_fixture
+    assert_match(/needs a phone release approval: no phone-approved release is recorded for skills\/v1.0.0 at commit #{head_sha[0, 12]}/, release_verdict)
+  end
+
+  def test_a_phone_approved_release_is_allowed
+    release_fixture
+    approve_release
+    assert_nil release_verdict
+    assert_nil release_verdict("git push origin refs/tags/skills/v1.0.0")
+  end
+
+  def test_the_release_approval_binds_the_exact_commit
+    release_fixture
+    approve_release
+    write_file("app.txt", "two")
+    git("commit", "-q", "-am", "later")
+    git("push", "-q", "origin", "HEAD:main")
+    record_pass
+    git("tag", "-f", "skills/v1.0.0")
+    assert_match(/no phone-approved release is recorded/, release_verdict)
+  end
+
+  def test_the_release_approval_binds_the_exact_tag
+    release_fixture
+    git("tag", "skills/v1.0.1")
+    approve_release
+    assert_match(/no phone-approved release is recorded for skills\/v1.0.1/, release_verdict("git push origin skills/v1.0.1"))
+  end
+
+  def test_a_receipt_for_another_commit_or_tag_stored_under_this_key_is_refused
+    release_fixture
+    approve_release(proof: phone_proof(release_attrs(tag: "skills/v9.9.9")))
+    assert_match(/release receipt is refused/, release_verdict)
+  end
+
+  def test_a_receipt_for_another_repo_is_refused
+    release_fixture
+    approve_release(proof: phone_proof(release_attrs(repo: "repo:github.com/acme/other")))
+    assert_match(/release receipt is refused/, release_verdict)
+  end
+
+  def test_a_stale_release_receipt_is_denied
+    release_fixture(now: Time.now.utc - 25 * 3600)
+    approve_release
+    assert_match(/24h old or older/, release_verdict)
+  end
+
+  def test_a_proofless_release_record_is_denied
+    release_fixture
+    ChangeReleaseStore.new.record(repo: RELEASE_REPO, tag: "skills/v1.0.0", sha: head_sha, proof: nil, policy_sha: POLICY_SHA, recorded_by: "t")
+    assert_match(/release receipt is refused/, release_verdict)
+  end
+
+  def test_a_standing_override_does_not_waive_the_release_approval
+    release_fixture
+    ChangeOverrideStore.new(head_sha, profile: nil).record(reason: "urgent release please", recorded_by: "cf")
+    assert_match(/needs a phone release approval/, release_verdict)
+  end
+
+  def test_a_destination_without_an_identity_fails_closed
+    release_fixture
+    approve_release
+    assert_match(/no host\/owner\/repo identity/, release_verdict(repo: nil))
+  end
+
+  def test_gh_release_create_needs_the_approval_too
+    release_fixture
+    assert_match(/needs a phone release approval/, release_verdict("gh release create skills/v1.0.0"))
+    approve_release
+    assert_nil release_verdict("gh release create skills/v1.0.0")
+  end
+
+  def test_the_escape_hatch_still_allows
+    release_fixture
+    ENV["CF_ALLOW_UNGATED_MERGE"] = "1"
+    assert_nil release_verdict
+  ensure
+    ENV.delete("CF_ALLOW_UNGATED_MERGE")
+  end
+
+  def test_a_policy_without_the_passkey_level_does_not_ask_for_a_release_record
+    start_phone_console
+    write_change_md(BASIC_POLICY)
+    git("tag", "staging/v1.0.0")
+    record_pass(profile: "staging")
+    assert_nil release_verdict("git push origin staging/v1.0.0")
   end
 
   BASIC_POLICY = <<~YAML
