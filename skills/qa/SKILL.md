@@ -87,11 +87,14 @@ done
 Each `change_run.rb` invocation boots the app, waits for health and tears it
 down itself (`change_config.boot`). Do not start or stop the app by hand: a
 non-idempotent boot (a fixed container name or port) would fail on the second
-start. Run base, then head, one at a time:
+start. Run base, then head, one at a time, each from inside its own worktree:
+`change_run.rb` reads `CHANGE.md` and the suite globs relative to the current
+directory, so running from the session checkout would test the wrong config and
+cases.
 
 ```sh
-ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$b" --suite <suite> --case <id> --out "$b/.verify-base"
-ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$h" --suite <suite> --case <id> --out "$h/.verify-head"
+(cd "$b" && ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$b" --config "$b/CHANGE.md" --suite <suite> --case <id> --out "$b/.verify-base")
+(cd "$h" && ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$h" --config "$h/CHANGE.md" --suite <suite> --case <id> --out "$h/.verify-head")
 ```
 
 Copy both `.verify-*` dirs out, then `git -C "$REPO" worktree remove --force`
