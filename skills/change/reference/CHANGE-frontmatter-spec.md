@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.30.0
+Schema version: 0.31.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -1576,6 +1576,7 @@ patterns, argv placeholders only from declared params, and one op at a time.
 | `change_config.runners.<runner>.region` | AWS region | no (default us-east-1) | (0.29.0) Region of the claim table. |
 | `change_config.runners.<runner>.claim_role` | IAM role ARN | yes for the prod runner | (0.29.0) The OIDC role that may write claim items. |
 | `change_config.runners.<runner>.claim_table` | string | yes for the prod runner | (0.29.0) The approval console table holding single-use claims. |
+| `change_config.runners.<runner>.reconcile_role` | IAM role ARN | with `maintenance.enter` | (0.31.0) The OIDC role the generated `cf-prod-reconcile.yml` assumes to read the journal and run maintenance verify and exit for an expired lease. With none, no reconciler runs and doctor warns. |
 | `change_config.backups.<backup>.kind` | `rds_snapshot`, `aurora_snapshot`, `pg_dump_s3`, `command` or `fixture` | yes | (0.29.0) The backup provider kind. `pg_dump_s3` and `command` cannot prove PITR. |
 | `change_config.backups.<backup>.target` | string | one of target, targets | (0.29.0) The resource to back up. |
 | `change_config.backups.<backup>.targets.<profile>` | string | one of target, targets | (0.29.0) The resource per environment; recovery evidence must match the op's environment. |
@@ -1596,9 +1597,9 @@ patterns, argv placeholders only from declared params, and one op at a time.
 | `change_config.maintenance.windows.<window>.tz` | time zone | yes | (0.29.0) `UTC` or an Area/City name. |
 | `change_config.maintenance.enter.argv` | list of string | no | (0.29.0) Enters maintenance. Requires `exit` and `verify`. |
 | `change_config.maintenance.enter.timeout_s` | integer | with enter | (0.29.0) Timeout. |
-| `change_config.maintenance.verify.argv` | list of string | with enter | (0.29.0) Confirms the maintenance state. |
+| `change_config.maintenance.verify.argv` | list of string | with enter | (0.29.0) Confirms the maintenance state: exits 0 while maintenance is on and non-zero once it is off, so one command confirms both enter and exit. (0.31.0) |
 | `change_config.maintenance.verify.timeout_s` | integer | with verify | (0.29.0) Timeout. |
-| `change_config.maintenance.exit.argv` | list of string | with enter | (0.29.0) Leaves maintenance. Always runs, even on failure. |
+| `change_config.maintenance.exit.argv` | list of string | with enter | (0.29.0) Leaves maintenance. Always runs, even on failure; the reconciler runs it for an expired lease only when no mutation started or the op was observed complete. |
 | `change_config.maintenance.exit.timeout_s` | integer | with exit | (0.29.0) Timeout. |
 | `change_config.operations.<op>.class` | `destructive_data`, `contracts_and_auth`, `money_and_sends`, `gate_config` or `routine` | yes | (0.29.0) The one-way-door class. It drives doctor and the notify text; every class needs both approval factors. |
 | `change_config.operations.<op>.runner` | runner name | yes | (0.29.0) A declared runner. |
@@ -2020,3 +2021,9 @@ root `RELEASING.md`.
   the generated weekly `cf-restore-probe.yml` assumes). The runner refuses an
   op on PITR under 72 hours, a failed or stale probe, or a snapshot that fails
   verify.
+- 0.31.0: additive. Maintenance windows for the bounded prod runner. Adds
+  `change_config.runners.<runner>.reconcile_role` (the role the generated
+  `cf-prod-reconcile.yml` assumes). The runner waits for a window, refuses an
+  op whose hard budget (enter, verify twice, op, op verify and exit timeouts) does
+  not fit what is left of it, writes a durable lease, and always runs exit.
+  `maintenance.verify` is now read as exit 0 while maintenance is on.

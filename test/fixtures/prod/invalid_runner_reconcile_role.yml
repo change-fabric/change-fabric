@@ -1,0 +1,3 @@
+expect: "reconcile_role must be an IAM role ARN"
+patch:
+  change_config: { runners: { prod: { reconcile_role: not-a-role } } }

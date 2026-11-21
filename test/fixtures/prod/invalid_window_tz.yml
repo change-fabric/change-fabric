@@ -1,0 +1,3 @@
+expect: "tz must be a known time zone name"
+patch:
+  change_config: { maintenance: { windows: { weekday_night: { tz: America/Chcago } } } }

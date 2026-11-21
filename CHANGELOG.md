@@ -18,6 +18,25 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.31.0] - 2026-11-20
+
+Maintenance windows and the lease reconciler. Additive for CHANGE.md: the new
+field is optional.
+
+### Added
+
+- `change_config.runners.<runner>.reconcile_role`.
+- `scripts/change_maintenance.rb`: window evaluation (cron, duration, time
+  zone), the hard window budget, an op runner that writes a durable lease,
+  journals `launching` before the op and always runs maintenance exit, and the
+  reconciler that exits an expired lease only when no mutation started.
+- `scripts/change_reconcile_gen.rb` generates `.github/workflows/cf-prod-reconcile.yml`
+  (every 10 minutes); `doctor` flags a hand edit and a missing role.
+
+### Changed
+
+- `maintenance.verify` is read as exit 0 while maintenance is on.
+
 ## [0.30.0] - 2026-11-20
 
 Backup providers and the restore probe. Additive for CHANGE.md: both new

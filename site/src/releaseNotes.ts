@@ -28,6 +28,24 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.31.0": {
+    version: "0.31.0",
+    date: "2026-11-20",
+    headline: "Maintenance windows: ops wait for a window, fit its budget and always exit.",
+    highlights: [
+      {
+        title: "Window, budget and lease",
+        body:
+          "An op waits for its window and is refused when its enter, verify, op and exit timeouts do not fit what is left. A durable lease is written before maintenance is entered, and exit always runs.",
+      },
+      {
+        title: "A generated reconciler",
+        body:
+          "cf-prod-reconcile.yml runs every 10 minutes. It exits an expired lease only when no mutation started, and pages when an op is launching or uncertain.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. Add runners.prod.reconcile_role when maintenance has an enter command. maintenance.verify now exits 0 while maintenance is on.",
+  },
   "0.30.0": {
     version: "0.30.0",
     date: "2026-11-20",

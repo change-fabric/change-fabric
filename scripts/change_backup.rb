@@ -39,7 +39,7 @@ module ChangeBackup
   # PITR cannot be proven for this backup: fail closed.
   class Unprovable < Error; end
 
-  Outcome = Struct.new(:ok, :stdout, :stderr, :timed_out, keyword_init: true) do
+  Outcome = Struct.new(:ok, :stdout, :stderr, :timed_out, :spawn_failed, keyword_init: true) do
     def ok? = ok
   end
 
@@ -65,7 +65,7 @@ module ChangeBackup
         Outcome.new(ok: finished && waiter.value.success?, stdout: readers[0].value.to_s, stderr: readers[1].value.to_s, timed_out: !finished)
       end
     rescue SystemCallError => e
-      Outcome.new(ok: false, stdout: '', stderr: e.message, timed_out: false)
+      Outcome.new(ok: false, stdout: '', stderr: e.message, timed_out: false, spawn_failed: true)
     end
 
     private
