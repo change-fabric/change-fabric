@@ -1752,4 +1752,25 @@ class ChangeLaneTestcasesTest < Minitest::Test
       ENV.delete("LEAK_PW")
     end
   end
+
+  def test_preconditions_can_feed_the_steps_and_start_the_bridge
+    suite = <<~YAML
+      suite: api
+      suite_version: 6
+      cases:
+        - id: pre
+          acceptance: The badge matches the API.
+          preconditions:
+            - goto: /admin
+            - capture: { var: badge, selector: ".badge", kind: number }
+            - reference_get: { var: api, url: "https://api.example.org/m", json_path: "$.total", pair: badge }
+          steps:
+            - expect_relation: { relation: equal, reads: { a: badge, b: api } }
+    YAML
+    with_suite(suite) do |dir|
+      session = FakeSession.new(ok_result(1))
+      lane6(dir, session, reference_hosts: [ "api.example.org" ]).run
+      assert_match(/const bridge = \{"url"/, session.code)
+    end
+  end
 end

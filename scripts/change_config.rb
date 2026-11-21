@@ -256,7 +256,8 @@ class ChangeConfig
   end
 
   def self.compile_quietly(item)
-    ChangeFlowCompiler.new(item.steps, base_url: 'http://doctor.invalid', env: {}).compile
+    before = ChangeFlowCompiler.new(item.preconditions, base_url: 'http://doctor.invalid', env: {}).compile
+    before + ChangeFlowCompiler.new(item.steps, base_url: 'http://doctor.invalid', env: {}, before: before).compile
   rescue ChangeFlowCompiler::Error
     nil
   end

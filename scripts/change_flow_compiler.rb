@@ -461,7 +461,7 @@ class ChangeFlowCompiler
       if (fontOutcome === "timeout") cfFail(`${step.label}: document.fonts.ready was not settled within ${timeoutMs}ms`);
       await cfWaitIdle(state, 500, timeoutMs, step.label);
       const last = await cfRead(page, step, timeoutMs);
-      state.vars[step.var] = last;
+      await cfRecordRead(page, state, step.var, { selector: step.selector, kind: step.kind }, last);
       const layout = await page.evaluate(() => window.__cfLayout || null).catch(() => null);
       const key = step.kind.indexOf("rect.") === 0 ? step.kind.slice(5) : null;
       const sampled = layout && step.selector && key ? (layout.samples[step.selector] || []).map((rect) => rect[key]) : [];
@@ -903,7 +903,10 @@ class ChangeFlowCompiler
 
   # `viewport` ({ width:, height: }) sizes the page before the first step;
   # without it the page keeps Puppeteer's default.
-  def initialize(steps, base_url: nil, timeout_ms: DEFAULT_TIMEOUT_MS, viewport: nil, env: ENV)
+  # `before` is the compiled steps that run ahead of these in the same page
+  # (a case's preconditions): the variables they capture are in scope here,
+  # as they are at run time.
+  def initialize(steps, base_url: nil, timeout_ms: DEFAULT_TIMEOUT_MS, viewport: nil, env: ENV, before: [])
     @raw_steps = Array(steps)
     @base_url = base_url.to_s
     @timeout_ms = Integer(timeout_ms)
@@ -911,13 +914,15 @@ class ChangeFlowCompiler
     @env = env
     @tags = {}
     @var_kinds = {}
+    @inherited = []
+    before.each { |step| track_var(@inherited, step) }
   end
 
   # The compiled steps, credentials included. Hand this to the container and
   # nowhere else.
   def compile
     @compile ||= begin
-      captured = []
+      captured = @inherited.dup
       @raw_steps.each_with_index.map do |raw, index|
         step = compile_step(raw, index, captured.dup)
         track_var(captured, step)

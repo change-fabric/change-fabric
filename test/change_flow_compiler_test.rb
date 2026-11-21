@@ -914,4 +914,16 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_includes js, "url: read.url"
     assert_includes js, "readAt: read.readAt"
   end
+
+  def test_variables_captured_by_the_steps_before_are_in_scope
+    before = compile([ { "capture" => { "var" => "a", "selector" => ".a", "kind" => "number" } } ])
+    steps = [ { "expect_relation" => { "relation" => "le", "reads" => { "a" => "a", "b" => 5 } } } ]
+    assert_raises(ChangeFlowCompiler::Error) { compile(steps) }
+    compiled = ChangeFlowCompiler.new(steps, base_url: "https://app.example.org", before: before).compile
+    assert_equal "expectRelation", compiled.first[:verb]
+  end
+
+  def test_an_expect_stable_read_records_provenance_for_relations
+    assert_match(/cfRecordRead\(page, state, step\.var/, ChangeFlowCompiler.flow_runtime_js)
+  end
 end

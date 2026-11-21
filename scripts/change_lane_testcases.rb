@@ -480,7 +480,7 @@ class ChangeLaneTestcases < ChangeLane
   # case needs it and a host is allowlisted. Without an allowlisted host the
   # step has no bridge and blocks the case with the flag to pass.
   def start_reference_bridge(compiled, selected)
-    return unless compiled.any? { |entry| entry[:steps].any? { |step| step[:verb] == 'referenceGet' } }
+    return unless compiled.any? { |entry| (entry[:preconditions] + entry[:steps]).any? { |step| step[:verb] == 'referenceGet' } }
 
     hosts = reference_hosts
     return if hosts.empty?
@@ -857,10 +857,9 @@ class ChangeLaneTestcases < ChangeLane
   # The values the case read from env vars: the lane's redaction rule says
   # they travel to the container only, so the grader's payload masks them.
   def secret_values(item)
-    [ item.preconditions, item.steps ].flat_map do |steps|
-      ChangeFlowCompiler.new(steps, base_url: base_url, timeout_ms: timeout_ms).compile
-                        .filter_map { |step| step[:value] if step[:secret] }
-    end
+    before = ChangeFlowCompiler.new(item.preconditions, base_url: base_url, timeout_ms: timeout_ms).compile
+    after = ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms, before: before).compile
+    (before + after).filter_map { |step| step[:value] if step[:secret] }
   end
 
   # The verdict-to-status mapping, and the one place the "can fail the gate"
@@ -1051,8 +1050,8 @@ class ChangeLaneTestcases < ChangeLane
   # acceptance prose and step labels, never this.
   def js_cases(selected)
     selected.each_with_index.map do |item, index|
-      compiler = ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms)
       preconditions = ChangeFlowCompiler.new(item.preconditions, base_url: base_url, timeout_ms: timeout_ms).compile
+      compiler = ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms, before: preconditions)
       { index: index, id: item.qualified_id, steps: compiler.compile, preconditions: preconditions }
     end
   end
