@@ -65,6 +65,21 @@ class ChangeProdSchemaTest < Minitest::Test
     end
   end
 
+  def test_claim_settings_are_required_for_a_github_actions_runner
+    %w[claim_role claim_table].each do |key|
+      doc = load("valid.yml")
+      doc["change_config"]["runners"]["prod"].delete(key)
+      assert ChangeProdSchema.errors(doc).any? { |message| message.include?("runners.prod.#{key}") }, key
+    end
+    doc = load("valid.yml")
+    doc["change_config"]["runners"]["prod"]["region"] = "nowhere"
+    assert ChangeProdSchema.errors(doc).any? { |message| message.include?("region must be") }
+  end
+
+  def test_the_valid_fixture_generates_the_staging_workflow
+    assert_match(/environment: staging/, ChangeProdRunnerGen.generate(load("valid.yml")))
+  end
+
   def test_pitr_defaults_to_the_floor
     doc = load("valid.yml")
     doc["change_config"]["backups"]["main_db"].delete("pitr")

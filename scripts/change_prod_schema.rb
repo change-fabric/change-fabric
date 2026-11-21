@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require_relative 'change_prod_claim'
+
 # Validates the bounded prod runner blocks spec 0.29.0 adds:
 # change_config.runners, backups, maintenance and operations, and
 # change_policy.prod_guard. The blocks are read from the base branch.
@@ -136,6 +138,7 @@ module ChangeProdSchema
     def check_runner(_name, runner, where)
       fail_unknown(runner, RUNNER_KEYS, where)
       add("#{where}.kind must be one of #{RUNNER_KINDS.join(', ')}") unless RUNNER_KINDS.include?(runner['kind'])
+      check_claim(runner, where) if runner['kind'] == 'github_actions'
       add("#{where}.workflow must be a .github/workflows/*.yml path") unless runner['workflow'].to_s.match?(%r{\A\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml\z})
       environments = runner['environments']
       roles = runner['oidc_roles']
@@ -149,6 +152,14 @@ module ChangeProdSchema
       (roles.keys - environments.keys).each { |profile| add("#{where}.oidc_roles.#{profile} has no environment") }
       shared = environments.values.tally.select { |_, count| count > 1 }.keys
       add("#{where}.environments maps two profiles to #{shared.join(', ')}; one approval must select one role") unless shared.empty?
+    end
+
+    # The generated claim job reads these through ChangeProdClaim.settings, so
+    # a config missing them cannot generate even the staging workflow.
+    def check_claim(runner, where)
+      add("#{where}.claim_role must be an IAM role ARN") unless runner['claim_role'].to_s.match?(ChangeProdClaim::ROLE)
+      add("#{where}.claim_table must be a table name") unless runner['claim_table'].to_s.match?(ChangeProdClaim::TABLE)
+      add("#{where}.region must be an AWS region") unless runner['region'].nil? || runner['region'].to_s.match?(ChangeProdClaim::REGION)
     end
 
     # --- backups ----------------------------------------------------------
