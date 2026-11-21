@@ -1416,7 +1416,7 @@ class ChangeFlowCompiler
     relation_operands(reads).each do |operand|
       kind = operand[:var] ? @var_kinds[operand[:var]] : nil
       if relation == 'subset'
-        next if kind == 'list'
+        next if %w[list reference].include?(kind)
 
         raise Error, "expect_relation subset needs list reads (capture with kind: list), got #{operand[:var] || operand[:literal].inspect}"
       elsif kind == 'list'

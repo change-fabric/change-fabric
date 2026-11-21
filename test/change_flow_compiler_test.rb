@@ -926,4 +926,10 @@ class ChangeFlowCompilerTest < Minitest::Test
   def test_an_expect_stable_read_records_provenance_for_relations
     assert_match(/cfRecordRead\(page, state, step\.var/, ChangeFlowCompiler.flow_runtime_js)
   end
+
+  def test_subset_accepts_a_reference_list
+    steps = LISTS.first(1) + [ { "reference_get" => { "var" => "api", "url" => "https://api.example.org/m", "json_path" => "$.names", "pair" => "x" } },
+                               { "expect_relation" => { "relation" => "subset", "reads" => { "a" => "x", "b" => "api" } } } ]
+    assert_equal "expectRelation", compile(steps).last[:verb]
+  end
 end

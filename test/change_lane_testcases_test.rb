@@ -1773,4 +1773,18 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_match(/const bridge = \{"url"/, session.code)
     end
   end
+
+  def test_a_drift_in_a_precondition_is_reported_and_preconditions_count_toward_the_budget
+    with_suite(V6_SUITE) do |dir|
+      results = ok_result(2).tap { |list| list[0] = list[0].merge("preconditions" => DRIFT_STEPS) }
+      runner = lane6(dir, FakeSession.new(results))
+      findings = step_findings(runner.run)
+      assert_equal "warn", findings.find { |finding| finding.check == "members/counts-agree" }.status
+      assert runner.case_records.first.relations.first["drift"]
+      item = runner.send(:suite_set).cases.find { |entry| entry.id == "needs-login" }
+      assert_operator runner.case_budget_ms(item.dup.tap { |copy| copy.timeout_ms = nil }), :>=, 115_000
+      big = item.dup.tap { |copy| copy.timeout_ms = nil; copy.preconditions = Array.new(10) { { "wait_for_text" => "x", "timeout_ms" => 60_000 } } }
+      assert_operator runner.case_budget_ms(big), :>=, 600_000
+    end
+  end
 end

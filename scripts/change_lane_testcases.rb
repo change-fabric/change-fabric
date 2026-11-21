@@ -157,7 +157,7 @@ class ChangeLaneTestcases < ChangeLane
   # env var supplied never travels: it is masked here like in the grader).
   def figures(item, record)
     secrets = secret_values(item)
-    Array(record&.dig('steps')).filter_map do |step|
+    walked_steps(record).filter_map do |step|
       next unless step['captured']
 
       { 'var' => step['captured'], 'value' => scrub_value(step['found'], secrets), 'kind' => step['kind'], 'url' => step['url'],
@@ -183,7 +183,7 @@ class ChangeLaneTestcases < ChangeLane
   # for a drift or a failure, the first reads beside the re-reads.
   def relation_results(item, record)
     secrets = secret_values(item)
-    Array(record&.dig('steps')).filter_map do |step|
+    walked_steps(record).filter_map do |step|
       next unless step['verb'] == 'expectRelation'
 
       { 'label' => step['label'], 'relation' => step['relation'],
@@ -208,7 +208,7 @@ class ChangeLaneTestcases < ChangeLane
   def case_budget_ms(item)
     return item.timeout_ms if item.timeout_ms
 
-    derived = item.steps.sum do |step|
+    derived = (item.preconditions + item.steps).sum do |step|
       step_timeout(step) + (step.key?('goto') ? NAVIGATION_OVERHEAD_MS : 0)
     end
     [ derived, CASE_BUDGET_FLOOR_MS ].max
@@ -912,7 +912,10 @@ class ChangeLaneTestcases < ChangeLane
     gated?(item) ? 'fail' : 'warn'
   end
 
-  def drift?(record) = Array(record&.dig('steps')).any? { |step| step['ok'] && step['status'] == 'warn' }
+  # Every step record the call returned: the preconditions' and the case's own.
+  def walked_steps(record) = Array(record&.dig('preconditions')) + Array(record&.dig('steps'))
+
+  def drift?(record) = walked_steps(record).any? { |step| step['ok'] && step['status'] == 'warn' }
 
   # Why a case could not be verified, or nil. A failing precondition or a
   # reference that could not be read always blocks; a persona that could not
@@ -972,7 +975,7 @@ class ChangeLaneTestcases < ChangeLane
   end
 
   def drift_detail(record)
-    Array(record['steps']).select { |step| step['ok'] && step['status'] == 'warn' }
+    walked_steps(record).select { |step| step['ok'] && step['status'] == 'warn' }
                           .map { |step| "#{flatten(step['label'])}: first #{flatten(step['firstMessage'])}" }.join('; ')
   end
 
