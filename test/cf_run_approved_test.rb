@@ -118,6 +118,33 @@ class CfRunApprovedTest < Minitest::Test
     assert_match(/console refused to consume the receipt \(consumed\)/, @err.string)
   end
 
+  def test_a_script_swapped_after_verification_still_runs_the_approved_bytes
+    approve
+    swapper = Object.new
+    swapper.define_singleton_method(:consume) do |id|
+      File.write(@script, "echo pwned\n")
+      @inner.consume(id)
+    end
+    swapper.instance_variable_set(:@script, @script)
+    swapper.instance_variable_set(:@inner, client)
+    @out = StringIO.new
+    @err = StringIO.new
+    code = CfRunApproved.new(home: @home, store: @store, client: swapper, authority: authority, clock: -> { @now }, out: @out, err: @err)
+                        .run(@script, repo: @repo)
+    assert_equal 0, code
+    assert_includes @out.string, "hello-from-script"
+    refute_includes @out.string, "pwned"
+    assert_match(/changed after it was approved; left in the queue/, @err.string)
+    assert_path_exists @script
+  end
+
+  def test_a_script_that_reads_stdin_sees_eof_instead_of_hanging
+    File.write(@script, "if read -r -t 5 line; then echo got-data; else echo status=$?; fi\n")
+    approve
+    assert_equal 0, go
+    assert_includes @out.string, "status=1"
+  end
+
   def test_a_wrong_account_is_refused
     approve(account: "123456789012")
     assert_equal 1, go(account: "999999999999")

@@ -36,6 +36,13 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "source ~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_denied "cd ~/.claude/cf/manual/queue && ./0016-redeploy.sh"
     assert_denied "ruby ~/.claude/cf/manual/queue/0016-x.rb"
+    assert_denied "bash -e ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash -o pipefail -x ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "env FOO=1 bash -eu ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "FOO=1 nohup sh ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "cd ~/.claude/cf/manual/queue;./0016-redeploy.sh"
+    assert_allowed "grep bash ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_allowed "ls -la ~/.claude/cf/manual/queue | head"
     assert_denied "#{runner} ~/.claude/cf/manual/queue/0016-redeploy.sh; bash ~/.claude/cf/manual/queue/0017-x.sh"
   end
 

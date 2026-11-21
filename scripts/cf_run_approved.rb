@@ -6,6 +6,7 @@ require 'fileutils'
 require 'json'
 require 'open3'
 require 'optparse'
+require 'tmpdir'
 require 'time'
 require_relative 'approval_console/canonical'
 require_relative 'approval_console/client'
@@ -64,8 +65,8 @@ class CfRunApproved
     proof = recorded_proof(root, sha, text)
     verify(proof, root, sha, path, text)
     consume(proof)
-    status = @runner.call(path, root, sha, request_id(proof))
-    finish(path, status)
+    status = run_snapshot(path, text, root, sha, request_id(proof))
+    finish(path, text, status)
   rescue Refused => e
     @err.puts "[cf_run_approved] refused: #{e.message}"
     1
@@ -175,7 +176,21 @@ class CfRunApproved
 
   def store = @store ||= ApprovalConsole::LocalStore.new
 
-  # No tty: stdin is /dev/null. Output streams through line by line.
+  # Runs a private copy of the bytes that were verified, never the queue path:
+  # the file there can be edited or replaced while the policy fetch, the account
+  # check and the console call are in flight.
+  def run_snapshot(path, text, root, sha, request_id)
+    Dir.mktmpdir('cf-run-approved') do |dir|
+      File.chmod(0o700, dir)
+      copy = File.join(dir, File.basename(path))
+      File.write(copy, text)
+      File.chmod(0o700, copy)
+      @runner.call(copy, root, sha, request_id)
+    end
+  end
+
+  # No tty: stdin is closed at once so a script that reads it sees EOF. Output
+  # streams through line by line.
   def spawn_script(path, root, sha, request_id)
     cmd = case File.extname(path)
     when '.sh' then [ 'bash', path ]
@@ -183,20 +198,28 @@ class CfRunApproved
     else [ path ]
     end
     env = { 'CF_APPROVED_COMMIT' => sha, 'CF_APPROVED_REQUEST' => request_id }
-    Open3.popen2e(env, *cmd, chdir: root, in: File::NULL) do |_in, out, wait|
+    Open3.popen2e(env, *cmd, chdir: root) do |stdin, out, wait|
+      stdin.close
       out.each_line { |line| @out.print(line) }
       wait.value.exitstatus || 1
     end
   end
 
-  def finish(path, status)
-    return success(path) if status.zero?
+  def finish(path, text, status)
+    return success(path, text) if status.zero?
 
     @err.puts "[cf_run_approved] #{File.basename(path)} exited #{status}. The receipt is consumed; request a new approval to retry."
     status
   end
 
-  def success(path)
+  # The queued file moves to done/ only while it still holds the approved bytes;
+  # a changed one stays put for a human to look at.
+  def success(path, text)
+    unless File.file?(path) && File.binread(path) == text.b
+      @err.puts "[cf_run_approved] #{File.basename(path)} changed after it was approved; left in the queue."
+      return 0
+    end
+
     done = File.join(queue_dir, 'done')
     FileUtils.mkdir_p(done)
     FileUtils.mv(path, File.join(done, File.basename(path)))
