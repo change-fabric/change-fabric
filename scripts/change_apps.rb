@@ -6,6 +6,7 @@ require_relative 'change_config'
 require_relative 'change_delivery_schema'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
+require_relative 'change_backup_probe_gen'
 require_relative 'change_prod_classes'
 require_relative 'change_prod_runner_gen'
 require_relative 'change_prod_schema'
@@ -261,11 +262,33 @@ class ChangeAppRegistry
       lines.concat(ChangeProdSchema.missing_probes(data).map { |name| "warning: prod backup #{name} has no restore_probe" })
     end
     lines << "error: #{ChangeProdRunnerGen::WORKFLOW} was edited by hand; regenerate it with change_prod_runner_gen.rb" if File.exist?(workflow) && ChangeProdRunnerGen.tampered?(File.read(workflow))
-    lines
+    lines.concat(probe_workflow_lines(change_md_path, data))
   rescue StandardError
     []
   end
   private_class_method :prod_schema_lines
+
+  # Restore-probe workflow (0.30.0): an error for a hand-edited
+  # cf-restore-probe.yml, a warning for a probe with no workflow roles to run
+  # it, since an unrun probe goes stale and the runner refuses on it.
+  def self.probe_workflow_lines(change_md_path, data)
+    path = File.join(File.dirname(change_md_path), ChangeBackupProbeGen::WORKFLOW)
+    lines = []
+    lines << "error: #{ChangeBackupProbeGen::WORKFLOW} was edited by hand; regenerate it with change_backup_probe_gen.rb" if File.exist?(path) && ChangeBackupProbeGen.tampered?(File.read(path))
+    backups = data.dig('change_config', 'backups')
+    return lines unless backups.is_a?(Hash)
+
+    probed = ChangeBackupProbeGen.probes(data).map(&:first).uniq
+    backups.each do |name, backup|
+      next unless backup.is_a?(Hash) && backup['restore_probe'].is_a?(Hash) && !probed.include?(name.to_s)
+
+      lines << "warning: prod backup #{name} has a restore_probe but no oidc_roles, so no workflow runs it"
+    end
+    lines
+  rescue ChangeBackupProbeGen::Refused => e
+    lines + [ "error: restore probe workflow cannot be generated: #{e.message}" ]
+  end
+  private_class_method :probe_workflow_lines
 
   def self.delivery_rollout_line(rollout)
     stages = rollout.stages.map { |stage| stage.is_a?(Hash) ? stage['cohort'] : '?' }.join(' > ')

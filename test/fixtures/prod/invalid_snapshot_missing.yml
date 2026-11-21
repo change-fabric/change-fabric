@@ -1,0 +1,3 @@
+expect: "snapshot is required"
+patch:
+  change_config: { backups: { dump_db: { snapshot: null } } }

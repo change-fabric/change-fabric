@@ -17,11 +17,17 @@ change_config:
       provider: aws_prod
       verify: { argv: [scripts/verify_snapshot.sh], timeout_s: 600 }
       pitr: { required_hours: 72 }
-      restore_probe: { schedule: weekly, argv: [scripts/restore_probe.sh], timeout_s: 3600, max_age_days: 7 }
+      restore_probe:
+        schedule: weekly
+        argv: [scripts/restore_probe.sh]
+        timeout_s: 3600
+        max_age_days: 7
+        oidc_roles: { production: "arn:aws:iam::222222222222:role/cf-probe" }
     dump_db:
       kind: pg_dump_s3
       target: app-dump
       provider: aws_prod
+      snapshot: { argv: [scripts/dump.sh], timeout_s: 1800 }
       verify: { argv: [scripts/verify_dump.sh], timeout_s: 600 }
       pitr_source: main_db
   maintenance:

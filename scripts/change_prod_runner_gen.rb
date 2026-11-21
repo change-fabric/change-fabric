@@ -33,7 +33,7 @@ module ChangeProdRunnerGen
   # same relative layout so each require_relative resolves. A workflow that
   # calls a script that is not there would fail before verifying anything.
   VENDORED = %w[
-    change_prod_gate.rb change_prod_envelope.rb change_prod_store.rb change_prod_claim.rb change_prod_runner_gen.rb change_frontmatter.rb
+    change_prod_gate.rb change_prod_envelope.rb change_prod_store.rb change_prod_claim.rb change_prod_runner_gen.rb change_backup.rb change_frontmatter.rb
     approval_console/canonical.rb approval_console/cbor.rb approval_console/verifier.rb
   ].freeze
   CREDENTIALS = '.github/cf-prod-approval-credentials.json'
@@ -42,8 +42,8 @@ module ChangeProdRunnerGen
   ROLE = %r{\Aarn:aws:iam::\d{12}:role/[A-Za-z0-9+=,.@_/-]{1,128}\z}
   REGION = /\A[a-z]{2}(-[a-z]+)+-\d\z/
   NAME = ChangeProdEnvelope::NAME
-  # Flipped by the PR that lands the op executor, backups and maintenance
-  # windows (plan phases 3 and 4).
+  # Flipped by the PR that lands the op executor and maintenance windows (plan
+  # phase 4); the backup gate (ChangeBackup) landed in phase 3.
   EXECUTOR_LANDED = false
   # While anything blocks production, only these profiles, mapped to the
   # same-named environment, are emitted. An allowlist, not a deny of one name:
@@ -57,7 +57,7 @@ module ChangeProdRunnerGen
   # has landed.
   def production_blockers(root: File.expand_path('..', __dir__), executor: EXECUTOR_LANDED)
     reasons = []
-    reasons << 'the runner has no op executor, backups or maintenance windows yet (plan phases 3 and 4)' unless executor
+    reasons << 'the runner has no op executor or maintenance windows yet (plan phase 4)' unless executor
     reasons << 'approval console offline verifier is missing' unless File.exist?(File.join(root, 'scripts/approval_console/verifier.rb'))
     cli = File.join(root, 'scripts/approval_console.rb')
     text = File.exist?(cli) ? File.read(cli) : ''

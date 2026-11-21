@@ -18,6 +18,25 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.30.0] - 2026-11-20
+
+Backup providers and the restore probe. Additive for CHANGE.md: both new
+fields are optional.
+
+### Added
+
+- `change_config.backups.<backup>.snapshot` (required for `pg_dump_s3` and
+  `command` backups, which have no provider API to snapshot through) and
+  `change_config.backups.<backup>.restore_probe.oidc_roles.<profile>`.
+- `scripts/change_backup.rb`: snapshot, verify, PITR window and restore probe
+  for `rds_snapshot`, `aurora_snapshot`, `pg_dump_s3`, `command` and `fixture`
+  backups, and the gate that refuses PITR under 72 hours (or unprovable), a
+  probe older than 7 days or failed, and a snapshot that fails verify or is
+  older than 15 minutes.
+- `scripts/change_backup_probe_gen.rb` generates the weekly
+  `.github/workflows/cf-restore-probe.yml`; `doctor` flags a hand edit and a
+  probe no workflow runs.
+
 ## [0.29.0] - 2026-11-20
 
 Bounded prod runner keys. Additive for CHANGE.md: a file with none of the new

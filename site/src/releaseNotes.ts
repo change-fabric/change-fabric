@@ -28,6 +28,24 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.30.0": {
+    version: "0.30.0",
+    date: "2026-11-20",
+    headline: "Backup providers and a weekly restore probe: the runner refuses without recoverable data.",
+    highlights: [
+      {
+        title: "Snapshot, PITR and restore probe",
+        body:
+          "RDS, Aurora, pg_dump to S3 and command backups take and verify a fresh snapshot, measure the PITR window and run a restore probe. An op is refused on PITR under 72 hours, a probe older than 7 days or failed, or a snapshot that fails verify.",
+      },
+      {
+        title: "A generated weekly probe workflow",
+        body:
+          "cf-restore-probe.yml runs each probe weekly with its own role and uploads the evidence. Doctor flags a hand edit and a probe that no workflow runs.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. pg_dump_s3 and command backups now name a snapshot command.",
+  },
   "0.29.0": {
     version: "0.29.0",
     date: "2026-11-20",
