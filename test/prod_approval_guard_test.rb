@@ -43,6 +43,8 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "cd ~/.claude/cf/manual/queue;./0016-redeploy.sh"
     assert_allowed "grep bash ~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_denied "bash < ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash 2>/dev/null ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash -e 2>&1 >/dev/null ~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_denied "sh -e <~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_denied "cat ~/.claude/cf/manual/queue/0016-redeploy.sh | bash"
     assert_denied "cat ~/.claude/cf/manual/queue/0016-redeploy.sh | sudo sh -s"

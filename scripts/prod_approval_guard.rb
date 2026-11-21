@@ -106,7 +106,7 @@ class ProdApprovalGuard
 
     return piped_denial if piped_or_redirected?(command)
 
-    segment = command.split(SEGMENT_BREAKS).map { |part| part.tr(%q('"), ' ').split }.find { |words| runs_queued?(words) }
+    segment = command.gsub(/\d*[<>]&\d*-?|&>>?/, ' ').split(SEGMENT_BREAKS).map { |part| part.tr(%q('"), ' ').split }.find { |words| runs_queued?(words) }
     segment && 'a shell command running a queued script directly: queued scripts run only through ' \
                "`ruby #{RUNNER_CLI} <script>` after a phone run-script approval"
   end
@@ -147,7 +147,7 @@ class ProdApprovalGuard
   end
 
   def script_operand(args)
-    args = args.dup
+    args = args.reject { |arg| arg.match?(/\A\d*[<>&]/) }
     args.shift(OPTION_VALUES.include?(args.first) ? 2 : 1) while args.first&.start_with?('-', '+')
     args.first
   end
