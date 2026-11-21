@@ -106,8 +106,15 @@ module ChangeMaintenance
     (from_date..to_date).flat_map do |date|
       next [] unless cron.day?(date)
 
-      cron.hours.sort.flat_map { |hour| cron.minutes.sort.map { |minute| Time.local(date.year, date.month, date.day, hour, minute) } }
+      cron.hours.sort.flat_map { |hour| cron.minutes.sort.filter_map { |minute| existing_time(date, hour, minute) } }
     end
+  end
+
+  # Time.local moves a wall-clock time that a DST jump skipped; such a start
+  # never happened, so it is dropped rather than run at the shifted time.
+  def existing_time(date, hour, minute)
+    time = Time.local(date.year, date.month, date.day, hour, minute)
+    time if time.hour == hour && time.min == minute && time.day == date.day
   end
 
   # The window at `now`: { open:, starts_at:, ends_at:, remaining_s: } when open,

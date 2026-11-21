@@ -103,6 +103,14 @@ class ChangeMaintenanceTest < Minitest::Test
     assert_nil ENV["TZ"], "TZ must be restored"
   end
 
+  def test_a_start_inside_a_dst_gap_never_happens
+    gap = { "cron" => "30 2 * * *", "duration_minutes" => 60, "tz" => "America/New_York" }
+    # 2027-03-14 02:30 New York does not exist; 07:45 UTC is 03:45 EDT.
+    refute M.window_state(gap, Time.utc(2027, 3, 14, 7, 45, 0))[:open]
+    assert M.window_state(gap, Time.utc(2027, 3, 15, 6, 45, 0))[:open] # 02:45 EDT the next day
+    assert_equal Time.utc(2027, 3, 15, 6, 30, 0), M.window_state(gap, Time.utc(2027, 3, 14, 7, 45, 0))[:next_start].utc
+  end
+
   def test_cron_lists_ranges_and_steps
     cron = M.parse_cron("*/20 1-2,5 * * 1,3")
     assert_equal [ 0, 20, 40 ], cron.minutes.sort
