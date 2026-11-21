@@ -48,6 +48,28 @@ class SimplicityVerdictTest < Minitest::Test
     assert_equal({ "lines" => 40, "files" => 1, "deps" => 0 }, result["estimated"])
   end
 
+  def test_saving_alone_does_not_mark_a_simplicity_finding
+    round = { "issues" => [ issue("P0", "a", "cf:refactoring: smell", saving: saving(5)) ] }
+    result = summary(V.from_roast(round, nil))
+
+    assert_equal [ "ship", 0 ], result.values_at("verdict", "accepted")
+  end
+
+  def test_another_issues_rebuttal_at_the_same_location_is_not_applied
+    round = { "issues" => [
+      issue("P1", "Phase 1", "Unrelated risk"), issue("P0", "Phase 1", "cf:simplicity: wrong shape")
+    ] }
+    response = { "responses" => [
+      { "screen" => "Phase 1", "problem" => "Unrelated risk", "verdict" => "rebut", "reason" => "Decision D2 settles it." },
+      { "screen" => "Phase 1", "problem" => "cf:simplicity: wrong shape", "verdict" => "accept" }
+    ] }
+
+    assert_equal "rethink", summary(V.from_roast(round, response))["verdict"]
+    swapped = { "responses" => response["responses"].reverse }
+
+    assert_equal "rethink", summary(V.from_roast(round, swapped))["verdict"]
+  end
+
   def test_accepted_p0_is_rethink_and_p2_is_ship
     p0 = { "issues" => [ issue("P0", "a", "cf:simplicity: wrong shape"), issue("P1", "b", "cf:simplicity: extra") ] }
     p2 = { "issues" => [ issue("P2", "a", "cf:simplicity: taste") ] }

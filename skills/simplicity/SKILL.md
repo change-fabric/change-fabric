@@ -30,7 +30,7 @@ What is the least code, the fewest files, and the fewest dependencies that meet 
 
 ## Marking
 
-Begin each simplicity finding's `problem` with `cf:simplicity:`. `simplicity_signals.rb verdict` counts only findings carrying that prefix (or a non-null `saving`), so other issues in the same round never move the verdict.
+Begin each simplicity finding's `problem` with `cf:simplicity:`. `simplicity_signals.rb verdict` counts only findings carrying that prefix, so other issues in the same round never move the verdict.
 
 ## Priority
 

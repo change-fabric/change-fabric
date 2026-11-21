@@ -426,20 +426,36 @@ module SimplicitySignals
     module_function
 
     # Normalized findings from a roast round and its optional response file.
+    # Every issue consumes its own response, simplicity or not, so another
+    # issue's rebuttal never lands on this one.
     def from_roast(round, response)
       answers = Array(response && response['responses']).dup
       Array(round['issues']).filter_map do |issue|
-        where = (issue['where'] || issue['screen']).to_s
+        reply = take_reply(answers, issue)
         next unless simplicity_issue?(issue)
 
-        reply = answers.delete_at(answers.index { |a| (a['where'] || a['screen']).to_s == where } || answers.size)
-        rebuttal = reply && reply['verdict'] == 'rebut' ? reply['reason'].to_s : nil
-        finding(issue, rebuttal, nil)
+        finding(issue, reply && reply['verdict'] == 'rebut' ? reply['reason'].to_s : nil, nil)
       end
     end
 
+    def location(item) = (item['where'] || item['screen']).to_s
+
+    # The response for an issue: same location, preferring one whose problem
+    # text overlaps the issue's, then one with no problem text, then the first.
+    def take_reply(answers, issue)
+      same = answers.select { |a| location(a) == location(issue) }
+      problem = issue['problem'].to_s.downcase
+      pick = same.find { |a| overlaps?(a['problem'].to_s.downcase, problem) } ||
+             same.find { |a| a['problem'].to_s.strip.empty? } || same.first
+      pick && answers.delete_at(answers.index { |a| a.equal?(pick) })
+    end
+
+    def overlaps?(left, right) = !left.empty? && (right.include?(left) || left.include?(right))
+
+    # Only the prefix the lens emits marks a simplicity finding: every roast
+    # issue carries a saving, so that field says nothing about the lens.
     def simplicity_issue?(issue)
-      [ issue['problem'], issue['where'] ].any? { |text| text.to_s.strip.start_with?(PREFIX) } || !issue['saving'].nil?
+      [ issue['problem'], issue['where'] ].any? { |text| text.to_s.strip.start_with?(PREFIX) }
     end
 
     # Normalized findings from a drive-lane findings list.
