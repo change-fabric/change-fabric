@@ -84,6 +84,8 @@ class ProdApprovalGuard
   end
 
   QUEUE = %r{cf/manual/queue/}
+  QUEUE_DIR = %r{cf/manual/queue/?\z}
+  SCRIPT_FILE = /\.(?:sh|rb)\z/
   QUEUED_NAME = /\A(?:\.\/)?\d{4}-[\w.-]+\.(?:sh|rb)\z/
   RUNNER_CLI = 'cf_run_approved.rb'
   INTERPRETERS = %w[bash sh zsh dash ksh source . ruby python python3 node perl].freeze
@@ -98,7 +100,8 @@ class ProdApprovalGuard
   # without options, ./path, source) is denied. Reading or listing the queue
   # stays open. A loud guardrail, not a sandbox: the agent's own shell is the limit.
   def queue_denial(list, command)
-    return nil unless command.include?('manual/queue')
+    @in_queue = @event['cwd'].to_s.match?(QUEUE_DIR)
+    return nil unless @in_queue || command.include?('manual/queue')
     return nil if runner_only?(list, command)
 
     segment = command.split(SEGMENT_BREAKS).map { |part| part.tr(%q('"), ' ').split }.find { |words| runs_queued?(words) }
@@ -133,7 +136,9 @@ class ProdApprovalGuard
     args.first
   end
 
-  def queued_word?(word) = word.match?(QUEUE) || word.match?(QUEUED_NAME)
+  # A word naming a queued script: a path into the queue, a queue-style name, or
+  # (when the shell is already in the queue dir) any script file there.
+  def queued_word?(word) = word.match?(QUEUE) || word.match?(QUEUED_NAME) || (@in_queue && word.match?(SCRIPT_FILE))
 
   # The argument run after each `gh api`.
   def api_calls(list)

@@ -48,6 +48,18 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "#{runner} ~/.claude/cf/manual/queue/0016-redeploy.sh; bash ~/.claude/cf/manual/queue/0017-x.sh"
   end
 
+  def test_a_shell_already_in_the_queue_dir_cannot_run_scripts_by_relative_path
+    queue = File.join(Dir.home, ".claude/cf/manual/queue")
+    assert_denied_in "./0016-redeploy.sh", queue
+    assert_denied_in "bash -e 0016-redeploy.sh", queue
+    assert_denied_in "bash custom-name.sh", queue
+    assert_allowed "./0016-redeploy.sh", cwd: Dir.pwd
+    assert_allowed "ls", cwd: queue
+    assert_allowed "ruby ~/code/change-fabric/change-fabric/scripts/cf_run_approved.rb 0016-redeploy.sh", cwd: queue
+  end
+
+  def assert_denied_in(command, cwd) = assert_equal("deny", decide(command, cwd: cwd), "#{command} in #{cwd}")
+
   def test_denies_approving_a_pending_deployment
     assert_denied "gh api repos/o/r/actions/runs/123/pending_deployments -X POST -f state=approved"
     assert_denied "gh api repos/o/r/actions/runs/123/pending_deployments"
