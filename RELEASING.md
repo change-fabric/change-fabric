@@ -209,6 +209,11 @@ until its env var is set: `CF_TELEMETRY=1` (SessionEnd transcript upload),
    schema 0.7.0. Publishing is best effort and never changes a sweep verdict.
 4. Telemetry only: put the shared API secret in
    `~/.claude/cf/telemetry/api-secret`; without it the upload is skipped.
+5. Homebrew tap publishing: `bump-tap-formula.yml` pushes to
+   `change-fabric/homebrew-cf` over SSH with the `TAP_DEPLOY_KEY` repository
+   secret, a private ed25519 key whose public half is a write-enabled deploy key
+   on the tap repo. Without the secret the job skips. `TAP_BUMP_TOKEN` (a
+   personal access token that kept expiring) is removed; delete it if still set.
 
 The hooks fail open when the `ed25519` gem is missing. The three `cf_team_*`
 scripts are human-run tools, not hooks, and raise on a missing credential.
