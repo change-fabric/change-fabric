@@ -6,6 +6,7 @@ require 'open3'
 require 'optparse'
 require 'yaml'
 require_relative 'change_prod_envelope'
+require_relative 'change_prod_request'
 require_relative 'change_prod_store'
 
 # The built-in `redeploy_previous` op for the bounded prod runner, and the one
@@ -130,7 +131,7 @@ module ChangeProdRedeploy
   def cli_offer(argv, stdout, env, history, tags)
     opts = parse(argv, env)
     config = ChangeProdEnvelope.load_config(opts[:config].to_s)
-    version = opts[:version] || git(opts[:repo], 'rev-parse', 'origin/HEAD')
+    version = opts[:version] || ChangeProdRequest.base_sha(opts[:repo])
     envelope = offer(config: config, profile: opts[:profile], version: version, requested_by: opts[:requested_by],
                      deployments: history.call(opts[:repo], production_environment(config, opts[:profile])),
                      tags_at: ->(sha) { tags.call(opts[:repo], sha) }, store: ChangeProdStore.new(opts[:repo]), push: opts[:push])

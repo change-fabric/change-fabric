@@ -125,6 +125,23 @@ class ChangeProdRedeployTest < Minitest::Test
     assert_raises(R::Refused) { R.predecessor(R.gh_history(".", "production", gh: gh)) }
   end
 
+  def test_offer_defaults_the_version_to_origin_main_when_origin_head_is_absent
+    Dir.mktmpdir do |dir|
+      GitFixture.git_init(dir, "-b", "main")
+      GitFixture.git(dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "base")
+      sha = GitFixture.git(dir, "rev-parse", "HEAD").strip
+      GitFixture.git(dir, "update-ref", "refs/remotes/origin/main", sha)
+      path = File.join(dir, "cfg.yml")
+      File.write(path, YAML.dump(config))
+      out = StringIO.new
+      code = R.run([ "offer", "--config", path, "--profile", "production", "--repo", dir, "--no-push" ],
+                   stdout: out, stderr: StringIO.new, history: ->(*) { HISTORY }, tags: ->(_repo, s) { TAGS.fetch(s, []) })
+      assert_equal 0, code
+      id = out.string[/request_id: (\S+)/, 1]
+      assert_equal sha, ChangeProdStore.new(dir).read("requests", id)["version"]
+    end
+  end
+
   def test_cli_refuses_an_unknown_verb_and_missing_history
     assert_equal 2, R.run([ "nope" ], stderr: StringIO.new)
     err = StringIO.new
