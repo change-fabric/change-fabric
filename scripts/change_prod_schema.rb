@@ -18,7 +18,7 @@ require_relative 'change_prod_claim'
 # field; empty is valid. A config with none of the blocks is valid.
 module ChangeProdSchema
   RUNNER_KINDS = %w[github_actions fixture].freeze
-  RUNNER_KEYS = %w[kind workflow environments oidc_roles region claim_role claim_table].freeze
+  RUNNER_KEYS = %w[kind workflow environments oidc_roles region claim_role claim_table reconcile_role].freeze
   BACKUP_KINDS = %w[rds_snapshot aurora_snapshot pg_dump_s3 command fixture].freeze
   PITR_KINDS = %w[rds_snapshot aurora_snapshot].freeze
   BACKUP_KEYS = %w[kind target targets provider snapshot verify pitr pitr_source restore_probe].freeze
@@ -161,6 +161,7 @@ module ChangeProdSchema
     def check_claim(runner, where)
       add("#{where}.claim_role must be an IAM role ARN") unless runner['claim_role'].to_s.match?(ChangeProdClaim::ROLE)
       add("#{where}.claim_table must be a table name") unless runner['claim_table'].to_s.match?(ChangeProdClaim::TABLE)
+      add("#{where}.reconcile_role must be an IAM role ARN") unless runner['reconcile_role'].nil? || runner['reconcile_role'].to_s.match?(ROLE)
       add("#{where}.region must be an AWS region") unless runner['region'].nil? || runner['region'].to_s.match?(ChangeProdClaim::REGION)
     end
 

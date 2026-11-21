@@ -6,6 +6,7 @@ change_config:
       region: us-east-1
       claim_role: arn:aws:iam::333333333333:role/cf-prod-claim
       claim_table: cf-approval-console
+      reconcile_role: arn:aws:iam::333333333333:role/cf-prod-reconcile
       environments: { staging: staging, production: production }
       oidc_roles:
         staging: arn:aws:iam::111111111111:role/cf-staging

@@ -8,6 +8,7 @@ require_relative 'change_frontmatter'
 require_relative 'change_policy'
 require_relative 'change_backup_probe_gen'
 require_relative 'change_prod_classes'
+require_relative 'change_reconcile_gen'
 require_relative 'change_prod_runner_gen'
 require_relative 'change_prod_schema'
 require_relative 'change_schema'
@@ -263,6 +264,7 @@ class ChangeAppRegistry
     end
     lines << "error: #{ChangeProdRunnerGen::WORKFLOW} was edited by hand; regenerate it with change_prod_runner_gen.rb" if File.exist?(workflow) && ChangeProdRunnerGen.tampered?(File.read(workflow))
     lines.concat(probe_workflow_lines(change_md_path, data))
+    lines.concat(reconcile_workflow_lines(change_md_path, data))
   rescue StandardError
     []
   end
@@ -271,6 +273,18 @@ class ChangeAppRegistry
   # Restore-probe workflow (0.30.0): an error for a hand-edited
   # cf-restore-probe.yml, a warning for a probe with no workflow roles to run
   # it, since an unrun probe goes stale and the runner refuses on it.
+  # Maintenance reconciler (0.31.0): an error for a hand-edited
+  # cf-prod-reconcile.yml, a warning when maintenance has an enter command but
+  # no reconcile_role, since an expired lease then has no backstop.
+  def self.reconcile_workflow_lines(change_md_path, data)
+    path = File.join(File.dirname(change_md_path), ChangeReconcileGen::WORKFLOW)
+    lines = []
+    lines << "error: #{ChangeReconcileGen::WORKFLOW} was edited by hand; regenerate it with change_reconcile_gen.rb" if File.exist?(path) && ChangeReconcileGen.tampered?(File.read(path))
+    lines << 'warning: prod maintenance has an enter command but runners.prod.reconcile_role is unset, so no reconciler backstops an expired lease' if ChangeReconcileGen.needed?(data) && !data.dig('change_config', 'runners', 'prod', 'reconcile_role')
+    lines
+  end
+  private_class_method :reconcile_workflow_lines
+
   def self.probe_workflow_lines(change_md_path, data)
     path = File.join(File.dirname(change_md_path), ChangeBackupProbeGen::WORKFLOW)
     lines = []
