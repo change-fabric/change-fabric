@@ -355,6 +355,53 @@ class ChangeMaintenanceTest < Minitest::Test
     end
   end
 
+  # A journal whose lease or launching write advances the clock, as a slow push would.
+  def slow_run(state, to)
+    now = OPEN
+    clock = -> { now }
+    Dir.mktmpdir do |root|
+      system("git", "init", "-q", root)
+      journal = Class.new(M::Journal) do
+        define_method(:append) do |request_id, entry|
+          now = to if entry["state"] == state
+          super(request_id, entry)
+        end
+      end.new(root, push: false)
+      executor = maintenance_executor
+      result = runner(journal, executor, clock: clock).execute("rotate_tenant_key", { "tenant_id" => "t_101" })
+      yield result, executor, states(journal)
+    end
+  end
+
+  def test_a_slow_lease_write_that_eats_the_window_never_enters_maintenance
+    slow_run("maintenance_entered", Time.utc(2026, 11, 23, 4, 10, 0)) do |result, executor, states|
+      assert_equal "refused", result.state
+      assert_empty executor.calls
+      assert_equal %w[maintenance_entered refused], states
+    end
+  end
+
+  def test_a_window_that_runs_out_during_enter_never_launches_and_still_exits
+    with_journal do |journal|
+      now = OPEN
+      on = false
+      executor = FakeExecutor.new do |argv|
+        line = argv.join(" ")
+        if line.include?("maint on")
+          on = true
+          now = Time.utc(2026, 11, 23, 3, 55, 0) # enter was slow: 5 minutes left
+        end
+        on = false if line.include?("maint off")
+        line.include?("maint status") ? { ok: on } : {}
+      end
+      result = runner(journal, executor, clock: -> { now }).execute("rotate_tenant_key", { "tenant_id" => "t_101" })
+      assert_equal "refused", result.state
+      refute executor.ran?("rotate-key")
+      assert executor.ran?("maint off")
+      assert_equal "maintenance_exited", states(journal).last
+    end
+  end
+
   def test_an_online_safe_op_runs_with_no_window_lease_or_exit
     with_journal do |journal|
       executor = FakeExecutor.new

@@ -360,7 +360,7 @@ module ChangeMaintenance
         return mutate(op, commands)
       end
 
-      windowed(op, commands, decision)
+      windowed(op, op_name, commands, decision)
     rescue ChangeMaintenance::Error => e
       refuse(e.message)
     end
@@ -385,16 +385,27 @@ module ChangeMaintenance
       ChangeMaintenance.plan(@config, op_name, @clock.call)
     end
 
-    def windowed(op, commands, decision)
+    def windowed(op, op_name, commands, decision)
       block = ChangeMaintenance.maintenance_block(@config)
       return mutate(op, commands) unless block['enter']
 
       # The lease is durable before enter runs, so a runner lost inside enter
       # still leaves something the reconciler can find.
       record('maintenance_entered', expires_at: decision[:ends_at].utc.iso8601)
-      result = enter(block) || mutate(op, commands)
+      budget = ChangeMaintenance.budget_s(@config, op_name)
+      # Journal pushes block with no timeout and are not in the budget, so the
+      # window is checked again after each one and before any command launches.
+      return refuse('the window ran out while the lease was written') unless room?(decision, budget)
+
+      result = enter(block) || launch_with_room(op, commands, decision, budget - block['enter']['timeout_s'].to_i - block['verify']['timeout_s'].to_i)
       leave(block, result)
     end
+
+    def launch_with_room(op, commands, decision, tail)
+      room?(decision, tail) ? mutate(op, commands) : refuse('the window ran out before the op could launch')
+    end
+
+    def room?(decision, needed) = decision[:ends_at] - @clock.call >= needed
 
     def enter(block)
       return refuse('maintenance enter failed') unless command(block['enter'])
