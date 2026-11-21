@@ -60,7 +60,7 @@ class SimplicityVerdictTest < Minitest::Test
       issue("P1", "Phase 1", "Unrelated risk"), issue("P0", "Phase 1", "cf:simplicity: wrong shape")
     ] }
     response = { "responses" => [
-      { "screen" => "Phase 1", "problem" => "Unrelated risk", "verdict" => "rebut", "reason" => "Decision D2 settles it." },
+      { "screen" => "Phase 1", "problem" => "Unrelated risk", "verdict" => "rebut", "reason" => "Settled.", "grounds" => "D2" },
       { "screen" => "Phase 1", "problem" => "cf:simplicity: wrong shape", "verdict" => "accept" }
     ] }
 
@@ -85,7 +85,7 @@ class SimplicityVerdictTest < Minitest::Test
       issue("P1", "Phase 3", "cf:simplicity: layer", saving: saving(10, 1))
     ] }
     response = { "responses" => [
-      { "screen" => "Phase 1", "verdict" => "rebut", "reason" => "Settled decision D1 fixes the shape." },
+      { "screen" => "Phase 1", "verdict" => "rebut", "reason" => "Plan fixes the shape.", "grounds" => "D1" },
       { "where" => "Phase 2", "verdict" => "accept", "change" => "drop it" }
     ] }
     result = summary(V.from_roast(round, response))
@@ -102,6 +102,17 @@ class SimplicityVerdictTest < Minitest::Test
 
     assert_equal "rethink", result["verdict"]
     assert_equal 0, result["rebutted"]
+  end
+
+  def test_grounds_not_keywords_decide_a_rebuttal
+    round = { "issues" => [ issue("P0", "a", "cf:simplicity: x"), issue("P0", "b", "cf:simplicity: y") ] }
+    response = { "responses" => [
+      { "screen" => "a", "verdict" => "rebut", "reason" => "The brief explicitly requires both exporters.", "grounds" => "brief: two exporters" },
+      { "screen" => "b", "verdict" => "rebut", "reason" => "I disagree with this decision and the requirement." }
+    ] }
+    result = summary(V.from_roast(round, response))
+
+    assert_equal [ 1, 1 ], result.values_at("accepted", "rebutted")
   end
 
   def test_precision_is_nil_with_no_findings

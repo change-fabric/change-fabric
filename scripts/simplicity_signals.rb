@@ -417,11 +417,10 @@ module SimplicitySignals
 
   # The verdict from accepted simplicity findings (D8, amended): any accepted
   # P0 is rethink, else any accepted P1 is trim, else ship. Findings from other
-  # lenses are ignored. A rebuttal that cites neither a requirement nor a
-  # settled decision counts as an accept, matching roast.rb.
+  # lenses are ignored. A rebuttal with no recorded grounds (a requirement or
+  # settled decision, in `grounds`) counts as an accept, matching roast.rb.
   module Verdict
     PREFIX = 'cf:simplicity:'
-    GROUND = /\b(requirement|decision|decided|settled|D\d+)\b/i
 
     module_function
 
@@ -434,7 +433,8 @@ module SimplicitySignals
         reply = take_reply(answers, issue)
         next unless simplicity_issue?(issue)
 
-        finding(issue, reply && reply['verdict'] == 'rebut' ? reply['reason'].to_s : nil, nil)
+        rebutted = reply && reply['verdict'] == 'rebut'
+        finding(issue, rebutted ? reply['reason'].to_s : nil, reply&.dig('grounds'))
       end
     end
 
@@ -461,14 +461,17 @@ module SimplicitySignals
     # Normalized findings from a drive-lane findings list.
     def from_findings(list)
       Array(list).select { |f| f['lens'].to_s.delete_prefix('cf:') == 'simplicity' }.map do |f|
-        finding(f, f['accepted'] == false ? f['rebuttal'].to_s : nil, f['requirement'])
+        finding(f, f['accepted'] == false ? f['rebuttal'].to_s : nil, f['grounds'] || f['requirement'])
       end
     end
 
-    def finding(issue, rebuttal, requirement)
-      required = (requirement || issue['requirement']).to_s.strip
-      grounded = rebuttal && !rebuttal.strip.empty? &&
-                 ((!required.empty? && required.casecmp('none') != 0) || rebuttal.match?(GROUND))
+    # A rebuttal holds only when it carries explicit grounds: the requirement
+    # or settled decision it cites, recorded in a `grounds` field (or, in a
+    # findings file, a `requirement` other than none). Free text is never
+    # scanned for keywords.
+    def finding(issue, rebuttal, grounds)
+      cited = grounds.to_s.strip
+      grounded = rebuttal && !rebuttal.strip.empty? && !cited.empty? && cited.casecmp('none') != 0
       { 'priority' => issue['priority'], 'saving' => issue['saving'], 'accepted' => !grounded }
     end
 

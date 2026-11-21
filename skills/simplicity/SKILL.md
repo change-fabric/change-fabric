@@ -32,6 +32,8 @@ What is the least code, the fewest files, and the fewest dependencies that meet 
 
 Begin each simplicity finding's `problem` with `cf:simplicity:`. `simplicity_signals.rb verdict` counts only findings carrying that prefix, so other issues in the same round never move the verdict.
 
+A rebuttal of a simplicity finding must record its grounds: put the requirement or settled decision it cites in a `grounds` field of the response entry (`requirement` in a drive findings file). A rebuttal with no `grounds` counts as an accept.
+
 ## Priority
 
 The verdict follows mechanically from the accepted findings: any accepted P0 means rethink, else any accepted P1 means trim, else ship.
