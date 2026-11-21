@@ -9,6 +9,7 @@ require 'set'
 require 'time'
 require_relative 'change_backup'
 require_relative 'change_prod_envelope'
+require_relative 'change_prod_schema'
 require_relative 'change_prod_store'
 
 # Maintenance windows for the bounded prod runner (spec 0.31.0).
@@ -95,6 +96,8 @@ module ChangeMaintenance
   # Runs the block with TZ set to the window's zone, restoring it after.
   def with_tz(tz)
     previous = ENV.fetch('TZ', nil)
+    raise Error, "unknown time zone #{tz.inspect}" unless ChangeProdSchema.known_zone?(tz.to_s)
+
     ENV['TZ'] = tz
     yield
   ensure

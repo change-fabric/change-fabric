@@ -111,6 +111,30 @@ class ChangeMaintenanceTest < Minitest::Test
     assert_equal Time.utc(2027, 3, 15, 6, 30, 0), M.window_state(gap, Time.utc(2027, 3, 14, 7, 45, 0))[:next_start].utc
   end
 
+  def test_an_unknown_time_zone_refuses_instead_of_falling_back_to_utc
+    typo = window.merge("tz" => "America/Chcago")
+    error = assert_raises(M::Error) { M.window_state(typo, OPEN) }
+    assert_match(/unknown time zone/, error.message)
+    assert_nil ENV["TZ"], "TZ must not be touched or deleted"
+    cfg = config
+    cfg["change_config"]["maintenance"]["windows"]["weekday_night"]["tz"] = "America/Chcago"
+    with_journal do |journal|
+      executor = maintenance_executor
+      result = runner(journal, executor, cfg: cfg).execute("rotate_tenant_key", { "tenant_id" => "t_101" })
+      assert_equal "refused", result.state
+      assert_empty executor.calls
+    end
+  end
+
+  def test_zone_names_are_checked_against_the_system_zoneinfo
+    assert ChangeProdSchema.known_zone?("UTC")
+    assert ChangeProdSchema.known_zone?("America/Chicago")
+    assert ChangeProdSchema.known_zone?("America/Argentina/Buenos_Aires")
+    refute ChangeProdSchema.known_zone?("America/Chcago")
+    refute ChangeProdSchema.known_zone?("../etc/passwd")
+    refute ChangeProdSchema.known_zone?(nil)
+  end
+
   def test_cron_lists_ranges_and_steps
     cron = M.parse_cron("*/20 1-2,5 * * 1,3")
     assert_equal [ 0, 20, 40 ], cron.minutes.sort

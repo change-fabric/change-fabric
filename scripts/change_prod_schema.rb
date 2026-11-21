@@ -49,7 +49,18 @@ module ChangeProdSchema
   PLACEHOLDER = /\{([^{}]*)\}/
   CRON_FIELD = %r{\A(\*|\d+(-\d+)?)(/\d+)?(,(\*|\d+(-\d+)?)(/\d+)?)*\z}
 
+  ZONEINFO_DIRS = %w[/usr/share/zoneinfo /usr/share/lib/zoneinfo /usr/lib/zoneinfo].freeze
+
   module_function
+
+  # True for UTC or an Area/City name present in the system zoneinfo. An unknown
+  # name must never reach ENV['TZ'], which falls back to UTC without a word.
+  def known_zone?(name)
+    return true if name == 'UTC'
+    return false unless name.to_s.match?(%r{\A[A-Za-z]+(/[A-Za-z_+-]+)+\z})
+
+    ZONEINFO_DIRS.any? { |dir| File.file?(File.join(dir, name)) }
+  end
 
   # Every problem with the five blocks together. `config` is the parsed
   # frontmatter (or its change_config); `policy` defaults to the sibling key.
@@ -281,7 +292,7 @@ module ChangeProdSchema
         fail_unknown(window, WINDOW_KEYS, field)
         add("#{field}.cron must be five cron fields") unless cron?(window['cron'])
         add("#{field}.duration_minutes must be an integer from 1 to 1440") unless ChangeProdSchema.int_in?(window['duration_minutes'], 1..1440)
-        add("#{field}.tz must be a time zone name") unless window['tz'].to_s.match?(%r{\A(UTC|[A-Za-z]+/[A-Za-z_+-]+)\z})
+        add("#{field}.tz must be a known time zone name") unless ChangeProdSchema.known_zone?(window['tz'].to_s)
       end
     end
 
