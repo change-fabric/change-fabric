@@ -107,6 +107,42 @@ class ChangeSuiteSchemaSpecTest < Minitest::Test
     assert_equal 8, steps.size
   end
 
+  def test_a_v6_file_loads_relations_references_lists_and_preconditions
+    item = ChangeSuite.load_file(compat("v6")).cases.first
+    assert_equal 6, ChangeSuite.load_file(compat("v6")).version
+    assert_equal 2, item.preconditions.size
+    assert_equal %w[expect_relation reference_get], item.steps.flat_map(&:keys).grep(/expect_relation|reference_get/).uniq.sort
+    assert item.blocks_on_login?
+  end
+
+  def test_a_v5_file_may_not_use_the_v6_verbs_kind_or_preconditions
+    [
+      { "expect_relation" => { "relation" => "le", "reads" => { "a" => 1, "b" => 2 } } },
+      { "reference_get" => { "var" => "x", "url" => "https://a.test/x", "json_path" => "$.x", "pair" => "y" } },
+      { "capture" => { "selector" => "li", "as" => "items", "kind" => "list" } }
+    ].each do |step|
+      error = assert_raises(ChangeSuite::Error, step.keys.first) { ChangeSuite.steps([ { "goto" => "/" }, step ], "s", "c", "p", 5) }
+      assert_includes error.message, "added in suite_version 6"
+    end
+    raw = { "id" => "c", "acceptance" => "a", "preconditions" => [ { "goto" => "/" } ], "steps" => [ { "goto" => "/" } ] }
+    error = assert_raises(ChangeSuite::Error) { ChangeSuite.parse_case(raw, "s", "p", 0, 5) }
+    assert_includes error.message, "`preconditions`, added in suite_version 6"
+    assert_equal 1, ChangeSuite.parse_case(raw, "s", "p", 0, 6).preconditions.size
+  end
+
+  def test_preconditions_must_be_a_non_empty_list_of_valid_steps
+    base = { "id" => "c", "acceptance" => "a", "steps" => [ { "goto" => "/" } ] }
+    [ [], "goto", [ { "nope" => 1 } ] ].each do |bad|
+      assert_raises(ChangeSuite::Error, bad.inspect) { ChangeSuite.parse_case(base.merge("preconditions" => bad), "s", "p", 0, 6) }
+    end
+    assert_empty ChangeSuite.parse_case(base, "s", "p", 0, 6).preconditions
+  end
+
+  def test_an_older_suite_keeps_failing_the_gate_on_a_lost_login
+    refute ChangeSuite.load_file(compat("v5")).cases.first.blocks_on_login?
+    refute ChangeSuite.load_file(compat("v4")).cases.first.blocks_on_login?
+  end
+
   def test_a_v4_file_may_not_use_the_v5_options_or_kinds
     {
       "budget_ms" => { "wait_for_text" => "x", "budget_ms" => 10 },

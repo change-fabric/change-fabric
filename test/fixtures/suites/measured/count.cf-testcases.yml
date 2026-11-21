@@ -1,0 +1,47 @@
+# Class 6: a count that disagrees across two surfaces. The badge on the admin
+# page and the rows on the members page are two reads of one fact.
+suite: measured-count
+suite_version: 6
+cases:
+  - id: member-count-agrees
+    acceptance: The members badge and the members table show the same count.
+    steps:
+      - goto: /admin
+      - capture: { var: badge, selector: ".members-badge", kind: number }
+      - goto: /admin/members
+      - capture: { var: rows, selector: "tbody tr", kind: count }
+      - expect_relation:
+          relation: equal
+          reads: { a: badge, b: rows }
+          settle: { reread: 1, freshness_selector: ".last-updated" }
+  - id: member-count-agrees-strict
+    acceptance: The members badge and the members table show the same count, with no second chance.
+    steps:
+      - goto: /admin
+      - capture: { var: badge, selector: ".members-badge", kind: number }
+      - goto: /admin/members
+      - capture: { var: rows, selector: "tbody tr", kind: count }
+      - expect_relation: { relation: equal, reads: { a: badge, b: rows } }
+  - id: member-count-matches-the-api
+    acceptance: The members badge matches the total the reference API reports.
+    steps:
+      - goto: /admin
+      - capture: { var: badge, selector: ".members-badge", kind: number }
+      - reference_get: { var: api_total, url: "https://api.fixture.test/members", json_path: "$.members.total", pair: badge }
+      - expect_relation: { relation: equal, reads: { a: badge, b: api_total } }
+  - id: listed-members-are-known
+    acceptance: Every member shown on the recent list is also in the full table.
+    steps:
+      - goto: /admin
+      - capture: { var: recent, selector: ".recent li", kind: list }
+      - goto: /admin/members
+      - capture: { var: everyone, selector: "tbody tr td.name", kind: list }
+      - expect_relation: { relation: subset, reads: { a: recent, b: everyone } }
+  - id: parts-sum-to-total
+    acceptance: The per-role counts add up to the members total.
+    steps:
+      - goto: /admin
+      - capture: { var: total, selector: ".members-badge", kind: number }
+      - capture: { var: admins, selector: ".role-admin", kind: number }
+      - capture: { var: guests, selector: ".role-guest", kind: number }
+      - expect_relation: { relation: sum, reads: { total: total, parts: [ admins, guests ] } }

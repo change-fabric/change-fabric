@@ -26,6 +26,7 @@ require_relative 'change_lane_a11y'
 require_relative 'change_lane_zap'
 require_relative 'change_lane_browserless'
 require_relative 'change_lane_testcases'
+require_relative 'change_reference_read'
 require_relative 'change_testcases_evidence'
 require_relative 'change_testcases_report'
 require_relative 'browserless_pdf'
@@ -42,6 +43,7 @@ require_relative 'change_trust'
 # Usage: change_run.rb <all|k6|a11y|zap|browserless|testcases> [--config PATH] [--profile NAME]
 #        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]...
 #        [--no-publish] [--for-tag TAGNAME]
+#        [--fail-on-warn] [--fail-on-blocked] [--reference-host HOST[=private,http]]...
 #        change_run.rb gate-status [--ref REF] [--config PATH]
 #        change_run.rb schedule <name> [--repo PATH] [--dry-run]
 #        change_run.rb zap --mode full [--profile NAME]
@@ -75,6 +77,14 @@ require_relative 'change_trust'
 # It is the deterministic regression entry point `cf:qa --suite` drives: no
 # scoping model, no generated script, just the committed cases that selection
 # names.
+#
+# (suite_version 6) A testcases case can end `warn` (a relation that agreed only
+# after a re-read) or `blocked_precondition` (it could not be verified). Both
+# pass the gate and are named in the report; `--fail-on-warn` and
+# `--fail-on-blocked` make each fail it. `--reference-host HOST` (repeatable,
+# `HOST=private,http` to admit private addresses or plain http) allowlists the
+# hosts a `reference_get` step may read: the only source until CHANGE.md carries
+# the key, and a suite cannot allowlist itself.
 #
 # A repo whose CHANGE.md carries a `contributors_team.platform:` block also
 # gets a findings artifact (an HTML page with the run's screenshots, per
@@ -136,14 +146,14 @@ class ChangeRun
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
                        :logger, :run_id, :profile, :trust, :step_prefix, :env_file_values,
                        :active_scan_allowed, :out_dir, :evidence_dir, :commit, :exports, :video_budget_mb,
-                       keyword_init: true) do
+                       :fail_on_warn, :fail_on_blocked, :reference_hosts, keyword_init: true) do
     def log(message) = logger.call(message)
     def signoff? = signoff == true
   end
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
                     :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, :out, :exports,
-                    :video_budget_mb, keyword_init: true)
+                    :video_budget_mb, :fail_on_warn, :fail_on_blocked, :reference_hosts, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -507,6 +517,9 @@ class ChangeRun
     out = nil
     exports = []
     video_budget_mb = nil
+    fail_on_warn = false
+    fail_on_blocked = false
+    reference_hosts = []
     rest = scope ? argv.drop(1) : argv
     schedule = scope == 'schedule' && rest.first && !rest.first.start_with?('-') ? rest.shift : nil
     OptionParser.new do |o|
@@ -526,6 +539,9 @@ class ChangeRun
       o.on('--out DIR') { |value| out = File.expand_path(value) }
       o.on('--export LIST') { |value| exports.concat(value.split(',').map(&:strip).reject(&:empty?)) }
       o.on('--video-budget-mb N', Integer) { |value| video_budget_mb = value }
+      o.on('--fail-on-warn') { fail_on_warn = true }
+      o.on('--fail-on-blocked') { fail_on_blocked = true }
+      o.on('--reference-host HOST') { |value| reference_hosts << value }
       o.on('--lane NAME') { |value| lane = value }
     end.parse(rest)
     scope = lane_scope(scope, lane) if lane
@@ -545,13 +561,21 @@ class ChangeRun
     abort_and_exit('--export applies to the testcases lane; run scope testcases or all') if
       !exports.empty? && !%w[testcases all].include?(scope)
     abort_and_exit('--video-budget-mb must be positive') if video_budget_mb && !video_budget_mb.positive?
+    abort_and_exit('--fail-on-warn, --fail-on-blocked and --reference-host narrow the testcases lane; run scope testcases or all') if
+      (fail_on_warn || fail_on_blocked || !reference_hosts.empty?) && !%w[testcases all].include?(scope)
+    reference_hosts.each do |text|
+      ChangeReferenceRead.parse_host(text)
+    rescue ChangeReferenceRead::Error => e
+      abort_and_exit(e.message)
+    end
     if zap_mode && !ChangeScheduleConfig::ZAP_MODES.include?(zap_mode)
       abort_and_exit("--mode must be one of #{ChangeScheduleConfig::ZAP_MODES.join(', ')}")
     end
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
              health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
              signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode, out: out,
-             exports: exports.uniq, video_budget_mb: video_budget_mb)
+             exports: exports.uniq, video_budget_mb: video_budget_mb, fail_on_warn: fail_on_warn,
+             fail_on_blocked: fail_on_blocked, reference_hosts: reference_hosts)
   end
 
   # What --export may name: the testcases report as a PDF, and one MP4 per
@@ -726,7 +750,8 @@ class ChangeRun
       trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config),
       active_scan_allowed: @active_scan_allowed == true, out_dir: out_dir,
       evidence_dir: evidence_dir(config), commit: head_sha, exports: @args.exports,
-      video_budget_mb: @args.video_budget_mb
+      video_budget_mb: @args.video_budget_mb, fail_on_warn: @args.fail_on_warn,
+      fail_on_blocked: @args.fail_on_blocked, reference_hosts: @args.reference_hosts
     }
     if browser_needed?(config)
       boot = config.boot

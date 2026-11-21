@@ -40,6 +40,14 @@ committed test cases and nothing else:
 ruby ~/.claude/cf/bin/change_run.rb testcases --suite <suite-or-tag>
 ```
 
+`--fail-on-warn` and `--fail-on-blocked` pass through to the lane: a suite
+version 6 case that agreed only after a re-read (`warn`) or could not be verified
+(`blocked_precondition`) passes the gate by default and is named in the report,
+and each flag makes its status fail. `--reference-host <host>` (repeatable)
+allowlists the hosts a `reference_get` step may read; see
+`skills/testcases/SKILL.md`. Never describe a run with entries under "Not
+verified" as fully verified.
+
 `--out DIR` puts the report pair and the run's evidence dir
 (`testcases-<run-id>/`, per-attempt traces and screenshots, `report.html`
 and `junit.xml`) there instead of on the Desktop. Point a stakeholder at

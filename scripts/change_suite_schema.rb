@@ -29,7 +29,7 @@ module ChangeSuiteSchema
   # field set before the key existed. Every PR that adds a suite field raises
   # this by one and records the field in FIELD_VERSIONS, so an install can tell
   # a file written for a newer toolkit from a file with a typo.
-  SUITE_VERSION = 5
+  SUITE_VERSION = 6
 
   # The version a file declares when it says nothing.
   DEFAULT_SUITE_VERSION = 1
@@ -85,6 +85,10 @@ module ChangeSuiteSchema
     'cases[].quarantined',
     'cases[].quarantine_reason',
     'cases[].quarantine_until',
+    # (v6) Steps run before the case's own, in the same page. A failing
+    # precondition (a login check, a record that must exist) stops the case as
+    # `blocked_precondition`: not verified, which is neither a pass nor a fail.
+    'cases[].preconditions',
     # The declarative step list, compiled by ChangeFlowCompiler. Each entry is
     # a mapping naming exactly one verb from STEP_VERBS.
     'cases[].steps'
@@ -99,7 +103,8 @@ module ChangeSuiteSchema
     'cases[].timeout_ms' => 2,
     'cases[].persona' => 3,
     'cases[].safe_retry' => 3,
-    'cases[].expects_logout' => 3
+    'cases[].expects_logout' => 3,
+    'cases[].preconditions' => 6
   }.freeze
 
   def self.field_version(field) = FIELD_VERSIONS.fetch(field, DEFAULT_SUITE_VERSION)
@@ -108,14 +113,14 @@ module ChangeSuiteSchema
   # version 1 verb. Same rule as FIELD_VERSIONS: a file using a verb newer than
   # it declares is refused with the version that adds it.
   VERB_VERSIONS = (ChangeFlowCompiler::STATE_WAITS + ChangeFlowCompiler::EVENT_WAITS).to_h { |verb| [ verb, 4 ] }
-                                                                                    .merge('expect_stable' => 5).freeze
+                                                                                    .merge('expect_stable' => 5, 'expect_relation' => 6, 'reference_get' => 6).freeze
 
   def self.verb_version(verb) = VERB_VERSIONS.fetch(verb, DEFAULT_SUITE_VERSION)
 
   # (v5) The step option and the read kinds newer than version 1, gated the
   # same way: a v4 file using them is refused naming the version that adds them.
   OPTION_VERSIONS = { 'budget_ms' => 5, 'budget_from' => 5, 'label' => 5, 'tolerance' => 5, 'tolerance_px' => 5, 'wait' => 5, 'max_cls' => 5 }.freeze
-  KIND_VERSIONS = ChangeFlowCompiler::MEASURED_KINDS.to_h { |kind| [ kind, 5 ] }.freeze
+  KIND_VERSIONS = ChangeFlowCompiler::MEASURED_KINDS.to_h { |kind| [ kind, 5 ] }.merge('list' => 6).freeze
 
   def self.option_version(option) = OPTION_VERSIONS.fetch(option, DEFAULT_SUITE_VERSION)
 

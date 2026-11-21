@@ -21,6 +21,13 @@ require_relative 'change_report'
 # passed the last time it ran) and what is flaky (passed after a failed
 # attempt). A case skipped this run, and a case in the history that this run
 # did not select, are listed on their own and never counted as failing.
+#
+# (suite_version 6) A case can also end `warn` (every check passed, but only after
+# a re-read agreed with itself: drift) or `blocked_precondition` (it could not be
+# verified: a login, a record or a reference it needed was not there). Neither is
+# a failure and neither is a pass, so the page names them in their own sections:
+# "Not verified" first when there is anything in it, then the warnings, the
+# figures every case read with where and when, and the basis each verdict rests on.
 class ChangeTestcasesReport
   LEDGER_ROOT = File.join(Dir.home, '.claude', 'cf', 'testcases')
   HISTORY_RUNS = 10
@@ -69,7 +76,8 @@ class ChangeTestcasesReport
   def render_junit
     doc = REXML::Document.new
     doc << REXML::XMLDecl.new('1.0', 'UTF-8')
-    root = doc.add_element('testsuites', 'tests' => @records.size.to_s, 'failures' => @records.count(&:failure?).to_s)
+    root = doc.add_element('testsuites', 'tests' => @records.size.to_s, 'failures' => @records.count(&:failure?).to_s,
+                           'skipped' => @records.count { |record| record.skipped? || record.blocked? }.to_s)
     @records.group_by(&:suite).each do |suite, cases|
       root.add_element(junit_suite(suite, cases))
     end
@@ -87,12 +95,16 @@ class ChangeTestcasesReport
       <body>
       <h1>Test cases</h1>
       <p class="meta">Run #{h(run_id)}#{commit ? " at #{h(commit[0, 12])}" : ''}. #{summary}</p>
+      #{not_verified_section}
       #{attention_section}
       <h2>Cases</h2>
       <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Quarantine</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th><th>Video</th></tr></thead>
       <tbody>
       #{executed.map { |record| case_row(record) }.join("\n")}
       </tbody></table>
+      #{warnings_section}
+      #{figures_section}
+      #{basis_section}
       #{skipped_section}
       #{absent_section}
       #{export_section}
@@ -109,9 +121,11 @@ class ChangeTestcasesReport
     th, td { border-bottom: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
     .meta { color: #555; }
     .pass { color: #116329; } .fail, .auth_interrupted, .partial_evidence { color: #b42318; font-weight: 600; }
+    .warn { color: #8a5a00; font-weight: 600; } .blocked_precondition { color: #5b3f9e; font-weight: 600; }
     .skipped { color: #555; } .tag { font-size: 12px; padding: 1px 6px; border-radius: 8px; background: #f2f2f2; }
     .hist span { display: inline-block; width: 10px; height: 10px; margin-right: 2px; border-radius: 2px; background: #ccc; }
     .hist .h-pass { background: #2da44e; } .hist .h-fail { background: #cf222e; } .hist .h-skipped { background: #bbb; }
+    .hist .h-warn { background: #bf8700; } .hist .h-blocked { background: #8250df; }
     img { max-width: 160px; border: 1px solid #ddd; }
     @media print { img { max-width: 120px; } }
   CSS
@@ -140,7 +154,72 @@ class ChangeTestcasesReport
 
   def summary
     counts = @records.group_by(&:status).transform_values(&:size)
-    ChangeCaseResult::STATUSES.filter_map { |status| "#{counts[status]} #{status}" if counts[status] }.join(', ')
+    list = ChangeCaseResult::STATUSES.filter_map { |status| "#{counts[status]} #{status}" if counts[status] }.join(', ')
+    "#{list}. Run status: #{ChangeCaseResult.worst_status(@records)}"
+  end
+
+  # The cases that could not be verified, before anything else: a run with
+  # unverified cases is not the same as a run where everything passed, and the
+  # reader should not have to scroll to learn that.
+  def not_verified_section
+    blocked = @records.select(&:blocked?)
+    return '' if blocked.empty?
+
+    items = blocked.map do |record|
+      "<li><span class=\"blocked_precondition\">Not verified</span> #{h(record.key)}: #{h(record.blocked_reason || 'blocked')}</li>"
+    end
+    "<h2>Not verified</h2><p>These cases could not be checked. They count as neither passed nor failed.</p><ul>#{items.join}</ul>"
+  end
+
+  # Each drift: the relation passed only after a re-read. Both value sets and
+  # when each was read, so the reader can judge whether the figure was merely
+  # slow to update or the page is flapping.
+  def warnings_section
+    drifts = @records.flat_map { |record| record.relations.select { |relation| relation['drift'] }.map { |relation| [ record, relation ] } }
+    return '' if drifts.empty?
+
+    rows = drifts.map do |record, relation|
+      "<tr><td>#{h(record.key)}</td><td>#{h(relation['label'])}</td><td>#{reads_cell(relation['first_reads'])}</td>" \
+        "<td>#{reads_cell(relation['reads'])}</td></tr>"
+    end
+    "<h2>Warnings</h2><p>These relations disagreed on the first read and agreed on the re-read (drift).</p>" \
+      "<table><thead><tr><th>Case</th><th>Relation</th><th>First read</th><th>Re-read</th></tr></thead><tbody>#{rows.join}</tbody></table>"
+  end
+
+  def reads_cell(reads)
+    Array(reads).map do |read|
+      "#{h(read['var'])} = #{h(JSON.generate(read['value']))} <span class=\"tag\">#{h(read['read_at'])}</span>"
+    end.join('<br>')
+  end
+
+  # Every figure a case read: the value, where it was read, when, the freshness
+  # text on the page at the time, and whether it came from the page or from a
+  # reference API.
+  def figures_section
+    rows = @records.flat_map { |record| record.vars.map { |figure| [ record, figure ] } }
+    return '' if rows.empty?
+
+    body = rows.map do |record, figure|
+      cells = [ record.key, figure['var'], JSON.generate(figure['value']), figure['url'], figure['read_at'], figure['freshness'],
+                figure['source'] ]
+      "<tr>#{cells.map { |cell| "<td>#{h(cell)}</td>" }.join}</tr>"
+    end
+    "<h2>Captured figures</h2><table><thead><tr><th>Case</th><th>Var</th><th>Value</th><th>URL</th><th>Read at</th>" \
+      "<th>Freshness</th><th>Source</th></tr></thead><tbody>#{body.join}</tbody></table>"
+  end
+
+  # Per case, which measured reads and relations decided the verdict.
+  def basis_section
+    items = @records.filter_map do |record|
+      next if record.vars.empty? && record.relations.empty?
+
+      reads = record.vars.map { |figure| figure['var'] }.uniq.join(', ')
+      relations = record.relations.map { |relation| "#{h(relation['label'])}: #{h(relation['status'])}" }.join('; ')
+      "<li>#{h(record.key)} (#{h(record.status)}): reads #{h(reads.empty? ? 'none' : reads)}#{relations.empty? ? '' : "; relations #{relations}"}</li>"
+    end
+    return '' if items.empty?
+
+    "<h2>Verification basis</h2><ul>#{items.join}</ul>"
   end
 
   def trend(record) = record.trend(@history)
@@ -187,6 +266,8 @@ class ChangeTestcasesReport
 
   def history_kind(entry)
     return 'skipped' if entry.skipped?
+    return 'warn' if entry.warn?
+    return 'blocked' if entry.blocked?
 
     entry.failure? ? 'fail' : 'pass'
   end
@@ -256,7 +337,7 @@ class ChangeTestcasesReport
   def junit_suite(suite, cases)
     element = REXML::Element.new('testsuite')
     element.add_attributes('name' => suite, 'tests' => cases.size.to_s, 'failures' => cases.count(&:failure?).to_s,
-                           'skipped' => cases.count(&:skipped?).to_s,
+                           'skipped' => cases.count { |record| record.skipped? || record.blocked? }.to_s,
                            'time' => seconds(cases.sum { |record| record.duration_ms.to_i }))
     cases.each { |record| element.add_element(junit_case(record)) }
     element
@@ -270,9 +351,23 @@ class ChangeTestcasesReport
       failure.text = failure_text(record)
     elsif record.skipped?
       element.add_element('skipped')
+    elsif record.blocked?
+      element.add_element('skipped', 'message' => "blocked_precondition: #{record.blocked_reason}")
     end
+    verdict_properties(element, record)
     quarantine_property(element, record)
     element
+  end
+
+  # A warn case is a passing testcase that says it warned: never a <failure>,
+  # so a CI view that only counts failures keeps passing it, and one that reads
+  # properties can still tell a drift from a clean pass.
+  def verdict_properties(element, record)
+    return unless record.warn?
+
+    properties = element.add_element('properties')
+    properties.add_element('property', 'name' => 'cf.verdict', 'value' => 'warn')
+    properties.add_element('property', 'name' => 'cf.drift', 'value' => record.relations.any? { |relation| relation['drift'] }.to_s)
   end
 
   # JUnit consumers read `<properties>`; a quarantined case carries the flag
@@ -280,7 +375,7 @@ class ChangeTestcasesReport
   def quarantine_property(element, record)
     return unless record.quarantined?
 
-    properties = element.add_element('properties')
+    properties = element.elements['properties'] || element.add_element('properties')
     properties.add_element('property', 'name' => 'quarantined', 'value' => 'true')
     properties.add_element('property', 'name' => 'quarantine_reason', 'value' => record.quarantine_reason.to_s)
   end

@@ -180,8 +180,20 @@ class ChangeAcceptanceGrader
       'final_url' => observation[:url].to_s,
       'page_title' => observation[:title].to_s,
       'page_text' => scrub(observation[:text].to_s[0, TEXT_LIMIT], observation),
-      'captured' => captured_payload(observation)
+      'captured' => captured_payload(observation),
+      'relations' => relations_payload(observation)
     }
+  end
+
+  # (suite_version 6) The relation checks that decided the steps' verdict, so a
+  # criterion about two figures agreeing is judged against the checks that
+  # compared them, drift included, and not against prose alone. Values pass
+  # through the same redaction as every other figure.
+  def relations_payload(observation)
+    Array(observation[:relations]).map do |relation|
+      { 'relation' => relation['label'].to_s, 'status' => relation['status'].to_s, 'drift' => relation['drift'] == true,
+        'reads' => Array(relation['reads']).map { |read| { 'var' => read['var'].to_s, 'value' => scrub(read['value'].to_s, observation), 'read_at' => read['read_at'].to_s } } }
+    end
   end
 
   # The figures the run measured, with when each was read, so the grader can
@@ -192,7 +204,8 @@ class ChangeAcceptanceGrader
   def captured_payload(observation)
     Array(observation[:captured]).map do |entry|
       { 'var' => entry[:var].to_s, 'value' => scrub(entry[:value].to_s, observation),
-        'kind' => entry[:kind].to_s, 'read_at' => entry[:read_at].to_s }
+        'kind' => entry[:kind].to_s, 'read_at' => entry[:read_at].to_s, 'url' => entry[:url].to_s,
+        'source' => (entry[:source] || 'page').to_s }
     end
   end
 

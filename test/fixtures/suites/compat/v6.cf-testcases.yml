@@ -1,0 +1,24 @@
+suite: compat-v6
+suite_version: 6
+cases:
+  - id: relations
+    acceptance: The member figures agree on both surfaces and with the API.
+    preconditions:
+      - goto: /admin
+      - expect_visible: ".user-menu"
+    steps:
+      - goto: /admin
+      - capture: { var: badge, selector: ".members-badge", kind: number }
+      - capture: { var: recent, selector: ".recent li", kind: list }
+      - goto: /admin/members
+      - capture: { var: rows, selector: "tbody tr", kind: count }
+      - capture: { var: everyone, selector: "tbody tr td.name", kind: list }
+      - reference_get: { var: api_total, url: "https://api.example.org/members", json_path: "$.members.total", pair: rows, max_skew_ms: 3000 }
+      - expect_relation:
+          relation: equal
+          reads: { a: badge, b: rows }
+          tolerance: 0
+          settle: { reread: 1, freshness_selector: ".last-updated" }
+      - expect_relation: { relation: le, reads: { a: 44, b: rows } }
+      - expect_relation: { relation: sum, reads: { total: api_total, parts: [ badge, 0 ] } }
+      - expect_relation: { relation: subset, reads: { a: recent, b: everyone } }

@@ -139,4 +139,70 @@ class ChangeTestcasesReportTest < Minitest::Test
       assert_empty REXML::XPath.match(doc, "//testcase[@name='browse']/properties")
     end
   end
+
+  # --- suite_version 6: warn, blocked, figures ---------------------------------------
+
+  DRIFT = { "label" => "expect_relation equal of badge, rows", "relation" => "equal", "status" => "warn", "drift" => true,
+            "first_reads" => [ { "var" => "badge", "value" => 70, "read_at" => "2026-11-21T10:00:00.000Z" },
+                               { "var" => "rows", "value" => 69, "read_at" => "2026-11-21T10:00:01.000Z" } ],
+            "reads" => [ { "var" => "badge", "value" => 70, "read_at" => "2026-11-21T10:00:03.000Z" },
+                         { "var" => "rows", "value" => 70, "read_at" => "2026-11-21T10:00:04.000Z" } ] }.freeze
+
+  def v6_records
+    figure = { "var" => "badge", "value" => 70, "url" => "https://app.test/admin", "read_at" => "2026-11-21T10:00:00.000Z",
+               "freshness" => "10:00", "source" => "page" }
+    [ ChangeCaseResult.new(key: "m/agree", suite: "m", id: "agree", status: "warn", run_id: "r9", vars: [ figure ], relations: [ DRIFT ]),
+      ChangeCaseResult.new(key: "m/login", suite: "m", id: "login", status: "blocked_precondition", run_id: "r9",
+                           blocked_reason: "precondition: expect_visible .user-menu: not visible"),
+      ChangeCaseResult.new(key: "m/ok", suite: "m", id: "ok", status: "pass", run_id: "r9") ]
+  end
+
+  def test_junit_a_warn_case_passes_with_properties_and_a_blocked_case_is_skipped
+    with_run do |run_dir, ledger|
+      xml = ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: v6_records).render_junit
+      doc = REXML::Document.new(xml)
+      warn_case = doc.elements["testsuites/testsuite/testcase[@name='agree']"]
+      assert_nil warn_case.elements["failure"]
+      props = warn_case.elements.to_a("properties/property").to_h { |node| [ node.attributes["name"], node.attributes["value"] ] }
+      assert_equal({ "cf.verdict" => "warn", "cf.drift" => "true" }, props)
+      blocked = doc.elements["testsuites/testsuite/testcase[@name='login']"]
+      assert_nil blocked.elements["failure"]
+      assert_match(/\Ablocked_precondition: precondition/, blocked.elements["skipped"].attributes["message"])
+      assert_equal "0", doc.elements["testsuites"].attributes["failures"]
+      assert_equal "1", doc.elements["testsuites"].attributes["skipped"]
+    end
+  end
+
+  def test_a_quarantined_warn_case_keeps_one_properties_element
+    with_run do |run_dir, ledger|
+      held = ChangeCaseResult.new(key: "m/agree", suite: "m", id: "agree", status: "warn", relations: [ DRIFT ],
+                                  quarantined: true, quarantine_reason: "flaky")
+      doc = REXML::Document.new(ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: [ held ]).render_junit)
+      assert_equal 1, doc.get_elements("testsuites/testsuite/testcase/properties").size
+      assert_equal 4, doc.get_elements("testsuites/testsuite/testcase/properties/property").size
+    end
+  end
+
+  def test_html_puts_not_verified_first_then_warnings_figures_and_basis
+    with_run do |run_dir, ledger|
+      html = ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: v6_records).render_html
+      assert_operator html.index("<h2>Not verified</h2>"), :<, html.index("<h2>Cases</h2>")
+      assert_includes html, "m/login: precondition: expect_visible .user-menu: not visible"
+      assert_match %r{<h2>Warnings</h2>.*First read.*Re-read}m, html
+      assert_includes html, "rows = 69"
+      assert_includes html, "rows = 70"
+      assert_match %r{<h2>Captured figures</h2>.*<td>badge</td><td>70</td><td>https://app.test/admin</td><td>2026-11-21T10:00:00.000Z</td><td>10:00</td><td>page</td>}m, html
+      assert_match %r{<h2>Verification basis</h2><ul><li>m/agree \(warn\): reads badge; relations expect_relation equal of badge, rows: warn</li></ul>}, html
+      assert_includes html, "Run status: blocked_precondition"
+    end
+  end
+
+  def test_html_has_no_not_verified_section_when_everything_ran
+    with_run do |run_dir, ledger|
+      html = ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: [ v6_records.last ]).render_html
+      refute_includes html, "Not verified"
+      refute_includes html, "<h2>Warnings</h2>"
+      assert_includes html, "Run status: pass"
+    end
+  end
 end

@@ -25,6 +25,8 @@ From the target repo root (a repo carrying `CHANGE.md`):
 ruby ~/.claude/cf/bin/change_run.rb testcases
 ruby ~/.claude/cf/bin/change_run.rb testcases --suite checkout   # one suite or tag
 ruby ~/.claude/cf/bin/change_run.rb testcases --signoff          # pass this skill's --signoff through
+ruby ~/.claude/cf/bin/change_run.rb testcases --fail-on-warn --fail-on-blocked   # suite_version 6 statuses fail the gate
+ruby ~/.claude/cf/bin/change_run.rb testcases --reference-host api.example.org   # allowlist a reference_get host
 ```
 
 Pass `--signoff` to `change_run.rb` exactly when the skill invocation carried
@@ -158,6 +160,33 @@ in the repo rather than working around the gate: a case nobody trusts is worse
 than no case. `gate_tags` exists for the one legitimate version of that, staged
 adoption of a brand-new suite whose cases should report before they gate.
 
+### Measured relations, preconditions and blocked cases (suite_version 6)
+
+A v6 case can compare two reads of one fact (`expect_relation`: `equal`, `le`,
+`sum`, `subset`), read a figure from a reference API (`reference_get`, host-side,
+GET only, against a host the invocation allowlisted), and declare
+`preconditions:` that must hold before its steps run. The suite file spec has
+the vocabulary; what the report adds:
+
+- `warn`: every check passed, but a relation with `settle` only agreed after the
+  re-read (drift). The report's "Warnings" section lists the first and re-read
+  values with their read times. A warn passes the gate unless `--fail-on-warn`.
+- `blocked_precondition`: the case could not be verified (a failing precondition,
+  a login that was lost in a v6 suite, a reference that could not be read or
+  paired in time). It counts as neither passed nor failed, is listed under
+  "Not verified" at the top of the report, and passes the gate unless
+  `--fail-on-blocked`. Do not read a green run with "Not verified" entries as
+  fully verified: pass `--fail-on-blocked` in CI when a blocked case should stop
+  the merge.
+- The report also tabulates every captured figure (value, url, read time,
+  freshness text, page or reference) and the reads and relations each verdict
+  rests on. `junit.xml` carries `cf.verdict=warn` and `cf.drift=true` properties
+  on a warn case and `<skipped message="blocked_precondition: ...">` on a block.
+
+`--reference-host <host>` (repeatable, `host=private,http` for a private address
+or plain http) is the only allowlist until CHANGE.md carries one; a suite cannot
+allowlist its own reference.
+
 ### Evidence
 
 Reports land on the Desktop, or in `--out DIR`
@@ -173,7 +202,8 @@ cases run:
   its budget, a browser crash) leaves `termination.json` instead, and the case
   is `partial_evidence`, with every step it checkpointed.
 - `case-results.jsonl`, one record per case: key, persona, status (`pass`,
-  `fail`, `auth_interrupted`, `partial_evidence` or `skipped`), each attempt
+  `warn`, `blocked_precondition`, `fail`, `auth_interrupted`, `partial_evidence` or `skipped`), the
+  figures it read (`vars`) and its relation checks (`relations`), each attempt
   with its outcome and evidence dir, duration, commit and run id.
 
 A retry keeps every attempt's dir, so a fail-then-pass case shows both.

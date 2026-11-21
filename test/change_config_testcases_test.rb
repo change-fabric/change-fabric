@@ -330,8 +330,37 @@ class ChangeConfigTestcasesTest < Minitest::Test
     lines = doctor_lines(MEASURE_SUITE)
 
     assert_includes lines, "warning: testcases captured figure header_total in orders/unread is never compared " \
-                           "(no expect_equal reads it)"
+                           "(no expect_equal or expect_relation reads it)"
     refute(lines.any? { |line| line.include?("orders/compared") && line.include?("never compared") })
+  end
+
+  RELATION_SUITE = <<~YAML
+    suite_version: 6
+    suite: orders
+    cases:
+      - id: related
+        acceptance: The header total matches the list and the API.
+        steps:
+          - goto: /orders
+          - capture: { var: header_total, selector: ".total", kind: number }
+          - capture: { var: rows, selector: ".rows", kind: count }
+          - reference_get: { var: api_total, url: "https://api.example.org/orders", json_path: "$.total", pair: header_total }
+          - expect_relation: { relation: equal, reads: { a: header_total, b: rows } }
+      - id: reference-unread
+        acceptance: The API total is read.
+        steps:
+          - goto: /orders
+          - capture: { var: header_total, selector: ".total", kind: number }
+          - reference_get: { var: api_total, url: "https://api.example.org/orders", json_path: "$.total", pair: header_total }
+          - expect_relation: { relation: le, reads: { a: header_total, b: 1000 } }
+  YAML
+
+  def test_doctor_counts_an_expect_relation_as_comparing_its_reads
+    lines = doctor_lines(RELATION_SUITE)
+
+    refute(lines.any? { |line| line.include?("figure header_total") || line.include?("figure rows") }, lines.inspect)
+    assert(lines.any? { |line| line.include?("figure api_total in orders/related is never compared") }, "api_total is read by no relation")
+    refute(lines.any? { |line| line.include?("orders/reference-unread") && line.include?("figure header_total") })
   end
 
   def test_doctor_warns_about_a_case_asserting_only_static_text

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "json"
 require_relative "../scripts/change_case_result"
 
 # The case-result record and the history terms derived from it: failing,
@@ -79,5 +80,48 @@ class ChangeCaseResultTest < Minitest::Test
   def test_a_ledger_line_written_before_quarantine_existed_still_loads
     old = ChangeCaseResult.from_h("key" => "a/b", "suite" => "a", "id" => "b", "status" => "pass")
     refute old.quarantined?
+  end
+
+  # --- suite_version 6: warn and blocked_precondition -----------------------------
+
+  def test_warn_and_blocked_are_neither_failures_nor_passes
+    %w[warn blocked_precondition].each do |status|
+      item = result(status, "r1")
+      refute item.failure?, status
+      refute item.pass?, status
+      refute item.skipped?, status
+      refute_includes ChangeCaseResult::FAILURE_STATUSES, status
+    end
+    assert result("warn", "r1").warn?
+    assert result("blocked_precondition", "r1").blocked?
+  end
+
+  def test_a_run_is_as_bad_as_its_worst_case
+    assert_equal "pass", ChangeCaseResult.worst_status([])
+    assert_equal "pass", ChangeCaseResult.worst_status(%w[pass pass skipped])
+    assert_equal "warn", ChangeCaseResult.worst_status(%w[pass warn pass])
+    assert_equal "blocked_precondition", ChangeCaseResult.worst_status(%w[pass warn blocked_precondition])
+    assert_equal "fail", ChangeCaseResult.worst_status(%w[blocked_precondition fail warn])
+    ChangeCaseResult::FAILURE_STATUSES.each { |status| assert_equal "fail", ChangeCaseResult.worst_status([ "warn", status ]) }
+    assert_equal "warn", ChangeCaseResult.worst_status([ result("warn", "r1"), result("pass", "r1") ])
+  end
+
+  def test_the_trend_names_warn_and_blocked_and_blocked_runs_are_not_history
+    assert_equal :warn, result("warn", "r2").trend([ result("pass", "r1") ])
+    assert_equal :blocked, result("blocked_precondition", "r2").trend([ result("pass", "r1") ])
+    history = [ result("pass", "r1"), result("blocked_precondition", "r2") ]
+    assert_equal :newly_failing, result("fail", "r3").trend(history), "the blocked run says nothing, so r1's pass is the last evidence"
+  end
+
+  def test_vars_relations_and_blocked_reason_round_trip_through_the_ledger
+    figure = { "var" => "badge", "value" => 69, "url" => "https://app.test/admin", "read_at" => "2026-11-21T10:00:00.000Z" }
+    held = ChangeCaseResult.new(key: "a/b", suite: "a", id: "b", status: "warn", vars: [ figure ],
+                                relations: [ { "label" => "equal", "drift" => true } ], blocked_reason: nil)
+    again = ChangeCaseResult.from_h(JSON.parse(held.to_json))
+    assert_equal [ figure ], again.vars
+    assert_equal true, again.relations.first["drift"]
+    old = ChangeCaseResult.from_h("key" => "a/b", "suite" => "a", "id" => "b", "status" => "pass")
+    assert_equal [], old.vars
+    assert_equal [], old.relations
   end
 end

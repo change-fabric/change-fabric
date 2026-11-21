@@ -1505,4 +1505,251 @@ class ChangeLaneTestcasesTest < Minitest::Test
     lane.instance_variable_set(:@context, ctx)
     assert_equal "abc123", lane.send(:commit)
   end
+
+  # --- suite_version 6: warn, blocked_precondition, relations ---------------------------
+
+  # The context a v6 run carries: the two gate flags and the reference hosts.
+  Ctx6 = Struct.new(:network, :target_url, :browserless, :suite_select, :signoff, :fail_on_warn, :fail_on_blocked,
+                    :reference_hosts) do
+    def log(_message) = nil
+    def signoff? = signoff == true
+  end
+
+  def lane6(dir, session, fail_on_warn: false, fail_on_blocked: false, reference_hosts: [], raw: {}, grader: FakeGrader.new)
+    config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }.merge(raw), dir)
+    ChangeLaneTestcases.new(config, Ctx6.new("net", "https://app.example.org", session, [], false, fail_on_warn, fail_on_blocked,
+                                             reference_hosts), grader: grader, sleeper: ->(_seconds) { })
+  end
+
+  V6_SUITE = <<~YAML
+    suite: members
+    suite_version: 6
+    cases:
+      - id: counts-agree
+        acceptance: The badge and the table agree.
+        steps:
+          - goto: /admin
+          - capture: { var: badge, selector: ".badge", kind: number }
+          - goto: /admin/members
+          - capture: { var: rows, selector: "tbody tr", kind: count }
+          - expect_relation:
+              relation: equal
+              reads: { a: badge, b: rows }
+              settle: { reread: 1, freshness_selector: ".updated" }
+      - id: needs-login
+        acceptance: The members page lists the members.
+        retries: 2
+        safe_rerun: true
+        preconditions:
+          - goto: /admin
+          - expect_visible: ".user-menu"
+        steps:
+          - goto: /admin/members
+  YAML
+
+  DRIFT_STEPS = [
+    { "index" => 1, "verb" => "capture", "ok" => true, "captured" => "badge", "found" => 70, "kind" => "number",
+      "url" => "https://app.example.org/admin", "selector" => ".badge", "readAt" => "2026-11-21T10:00:00.000Z",
+      "freshness" => { ".updated" => "10:00" } },
+    { "index" => 3, "verb" => "capture", "ok" => true, "captured" => "rows", "found" => 70, "kind" => "count",
+      "url" => "https://app.example.org/admin/members", "selector" => "tbody tr", "readAt" => "2026-11-21T10:00:04.000Z" },
+    { "index" => 4, "verb" => "expectRelation", "ok" => true, "status" => "warn", "drift" => true, "relation" => "equal",
+      "label" => "expect_relation equal of badge, rows",
+      "firstMessage" => "expected badge = 70 to equal rows = 69 within 0",
+      "firstReads" => [ { "var" => "badge", "value" => 70, "readAt" => "2026-11-21T10:00:00.000Z" },
+                        { "var" => "rows", "value" => 69, "readAt" => "2026-11-21T10:00:01.000Z" } ],
+      "reads" => [ { "var" => "badge", "value" => 70, "readAt" => "2026-11-21T10:00:03.000Z" },
+                   { "var" => "rows", "value" => 70, "readAt" => "2026-11-21T10:00:04.000Z" } ] }
+  ].freeze
+
+  def drift_results
+    ok_result(2).tap { |list| list[0] = list[0].merge("steps" => DRIFT_STEPS) }
+  end
+
+  def blocked_precondition_record(index)
+    { "index" => index, "ok" => false, "steps" => [],
+      "blocked" => { "kind" => "precondition", "index" => 1, "label" => "expect_visible .user-menu", "error" => "Error: not visible" } }
+  end
+
+  def test_a_drift_passes_the_gate_as_a_warning_and_records_both_value_sets
+    with_suite(V6_SUITE) do |dir|
+      runner = lane6(dir, FakeSession.new(drift_results))
+      findings = step_findings(runner.run)
+      drift = findings.find { |finding| finding.check == "members/counts-agree" }
+      assert_equal "warn", drift.status
+      assert_includes drift.detail, "drift:"
+      assert_includes drift.detail, "passed on re-read"
+      record = runner.case_records.find { |item| item.id == "counts-agree" }
+      assert_equal "warn", record.status
+      relation = record.relations.first
+      assert relation["drift"]
+      assert_equal [ 70, 69 ], relation["first_reads"].map { |read| read["value"] }
+      assert_equal [ 70, 70 ], relation["reads"].map { |read| read["value"] }
+      assert_equal [ "badge", "rows" ], record.vars.map { |figure| figure["var"] }
+      assert_equal "https://app.example.org/admin", record.vars.first["url"]
+      assert_equal "10:00", record.vars.first["freshness"]
+    end
+  end
+
+  def test_fail_on_warn_makes_a_drift_fail_the_gate
+    with_suite(V6_SUITE) do |dir|
+      findings = step_findings(lane6(dir, FakeSession.new(drift_results), fail_on_warn: true).run)
+      assert_equal "fail", findings.find { |finding| finding.check == "members/counts-agree" }.status
+    end
+  end
+
+  def test_a_drift_case_is_still_graded_and_a_failed_criterion_makes_it_fail
+    with_suite(V6_SUITE) do |dir|
+      grader = FakeGrader.new(verdicts: { "members/counts-agree" => [ "fail", "badge says 70" ] })
+      runner = lane6(dir, FakeSession.new(drift_results), grader: grader)
+      runner.run
+      assert_includes grader.observations.map { |item| item[:id] }, "members/counts-agree"
+      assert_equal "fail", runner.case_records.find { |item| item.id == "counts-agree" }.status
+      relations = grader.observations.find { |item| item[:id] == "members/counts-agree" }[:relations]
+      assert_equal "warn", relations.first["status"]
+    end
+  end
+
+  def test_a_failing_precondition_blocks_the_case_which_is_neither_pass_nor_fail
+    with_suite(V6_SUITE) do |dir|
+      results = ok_result(2).tap { |list| list[1] = blocked_precondition_record(1) }
+      session = FakeSession.new(results)
+      runner = lane6(dir, session)
+      findings = step_findings(runner.run)
+      blocked = findings.find { |finding| finding.check == "members/needs-login" }
+      assert_equal "warn", blocked.status, "blocked passes the gate by default"
+      assert_includes blocked.detail, "blocked_precondition: precondition: expect_visible .user-menu"
+      assert_equal "precondition 2: expect_visible .user-menu", blocked.location
+      refute blocked.pass?
+      refute blocked.fail?
+      record = runner.case_records.find { |item| item.id == "needs-login" }
+      assert_equal "blocked_precondition", record.status
+      assert_equal "precondition: expect_visible .user-menu: Error: not visible", record.blocked_reason
+      assert_equal 1, session.calls - 1, "retries: 2 is not spent on a block (one call for the other case)"
+    end
+  end
+
+  def test_fail_on_blocked_makes_a_block_fail_the_gate
+    with_suite(V6_SUITE) do |dir|
+      results = ok_result(2).tap { |list| list[1] = blocked_precondition_record(1) }
+      findings = step_findings(lane6(dir, FakeSession.new(results), fail_on_blocked: true).run)
+      assert_equal "fail", findings.find { |finding| finding.check == "members/needs-login" }.status
+      assert_equal "pass", findings.find { |finding| finding.check == "members/counts-agree" }.status
+    end
+  end
+
+  def test_a_blocked_case_is_not_graded
+    with_suite(V6_SUITE) do |dir|
+      results = ok_result(2).tap { |list| list[1] = blocked_precondition_record(1) }
+      grader = FakeGrader.new
+      lane6(dir, FakeSession.new(results), grader: grader).run
+      assert_equal [ "members/counts-agree" ], grader.observations.map { |item| item[:id] }
+    end
+  end
+
+  def test_a_blocked_reference_step_blocks_the_case_without_a_failure
+    steps = [ { "index" => 2, "verb" => "referenceGet", "ok" => false, "blocked" => true, "label" => "reference_get $.total",
+                "error" => "Error: reference skew: read at x is 9000 ms from its page read" } ]
+    results = ok_result(2).tap { |list| list[0] = { "index" => 0, "ok" => false, "steps" => steps } }
+    with_suite(V6_SUITE) do |dir|
+      findings = step_findings(lane6(dir, FakeSession.new(results)).run)
+      blocked = findings.find { |finding| finding.check == "members/counts-agree" }
+      assert_equal "warn", blocked.status
+      assert_includes blocked.detail, "reference: reference_get $.total: Error: reference skew"
+    end
+  end
+
+  def test_a_lost_persona_login_blocks_a_v6_suite_but_still_fails_an_older_one
+    body = PERSONA_SUITE
+    with_suite(body.sub("suite_version: 3", "suite_version: 6")) do |dir|
+      findings = step_findings(persona_lane(dir, PersonaSession.new(ok_result(4), login_ok: false)).run)
+      admin = findings.find { |finding| finding.check == "roles/as-admin" }
+      assert_equal "warn", admin.status
+      assert_includes admin.detail, "blocked_precondition: login: persona 'admin' could not log in: wrong password"
+    end
+    with_suite(body) do |dir|
+      findings = step_findings(persona_lane(dir, PersonaSession.new(ok_result(4), login_ok: false)).run)
+      assert_equal "fail", findings.find { |finding| finding.check == "roles/as-admin" }.status
+    end
+  end
+
+  def test_an_undefined_persona_is_still_a_failure_in_a_v6_suite
+    body = PERSONA_SUITE.sub("suite_version: 3", "suite_version: 6")
+                        .sub("persona: admin\n    steps:\n      - goto: /admin\n", "persona: ghost\n    steps:\n      - goto: /admin\n")
+    with_suite(body) do |dir|
+      findings = step_findings(persona_lane(dir, PersonaSession.new(ok_result(4))).run)
+      assert_equal "fail", findings.find { |finding| finding.check == "roles/as-admin" }.status
+    end
+  end
+
+  def test_the_case_module_carries_preconditions_the_bridge_and_the_new_record_fields
+    with_suite(V6_SUITE) do |dir|
+      session = FakeSession.new(ok_result(2))
+      lane6(dir, session).run
+      needs_login = session.codes.find { |code| code.include?('"id":"members/needs-login"') }
+      assert_includes needs_login, '"preconditions":[{"url":"https://app.example.org/admin"'
+      assert_includes needs_login, "const bridge = null;"
+      assert_includes needs_login, 'blocked = { kind: "precondition"'
+      assert_includes needs_login, "preconditions: pre"
+      plain = session.codes.find { |code| code.include?('"id":"members/counts-agree"') }
+      assert_includes plain, '"preconditions":[]'
+    end
+  end
+
+  # A reference_get case gets a token-guarded host bridge, and only when a host is allowlisted.
+  REFERENCE_SUITE = <<~YAML
+    suite: api
+    suite_version: 6
+    cases:
+      - id: total-matches
+        acceptance: The badge matches the API.
+        steps:
+          - goto: /admin
+          - capture: { var: badge, selector: ".badge", kind: number }
+          - reference_get: { var: api, url: "https://api.example.org/members", json_path: "$.total", pair: badge }
+          - expect_relation: { relation: equal, reads: { a: badge, b: api } }
+  YAML
+
+  def test_a_reference_case_gets_a_bridge_endpoint_only_with_an_allowlisted_host
+    with_suite(REFERENCE_SUITE) do |dir|
+      with_host = FakeSession.new(ok_result(1))
+      lane6(dir, with_host, reference_hosts: [ "api.example.org" ]).run
+      assert_match %r{const bridge = \{"url":"http://host\.docker\.internal:\d+/","token":"[0-9a-f]{32}"\};}, with_host.code
+
+      without = FakeSession.new(ok_result(1))
+      lane6(dir, without).run
+      assert_includes without.code, "const bridge = null;"
+    end
+  end
+
+  def test_a_malformed_reference_host_flag_is_a_run_error_not_a_silent_ignore
+    with_suite(REFERENCE_SUITE) do |dir|
+      findings = lane6(dir, FakeSession.new(ok_result(1)), reference_hosts: [ "api.example.org=everything" ]).run
+      assert(findings.any? { |finding| finding.fail? && finding.detail.include?("unknown flag") })
+    end
+  end
+
+  def test_figures_from_a_reference_are_scrubbed_of_env_secrets
+    suite = <<~YAML
+      suite: api
+      suite_version: 6
+      cases:
+        - id: leaks
+          acceptance: Nothing secret appears in the report.
+          steps:
+            - goto: /admin
+            - fill: { selector: "#pw", env: LEAK_PW }
+            - capture: { var: badge, selector: ".badge", kind: text }
+    YAML
+    steps = [ { "index" => 2, "verb" => "capture", "ok" => true, "captured" => "badge", "found" => "pw is hunter2", "kind" => "text",
+                "readAt" => "2026-11-21T10:00:00.000Z", "url" => "https://app.example.org/admin" } ]
+    with_suite(suite) do |dir|
+      ENV["LEAK_PW"] = "hunter2"
+      runner = lane6(dir, FakeSession.new([ ok_result(1).first.merge("steps" => steps) ]))
+      runner.run
+      assert_equal "pw is [redacted]", runner.case_records.first.vars.first["value"]
+    ensure
+      ENV.delete("LEAK_PW")
+    end
+  end
 end

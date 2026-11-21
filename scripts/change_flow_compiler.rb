@@ -25,7 +25,8 @@ require_relative 'change_flow_selector'
 #   actions `goto`, `click`, `fill`, `select`, `press`, `wait_for`,
 #   `screenshot`, `capture`; assertions `expect_visible`, `expect_hidden`,
 #   `expect_text`, `expect_url`, `expect_status`, `expect_count`,
-#   `expect_equal`; and `eval` as an escape hatch for raw JS. Any selector
+#   `expect_equal`, `expect_relation` (suite_version 6); the host-side read
+#   `reference_get` (suite_version 6); and `eval` as an escape hatch for raw JS. Any selector
 #   may use the text/nth forms ChangeFlowSelector parses.
 #
 # `eval` is supported and marked. A compiled `eval` step carries `raw: true`
@@ -51,14 +52,17 @@ class ChangeFlowCompiler
 
   ACTIONS = %w[goto click fill select press wait_for screenshot capture].freeze
   ASSERTIONS = %w[expect_visible expect_hidden expect_text expect_url expect_status expect_count
-                  expect_equal expect_stable].freeze
+                  expect_equal expect_stable expect_relation].freeze
+  # (suite_version 6) A figure read host-side from a reference API, paired with
+  # a page read. A GET, so it is safe to replay after a re-login.
+  REFERENCE_VERBS = %w[reference_get].freeze
   # State waits poll the current page until a condition holds. Event waits
   # observe something that happens, so the runtime arms their listener before
   # the step that triggers it (the step before, unless `after: none`).
   STATE_WAITS = %w[wait_for_url wait_for_text wait_until_hidden].freeze
   EVENT_WAITS = %w[wait_for_response wait_for_network_idle].freeze
   ESCAPE_HATCH = 'eval'
-  VERBS = (ACTIONS + STATE_WAITS + EVENT_WAITS + ASSERTIONS + [ ESCAPE_HATCH ]).freeze
+  VERBS = (ACTIONS + STATE_WAITS + EVENT_WAITS + ASSERTIONS + REFERENCE_VERBS + [ ESCAPE_HATCH ]).freeze
   # Bounds for wait_for_network_idle's quiet window, in ms.
   NETWORK_IDLE_RANGE = (100..10_000)
   DEFAULT_NETWORK_IDLE_MS = 500
@@ -78,8 +82,16 @@ class ChangeFlowCompiler
   # What expect_stable can judge: the kinds the first-paint recorder samples.
   STABLE_KINDS = %w[rect.x rect.y rect.width rect.height rect.bottom].freeze
 
-  # What capture and expect_equal read from a selector.
-  READ_KINDS = (%w[text number count] + MEASURED_KINDS).freeze
+  # What capture and expect_equal read from a selector. (suite_version 6)
+  # `list` is the trimmed text of every element matching the selector, in
+  # document order; only capture reads it, and only `subset` compares it.
+  READ_KINDS = (%w[text number count list] + MEASURED_KINDS).freeze
+
+  # (suite_version 6) The relations expect_relation can judge, the reads each
+  # takes, and the bound on settle's re-read rounds.
+  RELATIONS = { 'equal' => %w[a b], 'le' => %w[a b], 'subset' => %w[a b], 'sum' => %w[total parts] }.freeze
+  MAX_REREAD = 3
+  DEFAULT_MAX_SKEW_MS = 2_000
   TAG_NAME = /\A[A-Za-z0-9_-]+\z/
   VAR_NAME = /\A[A-Za-z_][A-Za-z0-9_]*\z/
 
@@ -165,6 +177,7 @@ class ChangeFlowCompiler
       if (!loc.css) els = els.filter((el) => !els.some((other) => other !== el && el.contains(other)));
       const picked = loc.nth === null ? els[0] : els[loc.nth < 0 ? els.length + loc.nth : loc.nth];
       if (mode === "count") return loc.nth === null ? els.length : (picked ? 1 : 0);
+      if (mode === "list") return (loc.nth === null ? els : (picked ? [ picked ] : [])).map(textOf);
       const visible = (el) => {
         const style = getComputedStyle(el);
         const rect = el.getBoundingClientRect();
@@ -204,6 +217,10 @@ class ChangeFlowCompiler
     // first number in that text, or the count of matching elements.
     async function cfRead(page, step, timeoutMs) {
       if (step.kind === "count") return cfCount(page, step);
+      if (step.kind === "list") {
+        if (step.locator) return page.evaluate(cfLocate, step.locator, "list");
+        return page.$$eval(step.selector, (els) => els.map((el) => String(el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim()));
+      }
       if (step.kind === "scroll_y") {
         if (!step.selector) return page.evaluate(() => window.scrollY);
         return (await cfWait(page, step, timeoutMs)).evaluate((node) => node.scrollTop);
@@ -463,6 +480,180 @@ class ChangeFlowCompiler
       return { found: last, first: first, deviation: deviation, cls: cls, samples: sampled.length, recorded: recorded !== undefined, shifts: shifts };
     }
 
+    // (suite_version 6) A blocked step says the case could not be verified,
+    // which is neither a pass nor a failure: a reference that cannot be
+    // reached or is too skewed to pair, as opposed to a figure that is wrong.
+    function cfBlocked(message) {
+      const err = new Error(message);
+      err.cfBlocked = true;
+      return err;
+    }
+
+    // The text of each freshness selector now, so a later re-read can wait
+    // for it to change. Best effort: a page without the element yields null.
+    async function cfFreshness(page, state) {
+      const selectors = state.freshnessSelectors || [];
+      if (selectors.length === 0) return null;
+      const out = {};
+      for (const selector of selectors) {
+        try {
+          const el = await page.$(selector);
+          out[selector] = el ? await el.evaluate((node) => (node.innerText || node.textContent || "").trim()) : null;
+        } catch (err) { out[selector] = null; }
+      }
+      return out;
+    }
+
+    // Records a read with its provenance: where it was read (the page url at
+    // read time), how, and when. Relations and the report both read this.
+    async function cfRecordRead(page, state, name, step, value) {
+      const readAtMs = Date.now();
+      const read = { var: name, value: value, url: page.url(), selector: step.selector || null, locator: step.locator || null,
+                     kind: step.kind, readAt: new Date(readAtMs).toISOString(), readAtMs: readAtMs, source: "page",
+                     freshness: await cfFreshness(page, state) };
+      state.vars[name] = value;
+      state.reads[name] = read;
+      return read;
+    }
+
+    function cfPublicRead(read) {
+      return { var: read.var, value: read.value, url: read.url, selector: read.selector, kind: read.kind, readAt: read.readAt,
+               source: read.source, freshness: read.freshness || null };
+    }
+
+    function cfNumber(value, name) {
+      if (Array.isArray(value)) cfFail(`${name} is a list; this relation compares numbers`);
+      const number = typeof value === "number" ? value : Number(String(value).replace(/,/g, "").trim());
+      if (!Number.isFinite(number)) cfFail(`${name} = ${JSON.stringify(value)} is not a number; capture it with kind: number`);
+      return number;
+    }
+
+    function cfOperand(state, operand) {
+      if (operand.literal !== undefined) return { name: String(operand.literal), value: operand.literal, literal: true };
+      return { name: operand.var, value: cfVar(state, operand.var) };
+    }
+
+    function cfRelationOperands(step) {
+      const reads = step.reads;
+      return reads.parts ? [ reads.total ].concat(reads.parts) : [ reads.a, reads.b ];
+    }
+
+    // The captured variables a relation names, in the order they were read.
+    function cfRelationNames(step, state) {
+      const names = Array.from(new Set(cfRelationOperands(step).filter((operand) => operand.var).map((operand) => operand.var)));
+      return names.sort((left, right) => ((state.reads[left] || {}).readAtMs || 0) - ((state.reads[right] || {}).readAtMs || 0));
+    }
+
+    // Judges the relation against the current values: { ok, message }.
+    function cfJudge(step, state) {
+      const tolerance = step.tolerance || 0;
+      const show = (item) => (item.literal ? String(item.value) : `${item.name} = ${JSON.stringify(item.value)}`);
+      if (step.relation === "subset") {
+        const a = cfOperand(state, step.reads.a);
+        const b = cfOperand(state, step.reads.b);
+        if (!Array.isArray(a.value) || !Array.isArray(b.value)) cfFail(`subset needs list reads, found ${show(a)} and ${show(b)}`);
+        const trimmed = b.value.map((item) => String(item).trim());
+        const missing = a.value.map((item) => String(item).trim()).filter((item) => trimmed.indexOf(item) === -1);
+        return { ok: missing.length === 0, message: `expected every item of ${a.name} to appear in ${b.name}; missing ${JSON.stringify(missing)} (${a.name} = ${JSON.stringify(a.value)}, ${b.name} = ${JSON.stringify(b.value)})` };
+      }
+      if (step.relation === "sum") {
+        const total = cfOperand(state, step.reads.total);
+        const parts = step.reads.parts.map((part) => cfOperand(state, part));
+        const sum = parts.reduce((acc, part) => acc + cfNumber(part.value, part.name), 0);
+        const gap = Math.abs(cfNumber(total.value, total.name) - sum);
+        return { ok: gap <= tolerance, message: `expected ${show(total)} to equal the sum ${sum} of ${parts.map(show).join(", ")} within ${tolerance} (off by ${gap})` };
+      }
+      const a = cfOperand(state, step.reads.a);
+      const b = cfOperand(state, step.reads.b);
+      const left = cfNumber(a.value, a.name);
+      const right = cfNumber(b.value, b.name);
+      if (step.relation === "le") return { ok: left <= right + tolerance, message: `expected ${show(a)} <= ${show(b)} within ${tolerance}` };
+      const gap = Math.abs(left - right);
+      return { ok: gap <= tolerance, message: `expected ${show(a)} to equal ${show(b)} within ${tolerance} (off by ${gap})` };
+    }
+
+    // Reads a reference through the host, which owns the allowlist, the
+    // address checks and the size cap. Any refusal blocks the case.
+    async function cfReferenceRead(state, step, pair) {
+      if (!state.reference) throw cfBlocked("reference_get has no host bridge: allowlist the reference host with --reference-host");
+      let answer;
+      try {
+        answer = await state.reference({ url: step.url, jsonPath: step.jsonPath, pageReadAt: pair.readAtMs, maxSkewMs: step.maxSkewMs });
+      } catch (err) {
+        throw cfBlocked(`reference could not be read: ${String(err)}`);
+      }
+      if (!answer || !answer.ok) throw cfBlocked(`reference ${step.url}: ${(answer && answer.error) || "no answer"}`);
+      return answer;
+    }
+
+    function cfReferenceRecord(step, answer) {
+      return { var: step.var, value: answer.value, url: step.url, jsonPath: step.jsonPath, selector: null, kind: "reference",
+               readAt: answer.readAt, readAtMs: answer.readAtMs, source: "reference", pair: step.pair, maxSkewMs: step.maxSkewMs, freshness: null };
+    }
+
+    // Re-reads one named read the way it was first read: a page read goes back
+    // to its url, waits up to 2 s for the freshness text to change, and reads
+    // its selector with its kind; a reference read refetches with the same url
+    // and json path and the same skew rule against its pair's new read.
+    async function cfRereadOne(page, state, step, name, timeoutMs) {
+      const read = state.reads[name];
+      if (read.source === "reference") {
+        const answer = await cfReferenceRead(state, { url: read.url, jsonPath: read.jsonPath, maxSkewMs: read.maxSkewMs }, state.reads[read.pair]);
+        state.vars[name] = answer.value;
+        state.reads[name] = Object.assign({}, read, { value: answer.value, readAt: answer.readAt, readAtMs: answer.readAtMs });
+        return;
+      }
+      if (page.url() !== read.url) await page.goto(read.url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+      const selector = step.settle && step.settle.freshnessSelector;
+      if (selector) {
+        const before = read.freshness ? read.freshness[selector] : undefined;
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline) {
+          const now = (await cfFreshness(page, { freshnessSelectors: [ selector ] }))[selector];
+          if (now !== before && now !== undefined) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      const spec = { selector: read.selector, locator: read.locator, kind: read.kind };
+      const value = await cfRead(page, spec, timeoutMs);
+      await cfRecordRead(page, state, name, spec, value);
+    }
+
+    // Re-reads every named read in the order it was first read, a reference
+    // read after the page read it is paired with.
+    async function cfReread(page, state, step, names, timeoutMs) {
+      const order = [];
+      const add = (name) => {
+        const read = state.reads[name];
+        if (!read || order.indexOf(name) !== -1) return;
+        if (read.source === "reference" && read.pair) add(read.pair);
+        order.push(name);
+      };
+      names.forEach(add);
+      for (const name of order) await cfRereadOne(page, state, step, name, timeoutMs);
+    }
+
+    async function cfExpectRelation(page, step, state, timeoutMs) {
+      const names = cfRelationNames(step, state);
+      const first = cfJudge(step, state);
+      const firstReads = names.map((name) => cfPublicRead(state.reads[name]));
+      if (first.ok) return { relation: step.relation, status: "pass", drift: false, reads: firstReads };
+      const failure = (message) => {
+        const err = new Error(message);
+        err.detail = { relation: step.relation, status: "fail", drift: false, reads: names.map((name) => cfPublicRead(state.reads[name])), firstReads: firstReads };
+        return err;
+      };
+      if (!step.settle) throw failure(first.message);
+      let last = first;
+      for (let round = 0; round < step.settle.reread && !last.ok; round += 1) {
+        await cfReread(page, state, step, names, timeoutMs);
+        last = cfJudge(step, state);
+      }
+      if (!last.ok) throw failure(`${first.message}; after re-read: ${last.message}`);
+      return { relation: step.relation, status: "warn", drift: true, reads: names.map((name) => cfPublicRead(state.reads[name])),
+               firstReads: firstReads, firstMessage: first.message };
+    }
+
     async function cfRunStep(page, step, state) {
       const timeout = step.timeoutMs;
       switch (step.verb) {
@@ -510,9 +701,21 @@ class ChangeFlowCompiler
           return cfScreenshot(page, step);
         case "capture": {
           const value = await cfRead(page, step, timeout);
-          state.vars[step.as] = value;
-          return { captured: step.as, found: value, kind: step.kind, readAt: new Date().toISOString() };
+          const read = await cfRecordRead(page, state, step.as, step, value);
+          return { captured: step.as, found: value, kind: step.kind, readAt: read.readAt, url: read.url, selector: read.selector,
+                   freshness: read.freshness };
         }
+        case "referenceGet": {
+          const pair = state.reads[step.pair];
+          if (!pair) cfFail(`reference_get pairs with ${step.pair}, which was never captured`);
+          const answer = await cfReferenceRead(state, step, pair);
+          state.vars[step.var] = answer.value;
+          state.reads[step.var] = cfReferenceRecord(step, answer);
+          return { captured: step.var, found: answer.value, kind: "reference", source: "reference", url: step.url, selector: null,
+                   readAt: answer.readAt, pair: step.pair, pairReadAt: pair.readAt };
+        }
+        case "expectRelation":
+          return cfExpectRelation(page, step, state, timeout);
         case "expectVisible":
           await cfWait(page, step, timeout, "visible");
           return null;
@@ -567,7 +770,9 @@ class ChangeFlowCompiler
     // captured vars it had) and stop it after a step (afterStep returns
     // true), which is how the testcases lane resumes a case after a re-login.
     async function cfRunFlow(page, steps, options = {}) {
-      const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), armed: null };
+      const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), reads: Object.assign({}, options.reads || {}),
+                      armed: null, reference: options.reference || null,
+                      freshnessSelectors: Array.from(new Set(steps.filter((step) => step.settle && step.settle.freshnessSelector).map((step) => step.settle.freshnessSelector))) };
       const results = [];
       const pending = steps.filter((step) => step.index >= (options.startAt || 0));
       await cfInstallMeasure(page, steps);
@@ -601,6 +806,8 @@ class ChangeFlowCompiler
         } catch (err) {
           record.ok = false;
           record.error = String(err);
+          if (err && err.cfBlocked) record.blocked = true;
+          if (err && err.detail) Object.assign(record, err.detail);
         }
         const endedAt = Date.now();
         record.durationMs = endedAt - startedAt;
@@ -626,6 +833,7 @@ class ChangeFlowCompiler
       if (state.armed) state.armed.dispose();
       if (watching) for (const [event, fn] of Object.entries(track)) page.off(event, fn);
       results.vars = state.vars;
+      results.reads = state.reads;
       return results;
     }
   JS
@@ -702,6 +910,7 @@ class ChangeFlowCompiler
     @viewport = viewport && compile_viewport(viewport, 'flow')
     @env = env
     @tags = {}
+    @var_kinds = {}
   end
 
   # The compiled steps, credentials included. Hand this to the container and
@@ -711,8 +920,7 @@ class ChangeFlowCompiler
       captured = []
       @raw_steps.each_with_index.map do |raw, index|
         step = compile_step(raw, index, captured.dup)
-        captured << step[:as] if step[:verb] == 'capture'
-        captured << step[:var] if step[:verb] == 'expectStable'
+        track_var(captured, step)
         step
       end
     end
@@ -748,6 +956,18 @@ class ChangeFlowCompiler
   end
 
   private
+
+  # The variables a step leaves behind for later steps, and the kind each was
+  # read as (a relation checks that a `list` only meets `subset`).
+  def track_var(captured, step)
+    case step[:verb]
+    when 'capture' then name = step[:as]
+    when 'expectStable', 'referenceGet' then name = step[:var]
+    else return
+    end
+    captured << name
+    @var_kinds[name] = step[:verb] == 'referenceGet' ? 'reference' : step[:kind]
+  end
 
   # `captured` names the variables earlier steps captured, so expect_equal can
   # refuse one that nothing set.
@@ -1105,6 +1325,7 @@ class ChangeFlowCompiler
   def compile_expect_equal(value, captured)
     spec = spec_for(value, 'var')
     name = captured_var(spec['var'], 'var', captured)
+    refuse_list('expect_equal', name)
     sources = spec.slice('selector', 'equals_var').keys
     window_scroll = spec['kind'].to_s == 'scroll_y' && sources.empty?
     raise Error, 'expect_equal needs one of selector or equals_var' if sources.empty? && !window_scroll
@@ -1113,13 +1334,130 @@ class ChangeFlowCompiler
     tolerance = equal_tolerance(spec)
     if spec.key?('equals_var')
       other = captured_var(spec['equals_var'], 'equals_var', captured)
+      refuse_list('expect_equal', other)
       return with_tolerance({ var: name, equalsVar: other, selector: nil, kind: nil, label: "expect_equal #{other} equals #{name}" }, tolerance)
     end
 
     kind = read_kind(spec, 'expect_equal')
+    raise Error, 'expect_equal cannot compare a list; use expect_relation with relation subset' if kind == 'list'
+
     selector = read_selector(spec, 'expect_equal', kind)
     with_tolerance({ var: name, equalsVar: nil, selector: selector, kind: kind,
                      label: "expect_equal #{kind} of #{selector || 'the window'} equals #{name}" }, tolerance)
+  end
+
+  def refuse_list(verb, name)
+    return unless @var_kinds[name] == 'list'
+
+    raise Error, "#{verb} cannot use #{name}, a list read; only expect_relation with relation subset compares lists"
+  end
+
+  # (suite_version 6) A relation between named reads, judged at run time:
+  # `equal` (|a - b| <= tolerance), `le` (a <= b + tolerance), `sum` (total
+  # equals the sum of parts within tolerance) and `subset` (every item of list
+  # a appears in list b). An operand is a captured variable name or a numeric
+  # literal. `settle` re-reads the named reads once on a mismatch, so a
+  # mismatch that heals is a drift warning and one that persists is a failure.
+  def compile_expect_relation(value, captured)
+    spec = spec_for(value, 'relation')
+    relation = spec['relation'].to_s
+    raise Error, "expect_relation relation must be one of #{RELATIONS.keys.join(', ')}, got #{relation.inspect}" unless RELATIONS.key?(relation)
+
+    reads = relation_reads(spec['reads'], relation, captured)
+    tolerance = spec.fetch('tolerance', 0)
+    raise Error, "expect_relation tolerance must be a number of 0 or more, got #{tolerance.inspect}" unless tolerance.is_a?(Numeric) && tolerance >= 0
+
+    settle = relation_settle(spec['settle'])
+    names = relation_operands(reads).filter_map { |operand| operand[:var] }.uniq
+    { relation: relation, reads: reads, tolerance: tolerance, settle: settle,
+      label: "expect_relation #{relation} of #{names.join(', ').then { |list| list.empty? ? 'literals' : list }}" }
+  end
+
+  def relation_reads(raw, relation, captured)
+    keys = RELATIONS.fetch(relation)
+    raise Error, "expect_relation #{relation} needs reads: #{keys.join(' and ')}" unless raw.is_a?(Hash)
+
+    given = raw.to_h { |key, operand| [ key.to_s, operand ] }
+    raise Error, "expect_relation #{relation} reads must be exactly #{keys.join(' and ')}, got #{given.keys.sort.join(', ')}" unless given.keys.sort == keys.sort
+
+    reads = if relation == 'sum'
+      parts = given['parts']
+      raise Error, 'expect_relation sum parts must be a list of one or more reads' unless parts.is_a?(Array) && !parts.empty?
+
+      { total: operand_for(given['total'], captured), parts: parts.map { |part| operand_for(part, captured) } }
+    else
+      { a: operand_for(given['a'], captured), b: operand_for(given['b'], captured) }
+    end
+    check_operand_kinds(relation, reads)
+    reads
+  end
+
+  # A numeric literal, or the name of a variable an earlier step captured.
+  def operand_for(raw, captured)
+    return { literal: raw } if raw.is_a?(Numeric)
+
+    name = raw.to_s
+    raise Error, "expect_relation read #{raw.inspect} must be a captured variable name or a number" unless raw.is_a?(String) && name.match?(VAR_NAME)
+    raise Error, "expect_relation read #{name} is not captured by an earlier step" unless captured.include?(name)
+
+    { var: name }
+  end
+
+  def relation_operands(reads) = reads.values.flatten
+
+  # A list var belongs to `subset` and nowhere else, and `subset` takes
+  # nothing but list vars.
+  def check_operand_kinds(relation, reads)
+    relation_operands(reads).each do |operand|
+      kind = operand[:var] ? @var_kinds[operand[:var]] : nil
+      if relation == 'subset'
+        next if kind == 'list'
+
+        raise Error, "expect_relation subset needs list reads (capture with kind: list), got #{operand[:var] || operand[:literal].inspect}"
+      elsif kind == 'list'
+        raise Error, "expect_relation #{relation} cannot use #{operand[:var]}, a list read; only subset compares lists"
+      end
+    end
+  end
+
+  def relation_settle(raw)
+    return nil if raw.nil?
+    raise Error, 'expect_relation settle must be a mapping (reread, freshness_selector)' unless raw.is_a?(Hash)
+
+    spec = raw.to_h { |key, inner| [ key.to_s, inner ] }
+    unknown = spec.keys - %w[reread freshness_selector]
+    raise Error, "expect_relation settle has unknown key(s): #{unknown.sort.join(', ')}" if unknown.any?
+
+    reread = spec.fetch('reread', 1)
+    raise Error, "expect_relation settle reread must be an integer from 1 to #{MAX_REREAD}, got #{reread.inspect}" unless reread.is_a?(Integer) && reread.between?(1, MAX_REREAD)
+
+    freshness = spec['freshness_selector']
+    raise Error, 'expect_relation settle freshness_selector must be a selector string' unless freshness.nil? || (freshness.is_a?(String) && !freshness.empty?)
+
+    { reread: reread, freshnessSelector: freshness }
+  end
+
+  # (suite_version 6) A figure fetched host-side from a reference API and paired
+  # with the page read it is compared against. `json_path` picks the value
+  # (`$.members.total`); the allowlist, the GET-only rules and the size cap
+  # live in ChangeReferenceRead, not in the suite, so a suite cannot widen them.
+  def compile_reference_get(value, captured)
+    spec = spec_for(value, 'url')
+    name = var_name(spec['var'], 'reference_get', 'var')
+    url = require_string(spec, 'url', 'reference_get')
+    raise Error, "reference_get url must be an absolute http(s) url, got #{url.inspect}" unless url.match?(%r{\Ahttps?://[^\s/]+})
+
+    path = require_string(spec, 'json_path', 'reference_get')
+    raise Error, "reference_get json_path must start with $, got #{path.inspect}" unless path.start_with?('$')
+
+    pair = spec['pair'].to_s
+    raise Error, "reference_get pair #{pair.inspect} is not a variable an earlier step captured" unless pair.match?(VAR_NAME) && captured.include?(pair)
+
+    skew = spec.fetch('max_skew_ms', DEFAULT_MAX_SKEW_MS)
+    raise Error, "reference_get max_skew_ms must be a positive integer, got #{skew.inspect}" unless skew.is_a?(Integer) && skew.positive?
+
+    { var: name, url: url, jsonPath: path, pair: pair, maxSkewMs: skew,
+      label: "reference_get #{path} of #{url} as #{name} (paired with #{pair})" }
   end
 
   # (suite_version 5) `tolerance` makes the compare numeric, within that

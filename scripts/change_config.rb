@@ -262,16 +262,27 @@ class ChangeConfig
   end
 
   def self.unread_capture_lines(item, steps)
-    read = steps.flat_map { |step| [ step[:var], step[:equalsVar] ] if step[:verb] == 'expectEqual' }.compact
-    steps.filter_map { |step| step[:as] if step[:verb] == 'capture' }.uniq.reject { |name| read.include?(name) }.map do |name|
+    read = steps.flat_map { |step| compared_vars(step) }.compact
+    steps.filter_map { |step| step[:as] || (step[:var] if step[:verb] == 'referenceGet') if %w[capture referenceGet].include?(step[:verb]) }
+         .uniq.reject { |name| read.include?(name) }.map do |name|
       "warning: testcases captured figure #{name} in #{item.qualified_id} is never compared " \
-        '(no expect_equal reads it)'
+        '(no expect_equal or expect_relation reads it)'
+    end
+  end
+
+  # The variables a comparing step reads: expect_equal's, and (suite_version 6)
+  # every named read of an expect_relation.
+  def self.compared_vars(step)
+    case step[:verb]
+    when 'expectEqual' then [ step[:var], step[:equalsVar] ]
+    when 'expectRelation' then step[:reads].values.flatten.filter_map { |operand| operand[:var] }
+    else []
     end
   end
 
   def self.static_text_lines(item, steps)
     expectations = steps.select { |step| ASSERTION_VERBS.include?(step[:verb]) }
-    return [] if expectations.empty? || steps.any? { |step| %w[capture expectStable].include?(step[:verb]) }
+    return [] if expectations.empty? || steps.any? { |step| %w[capture expectStable referenceGet].include?(step[:verb]) }
     return [] unless expectations.all? { |step| step[:verb] == 'expectText' }
 
     [ "warning: testcases case '#{item.qualified_id}' asserts only static text (every expectation is a literal " \
