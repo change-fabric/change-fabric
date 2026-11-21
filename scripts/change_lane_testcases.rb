@@ -485,8 +485,7 @@ class ChangeLaneTestcases < ChangeLane
     hosts = reference_hosts
     return if hosts.empty?
 
-    secrets = selected.flat_map { |item| secret_values(item) }
-    @bridge = ChangeReferenceBridge.new(ChangeReferenceRead.new(hosts: hosts), secrets: secrets)
+    @bridge = ChangeReferenceBridge.new(ChangeReferenceRead.new(hosts: hosts))
   end
 
   def run_pool(count)
@@ -739,6 +738,7 @@ class ChangeLaneTestcases < ChangeLane
 
     earlier = Array(first['steps']).select { |step| step['index'].to_i < start_at }
     merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true,
+                          'preconditions' => Array(first['preconditions']),
                           'video' => merged_video(first['video'], second['video']))
     return merged unless second['authExpired']
 
@@ -1448,6 +1448,9 @@ class ChangeLaneTestcases < ChangeLane
             let blocked = null;
             let pre = [];
             if (preconditions.length > 0) {
+              // The recorder must be on the page before the precondition's own
+              // navigation, or the steps' expect_stable has no first paint.
+              await cfInstallMeasure(session.page, testCase.steps);
               pre = await cfRunFlow(session.page, preconditions, { reference: reference });
               const unmet = pre.find((step) => !step.ok);
               if (unmet) blocked = { kind: "precondition", index: unmet.index, label: unmet.label, error: unmet.error };

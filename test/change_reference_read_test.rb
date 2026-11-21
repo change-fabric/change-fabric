@@ -210,8 +210,8 @@ class ChangeReferenceReadTest < Minitest::Test
 
   # --- the bridge --------------------------------------------------------------------------
 
-  def build_bridge(secrets: [], **opts)
-    ChangeReferenceBridge.new(reader(fetch: json_fetch({ "members" => { "total" => 70, "owner" => "hunter2" } }), **opts), secrets: secrets)
+  def build_bridge(**opts)
+    ChangeReferenceBridge.new(reader(fetch: json_fetch({ "members" => { "total" => 70, "owner" => "hunter2" } }), **opts))
   end
 
   def request(bridge, extra = {})
@@ -241,13 +241,13 @@ class ChangeReferenceReadTest < Minitest::Test
     bridge&.close
   end
 
-  def test_the_bridge_reports_skew_as_a_refusal_and_redacts_known_secrets
-    bridge = build_bridge(secrets: [ "hunter2" ], clock: -> { 1_000_000 })
+  def test_the_bridge_reports_skew_as_a_refusal_and_returns_values_unmasked
+    bridge = build_bridge(clock: -> { 1_000_000 })
     skewed = bridge.answer(request(bridge, "pageReadAt" => 1, "maxSkewMs" => 10))
     assert_equal false, skewed[:ok]
     assert_includes skewed[:error], "reference skew"
     leaked = bridge.answer(request(bridge, "jsonPath" => "$.members.owner", "pageReadAt" => 1_000_000))
-    assert_equal "[redacted]", leaked[:value]
+    assert_equal "hunter2", leaked[:value], "masking happens in the report, after the comparison"
   ensure
     bridge&.close
   end

@@ -1787,4 +1787,16 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_operator runner.case_budget_ms(big), :>=, 600_000
     end
   end
+
+  def test_the_recorder_is_installed_before_preconditions_and_their_evidence_survives_a_resume
+    with_suite(V6_SUITE) do |dir|
+      session = FakeSession.new(ok_result(2))
+      lane6(dir, session).run
+      code = session.codes.find { |entry| entry.include?('"id":"members/needs-login"') }
+      assert_operator code.index("await cfInstallMeasure(session.page, testCase.steps);"), :<, code.index("pre = await cfRunFlow")
+    end
+    first = { "ok" => false, "steps" => [ { "index" => 0, "ok" => true } ], "preconditions" => [ { "index" => 0, "ok" => true } ] }
+    merged = ChangeLaneTestcases.allocate.send(:merge_resumed, first, { "ok" => true, "steps" => [] }, 0)
+    assert_equal [ { "index" => 0, "ok" => true } ], merged["preconditions"]
+  end
 end

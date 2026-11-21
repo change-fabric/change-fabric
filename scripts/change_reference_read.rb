@@ -241,9 +241,11 @@ class ChangeReferenceBridge
 
   attr_reader :token, :port
 
-  def initialize(reader, secrets: [])
+  # Values come back as read: the relation compares them against page reads,
+  # so masking one side would fail a match. Redaction happens where a value
+  # enters a report (ChangeLaneTestcases#figures and #relation_results).
+  def initialize(reader)
     @reader = reader
-    @secrets = Array(secrets).map(&:to_s).reject(&:empty?).sort_by { |secret| -secret.length }
     @token = SecureRandom.hex(16)
     @server = TCPServer.new('0.0.0.0', 0)
     @port = @server.addr[1]
@@ -268,19 +270,12 @@ class ChangeReferenceBridge
 
     reading = @reader.read_paired(url: request['url'], json_path: request['jsonPath'], page_read_at_ms: Integer(request['pageReadAt']),
                                   max_skew_ms: Integer(request['maxSkewMs'] || ChangeReferenceRead::DEFAULT_MAX_SKEW_MS))
-    { ok: true, value: redact(reading.value), readAt: reading.read_at, readAtMs: reading.read_at_ms }
+    { ok: true, value: reading.value, readAt: reading.read_at, readAtMs: reading.read_at_ms }
   rescue ChangeReferenceRead::Error, JSON::ParserError, ArgumentError, TypeError => e
     { ok: false, error: e.message }
   end
 
   private
-
-  def redact(value)
-    return value.map { |item| redact(item) } if value.is_a?(Array)
-    return value unless value.is_a?(String)
-
-    @secrets.empty? ? value : value.gsub(Regexp.union(@secrets), '[redacted]')
-  end
 
   def serve
     loop { Thread.new(@server.accept) { |client| handle(client) } }
