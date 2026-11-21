@@ -1580,7 +1580,7 @@ patterns, argv placeholders only from declared params, and one op at a time.
 | `change_config.backups.<backup>.target` | string | one of target, targets | (0.29.0) The resource to back up. |
 | `change_config.backups.<backup>.targets.<profile>` | string | one of target, targets | (0.29.0) The resource per environment; recovery evidence must match the op's environment. |
 | `change_config.backups.<backup>.provider` | string | yes | (0.29.0) The enrolled provider name. Credentials never appear here. |
-| `change_config.backups.<backup>.snapshot.argv` | list of string | yes for `pg_dump_s3` and `command` | (0.30.0) The command that takes the snapshot, run without a shell. It prints one JSON line `{"id": ..., "created_at": ...}`. `rds_snapshot` and `aurora_snapshot` snapshot through the provider and need none. |
+| `change_config.backups.<backup>.snapshot.argv` | list of string | yes for `pg_dump_s3` and `command` | (0.30.0) The command that takes the snapshot, run without a shell. It prints one JSON line `{"id": ..., "created_at": ...}`; both are required, so an old backup cannot pass as fresh. `rds_snapshot` and `aurora_snapshot` snapshot through the provider and need none. |
 | `change_config.backups.<backup>.snapshot.timeout_s` | integer 1 to 86400 | with a snapshot command | (0.30.0) Timeout for the snapshot command. |
 | `change_config.backups.<backup>.verify.argv` | list of string | yes | (0.29.0) Command that verifies a fresh snapshot, run without a shell. |
 | `change_config.backups.<backup>.verify.timeout_s` | integer 1 to 86400 | yes | (0.29.0) Timeout for the verify command. |

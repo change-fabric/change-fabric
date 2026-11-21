@@ -55,7 +55,8 @@ module ChangeBackup
     def call(argv, env: {}, timeout: AWS_TIMEOUT_S, chdir: nil)
       options = { pgroup: true }
       options[:chdir] = chdir if chdir
-      Open3.popen3(env, *argv, **options) do |stdin, out, err, waiter|
+      # [program, argv0] keeps a one-element argv from taking Ruby's shell path.
+      Open3.popen3(env, [ argv.first, argv.first ], *argv.drop(1), **options) do |stdin, out, err, waiter|
         stdin.close
         readers = [ Thread.new { out.read }, Thread.new { err.read } ]
         finished = waiter.join(timeout)
@@ -265,7 +266,7 @@ module ChangeBackup
   end
 
   # pg_dump_s3 and command: the config names the snapshot command, which prints
-  # one JSON line {"id": ..., "created_at": ...}. They cannot prove PITR, so the
+  # one JSON line {"id": ..., "created_at": ...}, both required. They cannot prove PITR, so the
   # window comes from the backup named by pitr_source, or it is Unprovable.
   class CommandBackup < Provider
     def snapshot
@@ -283,8 +284,9 @@ module ChangeBackup
       end
       raise Error, 'snapshot command must print a JSON line with an id' unless data.is_a?(Hash) && data['id'].to_s.match?(/\A[A-Za-z0-9._:\/-]{1,200}\z/)
 
-      created = data['created_at'] ? parse_time(data['created_at'], 'created_at') : now
-      { 'id' => data['id'], 'resource' => resource, 'created_at' => created }
+      # No default: a command that omits the timestamp could pass an old backup
+      # off as fresh.
+      { 'id' => data['id'], 'resource' => resource, 'created_at' => parse_time(data['created_at'], 'created_at') }
     end
 
     def verify(snapshot)

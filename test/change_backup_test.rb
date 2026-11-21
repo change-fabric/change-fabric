@@ -191,6 +191,12 @@ class ChangeBackupTest < Minitest::Test
     assert_raises(ChangeBackup::Error) { provider("dump_db", executor: executor).snapshot }
   end
 
+  def test_a_command_snapshot_without_created_at_is_refused_not_dated_now
+    executor = FakeExecutor.new("scripts/dump.sh" => { out: JSON.generate("id" => "dump-1") })
+    error = assert_raises(ChangeBackup::Error) { provider("dump_db", executor: executor).snapshot }
+    assert_match(/created_at is missing/, error.message)
+  end
+
   def test_a_command_backup_without_a_pitr_source_cannot_prove_pitr
     cfg = config
     cfg["change_config"]["backups"]["dump_db"].delete("pitr_source")
@@ -419,6 +425,12 @@ class ChangeBackupTest < Minitest::Test
     assert slow.timed_out
     refute slow.ok?
     refute executor.call([ "/nonexistent/binary" ], timeout: 1).ok?
+  end
+
+  def test_real_executor_never_gives_a_one_element_argv_to_a_shell
+    out = ChangeBackup::Executor.new.call([ "printf first; printf second" ], timeout: 5)
+    refute out.ok?
+    refute_includes out.stdout, "first"
   end
 
   # A child the command started must not keep the run, or its output pipes,
