@@ -418,6 +418,20 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  # --- --case selection ---
+
+  def test_a_case_id_runs_only_that_case
+    with_suite do |dir|
+      session = FakeSession.new(ok_result(1))
+      context = Ctx.new("net", "https://app.example.org", session, [], false)
+      context.define_singleton_method(:case_select) { [ "empty-cart" ] }
+      config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+      lane = ChangeLaneTestcases.new(config, context, grader: FakeGrader.new, sleeper: ->(_seconds) { })
+
+      assert_equal [ "checkout/empty-cart" ], step_findings(lane.run).map(&:check)
+    end
+  end
+
   # --- graded acceptance -----------------------------------------------------------
 
   def test_a_failed_acceptance_verdict_fails_the_gate_rather_than_capping_at_warn

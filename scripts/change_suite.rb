@@ -84,6 +84,9 @@ class ChangeSuite
     # on its cases is an implementation detail of how somebody filed them.
     def named_by?(selectors) = selectors.include?(suite) || selectors.intersect?(tags)
 
+    # Whether a `--case` id names this case: `suite/id`, or the bare id.
+    def named_by_case?(ids) = ids.include?(id) || ids.include?(qualified_id)
+
     # Whether a failure of this case may fail the gate. An empty `gate_tags`
     # means every case gates, which is the default and the point: a test case
     # that cannot fail the build is a comment. `gate_tags` is the staged
@@ -380,11 +383,20 @@ class ChangeSuiteSet
   # `tags:` rather than intersecting with it: a person asking for one suite by
   # name is narrowing the run themselves, and silently re-applying the config's
   # filter on top would answer a question they did not ask.
-  def selected(tags, selectors: [])
+  #
+  # `case_ids` (`--case`) then narrows whatever that picked to the named
+  # cases, by `suite/id` or a bare id; it never widens the selection.
+  def selected(tags, selectors: [], case_ids: [])
     list = Array(selectors).map(&:to_s).reject(&:empty?)
-    return cases.select { |item| item.named_by?(list) } unless list.empty?
+    picked = list.empty? ? cases.select { |item| item.selected?(tags) } : cases.select { |item| item.named_by?(list) }
+    ids = Array(case_ids).map(&:to_s).reject(&:empty?)
+    ids.empty? ? picked : picked.select { |item| item.named_by_case?(ids) }
+  end
 
-    cases.select { |item| item.selected?(tags) }
+  # `--case` ids naming no loaded case.
+  def unknown_case_ids(case_ids)
+    known = cases.flat_map { |item| [ item.id, item.qualified_id ] }
+    Array(case_ids).map(&:to_s).reject(&:empty?) - known
   end
 
   # `--suite` selectors naming no loaded case. Reported rather than left to

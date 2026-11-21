@@ -40,7 +40,7 @@ require_relative 'change_trust'
 # outcome under the git head SHA so the merge gate can consult it later.
 #
 # Usage: change_run.rb <all|k6|a11y|zap|browserless|testcases> [--config PATH] [--profile NAME]
-#        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]...
+#        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]... [--case ID]...
 #        [--no-publish] [--for-tag TAGNAME]
 #        change_run.rb gate-status [--ref REF] [--config PATH]
 #        change_run.rb schedule <name> [--repo PATH] [--dry-run]
@@ -70,6 +70,10 @@ require_relative 'change_trust'
 # satisfies each one, exiting 0 only when every matching rule is satisfied.
 # It is what makes change_tag_guard.rb's deny decision reproducible outside
 # the hook.
+#
+# `--case <id>` (repeatable) narrows the testcases lane further to the named
+# cases, by `suite/id` or a bare id; an unknown id exits 2 listing the known
+# ids. It intersects with --suite and the lane's tags, never widens them.
 #
 # `--suite <suite-or-tag>` narrows the testcases lane to the named suite or tag.
 # It is the deterministic regression entry point `cf:qa --suite` drives: no
@@ -136,14 +140,14 @@ class ChangeRun
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
                        :logger, :run_id, :profile, :trust, :step_prefix, :env_file_values,
                        :active_scan_allowed, :out_dir, :evidence_dir, :commit, :exports, :video_budget_mb,
-                       keyword_init: true) do
+                       :case_select, keyword_init: true) do
     def log(message) = logger.call(message)
     def signoff? = signoff == true
   end
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
                     :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, :out, :exports,
-                    :video_budget_mb, keyword_init: true)
+                    :video_budget_mb, :cases, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -498,6 +502,7 @@ class ChangeRun
     health_url = nil
     publish = true
     suites = []
+    cases = []
     for_tag = nil
     ref = nil
     signoff = false
@@ -516,6 +521,7 @@ class ChangeRun
       o.on('--target-url URL') { |value| target_url = value }
       o.on('--health-url URL') { |value| health_url = value }
       o.on('--suite NAME') { |value| suites << value }
+      o.on('--case ID') { |value| cases << value }
       o.on('--no-publish') { publish = false }
       o.on('--for-tag NAME') { |value| for_tag = value }
       o.on('--ref REF') { |value| ref = value }
@@ -537,6 +543,8 @@ class ChangeRun
     # indistinguishable, from the outside, from a filter that matched.
     abort_and_exit('--suite narrows the testcases lane; run scope testcases or all') if
       !suites.empty? && !%w[testcases all].include?(scope)
+    abort_and_exit('--case narrows the testcases lane; run scope testcases or all') if
+      !cases.empty? && !%w[testcases all].include?(scope)
     abort_and_exit('schedule needs a schedule name: change_run.rb schedule <name>') if scope == 'schedule' && schedule.nil?
     abort_and_exit('--dry-run applies only to schedule <name>') if dry_run && scope != 'schedule'
     abort_and_exit('--mode applies only to the zap scope') if zap_mode && scope != 'zap'
@@ -549,7 +557,7 @@ class ChangeRun
       abort_and_exit("--mode must be one of #{ChangeScheduleConfig::ZAP_MODES.join(', ')}")
     end
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
-             health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
+             health_url: health_url, publish: publish, suites: suites, cases: cases.uniq, for_tag: for_tag, ref: ref,
              signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode, out: out,
              exports: exports.uniq, video_budget_mb: video_budget_mb)
   end
@@ -600,6 +608,7 @@ class ChangeRun
     @evidence_app = label
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
+    check_case_ids(config, lanes)
     prefix = multi ? "#{entry.name}/" : ''
     trust = trust_verdict(config, prefix: prefix, apps: multi ? [ entry.name ] : nil)
     refuse_untrusted_boot(config, trust, app: label)
@@ -615,6 +624,22 @@ class ChangeRun
     summarize(findings, report, app: label)
     publish_artifact(artifact, config, findings, report, app: label)
     { app: entry.name, passed: findings.passed?, failing: findings.failures.size, report: File.basename(report[:markdown]) }
+  end
+
+  # An unknown `--case` id is a setup error (exit 2) before anything boots, and
+  # the message lists the known ids so the typo is fixable from the output.
+  def check_case_ids(config, lanes)
+    return if @args.cases.to_a.empty? || !lanes.include?('testcases')
+
+    lane = config.lane('testcases')
+    set = ChangeSuiteSet.load(lane['suites'], lane.dir)
+    unknown = set.unknown_case_ids(@args.cases)
+    return if unknown.empty?
+
+    known = set.cases.map(&:qualified_id)
+    raise ChangeConfig::ConfigError,
+          "--case names #{unknown.map { |id| id[0, 80].inspect }.join(', ')}, which matches no case; " \
+          "known ids: #{known.first(50).join(', ')}#{known.size > 50 ? ', ...' : ''}"
   end
 
   # The testcases lane's own report.html and junit.xml in its run dir, and its
@@ -721,7 +746,7 @@ class ChangeRun
   def with_context(config, network, artifact = nil, trust: nil, prefix: '')
     ctx_args = {
       network: network.name, target_url: config.boot.target_url,
-      health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites,
+      health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites, case_select: @args.cases,
       signoff: @args.signoff, logger: method(:log), run_id: boot_run_id, profile: config.profile,
       trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config),
       active_scan_allowed: @active_scan_allowed == true, out_dir: out_dir,

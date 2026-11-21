@@ -53,9 +53,47 @@ separate opt-in that needs a printed estimate and explicit approval first.
 
 No scoping model, no clarifying round, no generated script: phases 1 to 4 are
 skipped entirely. The selector matches a suite id or a case tag, and it is
-repeatable. A selector matching nothing is a failing finding, never an empty
-run. Report the lane's output and stop; there is nothing to promote, because
+repeatable; `--case <id>` narrows it further to named cases. A selector
+matching nothing is a failing finding, never an empty run. Report the lane's output and stop; there is nothing to promote, because
 these cases are already committed.
+
+## Verify a fix (`--verify-fix <PR>`)
+
+`/cf:qa --verify-fix <PR> --suite <suite> --case <id>` checks that a fix PR's
+case fails without the fix and passes with it. `--case <id>` (repeatable; a bare
+id or `suite/id`) narrows the testcases run to named cases; an unknown id exits
+2 listing the known ids. Procedure, exactly:
+
+```sh
+REPO=$(git rev-parse --show-toplevel)
+base=$(gh pr view <PR> --json baseRefOid -q .baseRefOid)
+head=$(gh pr view <PR> --json headRefOid -q .headRefOid)
+b=$(mktemp -d) && git -C "$REPO" worktree add --detach "$b" "$base"
+h=$(mktemp -d) && git -C "$REPO" worktree add --detach "$h" "$head"
+```
+
+In `$b`: run CHANGE.md `change_config.boot.up`, poll `boot.health.url` until
+`expect_status` (within `timeout_seconds`), as cf:screenshot does, then:
+
+```sh
+ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$b" --suite <suite> --case <id> --out "$b/.verify-base"
+```
+
+Run `boot.down`; then in `$h` boot, poll health, run the same command with
+`--repo "$h"` and `--out "$h/.verify-head"`, and run `boot.down`. Copy both
+`.verify-*` dirs out, then `git -C "$REPO" worktree remove --force` both
+worktrees, also when a step failed. The head runs in its own worktree at
+`headRefOid`, never in the session checkout, so local edits cannot leak into
+the verdict.
+
+Verdict per case id, read from each run's case-result records:
+
+- Base failed on an assertion step (an `expect_*` or a `budget_ms` span) and
+  head passed: discriminating, the fix is verified.
+- Base failed on boot, health, login, a precondition, or any non-assertion
+  step: inconclusive. Report which; never count it as proof.
+- Base passed: non-discriminating. Flag the case in the PR comment.
+- Head failed: the fix is not verified.
 
 ## Film mode
 

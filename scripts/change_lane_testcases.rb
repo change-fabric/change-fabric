@@ -161,7 +161,7 @@ class ChangeLaneTestcases < ChangeLane
     return [ unavailable ] unless session
 
     errors = load_errors
-    selected = suite_set.selected(tags, selectors: selectors)
+    selected = suite_set.selected(tags, selectors: selectors, case_ids: case_ids)
     return errors + [ nothing_to_run ] if selected.empty?
 
     findings = errors + case_findings(selected, session) + acceptance_findings + quarantine_findings(selected)
@@ -284,6 +284,14 @@ class ChangeLaneTestcases < ChangeLane
     Array(@context.suite_select).map(&:to_s).reject(&:empty?)
   end
 
+  # The `--case` ids, riding the run context like `--suite`: an invocation-time
+  # narrowing to named cases, never a repo property.
+  def case_ids
+    return [] unless @context.respond_to?(:case_select)
+
+    Array(@context.case_select).map(&:to_s).reject(&:empty?)
+  end
+
   # The tags whose cases may fail the gate. Empty (the default) means every
   # case gates, which is what a test case is for; naming tags here is the
   # staged-adoption valve for a suite still being trusted, and it is deliberately
@@ -371,6 +379,8 @@ class ChangeLaneTestcases < ChangeLane
   def nothing_to_run
     detail = if @config['suites'].nil?
       'the testcases lane is enabled but sets no suites: globs, so it has no cases to run'
+    elsif !case_ids.empty?
+      'no case matched the requested --case ids within the --suite and tag selection'
     elsif !selectors.empty?
       "no case matched the requested --suite selection (#{selectors.join(', ')})"
     else
