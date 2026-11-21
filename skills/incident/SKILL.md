@@ -49,8 +49,10 @@ work tree or under the repo checkout or any path in `CF_KNOWN_REPO_ROOTS`
    When he reports his approval, `update-op --status approved --approved-by
    <who>`, then `running`, then `succeeded` or `failed` with `--result`. No
    runbook means no invented command: page Patrick with the evidence. When the
-   repo carries the bounded runner and its `redeploy_previous` op exists, a
-   later phase of this skill requests it; until then the runbook is the path.
+   repo carries the bounded runner and its `redeploy_previous` op exists, `change_prod_redeploy.rb offer --config <CHANGE.md> --profile production
+   --incident <id>` files the rollback request (it binds the recorded
+   predecessor; a person still approves it with passkey plus TOTP). Without
+   that op the runbook is the path.
 3. **Diagnose.** Read-only evidence into `evidence/`, one timeline line per
    finding. Spawn evidence workers with model {{model:worker}}. The diagnosis
    text is roasted by the critic role ({{model:critic}}) with `roast.rb` before
