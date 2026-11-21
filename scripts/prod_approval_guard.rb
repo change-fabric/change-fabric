@@ -48,6 +48,9 @@ class ProdApprovalGuard
     list = words(command)
     stream = stream_denial(list)
     return stream if stream
+
+    queued = queue_denial(list, command)
+    return queued if queued
     return unless MARKERS.any? { |marker| command.include?(marker) }
 
     inspect_words(list, command)
@@ -78,6 +81,38 @@ class ProdApprovalGuard
     return 'a git write in a command naming cf-prod' if command.include?('cf-prod') && git_verbs(list).intersect?(GIT_WRITE_VERBS)
 
     nil
+  end
+
+  QUEUE = %r{cf/manual/queue/}
+  QUEUED_NAME = /\A(?:\.\/)?\d{4}-[\w.-]+\.(?:sh|rb)\z/
+  RUNNER_CLI = 'cf_run_approved.rb'
+  INTERPRETERS = %w[bash sh zsh dash ksh source . exec env ruby python python3 node perl xargs nohup time sudo command].freeze
+  SEPARATORS = %w[&& || ; | &].freeze
+  CHAINING = /[;&|<>`\n]|\$\(/
+
+  # A script queued under ~/.claude/cf/manual/queue/ runs only through
+  # `ruby cf_run_approved.rb <script>`, which needs Patrick's phone approval of
+  # that exact script text. Running one any other way (interpreter, ./path,
+  # source) is denied. Reading or listing the queue stays open. A loud
+  # guardrail, not a sandbox: the agent's own shell is the limit.
+  def queue_denial(list, command)
+    return nil unless command.include?('manual/queue')
+    return nil if runner_only?(list, command)
+
+    hit = list.each_index.find { |i| queued_word?(list[i]) && runs?(list, i) }
+    hit && "a shell command running the queued script #{File.basename(list[hit])} directly: queued scripts run only through " \
+           "`ruby #{RUNNER_CLI} <script>` after a phone run-script approval"
+  end
+
+  def runner_only?(list, command)
+    !command.match?(CHAINING) && list.first.to_s.end_with?('ruby') && File.basename(list[1].to_s) == RUNNER_CLI
+  end
+
+  def queued_word?(word) = word.match?(QUEUE) || word.match?(QUEUED_NAME)
+
+  def runs?(list, index)
+    prev = index.zero? ? nil : list[index - 1]
+    prev.nil? || SEPARATORS.include?(prev) || INTERPRETERS.include?(File.basename(prev))
   end
 
   # The argument run after each `gh api`.

@@ -25,6 +25,20 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "echo 1 | ruby change_prod_approve.rb abc"
   end
 
+  def test_queued_scripts_run_only_through_the_approved_runner
+    runner = "ruby ~/code/change-fabric/change-fabric/scripts/cf_run_approved.rb"
+    assert_allowed "#{runner} ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_allowed "ls ~/.claude/cf/manual/queue"
+    assert_allowed "cat ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "sh -c 'bash ~/.claude/cf/manual/queue/0016-redeploy.sh'"
+    assert_denied "source ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "cd ~/.claude/cf/manual/queue && ./0016-redeploy.sh"
+    assert_denied "ruby ~/.claude/cf/manual/queue/0016-x.rb"
+    assert_denied "#{runner} ~/.claude/cf/manual/queue/0016-redeploy.sh; bash ~/.claude/cf/manual/queue/0017-x.sh"
+  end
+
   def test_denies_approving_a_pending_deployment
     assert_denied "gh api repos/o/r/actions/runs/123/pending_deployments -X POST -f state=approved"
     assert_denied "gh api repos/o/r/actions/runs/123/pending_deployments"

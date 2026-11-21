@@ -22,7 +22,9 @@ Read first:
    `approval_console.rb request`), posts the console link, and records the
    receipt (`approval_console.rb record <id>` resumes). A release is the
    same: request `--type release --tag <tag>`, wait for the phone, record it,
-   then push the tag. Homebrew follows the tag in CI.
+   then push the tag. Any queued manual script is the same: `request
+   --type run-script`, record it, run it with `scripts/cf_run_approved.rb`.
+   Homebrew follows the tag in CI.
 3. Merging stages; a human-pushed tag releases. A toolkit PR bumps nothing (the
    `skills/v*` tag is the version). A spec or site change bumps
    `ChangeSchema::VERSION` or `site/VERSION` in the same PR. The browserless-cf

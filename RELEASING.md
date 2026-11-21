@@ -224,3 +224,30 @@ can authenticate.
 The spec is at 0.6.0 with no tag behind it, so the first `site/v*` push will
 fail its spec guard until `spec/v0.6.0` is cut. Cutting it is the intended
 bootstrap step, not a workaround.
+
+## Approved scripts and break-glass
+
+Any script Patrick would otherwise run by hand (a release, a console redeploy,
+a queued `~/.claude/cf/manual/queue/` script) is a phone-approved `run-script`:
+
+```
+ruby scripts/approval_console.rb request --type run-script --script <queued-script> --title "<what it does>" [--account <12-digit id>]
+ruby scripts/approval_console.rb record <request_id>
+ruby scripts/cf_run_approved.rb <queued-script>
+```
+
+The phone shows the whole script text, the commit and the AWS account. The
+runner refuses unless the script on disk hashes to the approved text, this
+checkout is on the approved commit, the receipt is under 15 minutes old and
+unused, and the current AWS account matches. It consumes the receipt on the
+console and in a local ledger, runs the script with no tty, then moves it to
+`queue/done/`. The hooks deny running a queued script any other way. Execution
+is local only.
+
+Break-glass: a console redeploy changes the console that approves, so it keeps
+a manual path. `approval_console/infra/redeploy.sh <sha>` and the other
+queued scripts need no console and no receipt: Patrick runs them from a real
+terminal. If a run-script redeploys the console and the console is then down,
+run `redeploy.sh` (or the previous good commit) by hand the same way. The
+runner fails closed while the console is unreachable, so nothing queued runs
+through it until the console is back.
