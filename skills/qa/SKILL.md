@@ -53,9 +53,63 @@ separate opt-in that needs a printed estimate and explicit approval first.
 
 No scoping model, no clarifying round, no generated script: phases 1 to 4 are
 skipped entirely. The selector matches a suite id or a case tag, and it is
-repeatable. A selector matching nothing is a failing finding, never an empty
-run. Report the lane's output and stop; there is nothing to promote, because
+repeatable; `--case <id>` narrows it further to named cases. A selector
+matching nothing is a failing finding, never an empty run. Report the lane's output and stop; there is nothing to promote, because
 these cases are already committed.
+
+## Verify a fix (`--verify-fix <PR>`)
+
+`/cf:qa --verify-fix <PR> --suite <suite> --case <id>` checks that a fix PR's
+case fails without the fix and passes with it. `--case <id>` (repeatable; a bare
+id or `suite/id`) narrows the testcases run to named cases; an unknown id exits
+2 listing the known ids. Procedure, exactly:
+
+```sh
+REPO=$(git rev-parse --show-toplevel)
+base=$(gh pr view <PR> --json baseRefOid -q .baseRefOid)
+head=$(gh pr view <PR> --json headRefOid -q .headRefOid)
+b=$(mktemp -d) && git -C "$REPO" worktree add --detach "$b" "$base"
+h=$(mktemp -d) && git -C "$REPO" worktree add --detach "$h" "$head"
+```
+
+Stage the head's case definitions into the base worktree, so the base run
+exercises the same case against the unfixed application (a regression case the
+PR adds does not exist at the base). Copy every suite file the PR changed, and
+any fixture those cases need, from `$h` to the same path in `$b`; application
+code stays at its own ref in each worktree:
+
+```sh
+gh pr diff <PR> --name-only | grep '\.cf-testcases\.yml$' | while read -r f; do
+  mkdir -p "$b/$(dirname "$f")" && cp "$h/$f" "$b/$f"
+done
+```
+
+Each `change_run.rb` invocation boots the app, waits for health and tears it
+down itself (`change_config.boot`). Do not start or stop the app by hand: a
+non-idempotent boot (a fixed container name or port) would fail on the second
+start. Run base, then head, one at a time, each from inside its own worktree:
+`change_run.rb` reads `CHANGE.md` and the suite globs relative to the current
+directory, so running from the session checkout would test the wrong config and
+cases.
+
+```sh
+(cd "$b" && ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$b" --config "$b/CHANGE.md" --suite <suite> --case <id> --out "$b/.verify-base")
+(cd "$h" && ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$h" --config "$h/CHANGE.md" --suite <suite> --case <id> --out "$h/.verify-head")
+```
+
+Copy both `.verify-*` dirs out, then `git -C "$REPO" worktree remove --force`
+both worktrees, also when a step failed. The head runs in its own worktree at
+`headRefOid`, never in the session checkout, so local edits cannot leak into
+the verdict.
+
+Verdict per case id, read from each run's case-result records:
+
+- Base failed on an assertion step (an `expect_*` or a `budget_ms` span) and
+  head passed: discriminating, the fix is verified.
+- Base failed on boot, health, login, a precondition, or any non-assertion
+  step: inconclusive. Report which; never count it as proof.
+- Base passed: non-discriminating. Flag the case in the PR comment.
+- Head failed: the fix is not verified.
 
 ## Film mode
 
