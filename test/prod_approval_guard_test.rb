@@ -42,6 +42,8 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "FOO=1 nohup sh ~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_denied "cd ~/.claude/cf/manual/queue;./0016-redeploy.sh"
     assert_allowed "grep bash ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_allowed "ruby scripts/approval_console.rb request --type run-script --script ~/.claude/cf/manual/queue/0016-redeploy.sh --title redeploy"
+    assert_denied "bash -c -e ~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_allowed "ls -la ~/.claude/cf/manual/queue | head"
     assert_denied "#{runner} ~/.claude/cf/manual/queue/0016-redeploy.sh; bash ~/.claude/cf/manual/queue/0017-x.sh"
   end

@@ -88,6 +88,7 @@ class ProdApprovalGuard
   RUNNER_CLI = 'cf_run_approved.rb'
   INTERPRETERS = %w[bash sh zsh dash ksh source . ruby python python3 node perl].freeze
   WRAPPERS = %w[env time nohup sudo command exec xargs nice].freeze
+  OPTION_VALUES = %w[-o +o -O +O -I -r].freeze
   SEGMENT_BREAKS = /&&|\|\||[;&|\n`()]|\$\(/
   CHAINING = /[;&|<>`\n]|\$\(/
 
@@ -110,13 +111,26 @@ class ProdApprovalGuard
   end
 
   # Whether one simple command runs a queued script: its command word (after
-  # variable assignments and wrappers such as env or time) is the script, or an
-  # interpreter handed a queued script anywhere in its arguments.
+  # variable assignments and wrappers such as env or time) is the script, or it
+  # is an interpreter whose script operand (the first argument that is not an
+  # option or an option's value) is one. A queued path that is only some other
+  # argument, such as `approval_console.rb request --script <queued>`, is a read.
   def runs_queued?(words)
     words = words.drop_while { |word| word.match?(/\A\w+=/) || WRAPPERS.include?(File.basename(word)) || word.start_with?('-') }
-    return false unless words.any? { |word| queued_word?(word) }
+    return false if words.empty?
+    return true if queued_word?(words.first)
 
-    queued_word?(words.first) || INTERPRETERS.include?(File.basename(words.first))
+    # An interpreter in command position, also inside `sh -c '...'`.
+    words.each_index.any? do |i|
+      command_position = i.zero? || words[i - 1] == '-c' || WRAPPERS.include?(File.basename(words[i - 1]))
+      command_position && INTERPRETERS.include?(File.basename(words[i])) && queued_word?(script_operand(words.drop(i + 1)).to_s)
+    end
+  end
+
+  def script_operand(args)
+    args = args.dup
+    args.shift(OPTION_VALUES.include?(args.first) ? 2 : 1) while args.first&.start_with?('-', '+')
+    args.first
   end
 
   def queued_word?(word) = word.match?(QUEUE) || word.match?(QUEUED_NAME)
