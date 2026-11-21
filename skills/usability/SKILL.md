@@ -8,6 +8,8 @@ auto:
     - "DESIGN.md"
     - "**/DESIGN.md"
     - "walkthrough/*/storyboard.json"
+lens:
+  keywords: [screen, page, form, UI, component]
 ---
 
 # Nielsen Usability Heuristics

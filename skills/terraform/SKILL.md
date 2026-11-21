@@ -5,6 +5,8 @@ description: Terraform safe-change rubric. Auto-applied by the cf shim on every 
 auto:
   extensions: [tf, tfvars]
   detect: ["*.tf", .terraform.lock.hcl]
+lens:
+  keywords: [Terraform, HCL]
 ---
 
 # Terraform Cheat Sheet
