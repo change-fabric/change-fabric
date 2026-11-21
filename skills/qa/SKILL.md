@@ -72,17 +72,30 @@ b=$(mktemp -d) && git -C "$REPO" worktree add --detach "$b" "$base"
 h=$(mktemp -d) && git -C "$REPO" worktree add --detach "$h" "$head"
 ```
 
-In `$b`: run CHANGE.md `change_config.boot.up`, poll `boot.health.url` until
-`expect_status` (within `timeout_seconds`), as cf:screenshot does, then:
+Stage the head's case definitions into the base worktree, so the base run
+exercises the same case against the unfixed application (a regression case the
+PR adds does not exist at the base). Copy every suite file the PR changed, and
+any fixture those cases need, from `$h` to the same path in `$b`; application
+code stays at its own ref in each worktree:
+
+```sh
+gh pr diff <PR> --name-only | grep '\.cf-testcases\.yml$' | while read -r f; do
+  mkdir -p "$b/$(dirname "$f")" && cp "$h/$f" "$b/$f"
+done
+```
+
+Each `change_run.rb` invocation boots the app, waits for health and tears it
+down itself (`change_config.boot`). Do not start or stop the app by hand: a
+non-idempotent boot (a fixed container name or port) would fail on the second
+start. Run base, then head, one at a time:
 
 ```sh
 ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$b" --suite <suite> --case <id> --out "$b/.verify-base"
+ruby ~/.claude/cf/bin/change_run.rb testcases --repo "$h" --suite <suite> --case <id> --out "$h/.verify-head"
 ```
 
-Run `boot.down`; then in `$h` boot, poll health, run the same command with
-`--repo "$h"` and `--out "$h/.verify-head"`, and run `boot.down`. Copy both
-`.verify-*` dirs out, then `git -C "$REPO" worktree remove --force` both
-worktrees, also when a step failed. The head runs in its own worktree at
+Copy both `.verify-*` dirs out, then `git -C "$REPO" worktree remove --force`
+both worktrees, also when a step failed. The head runs in its own worktree at
 `headRefOid`, never in the session checkout, so local edits cannot leak into
 the verdict.
 

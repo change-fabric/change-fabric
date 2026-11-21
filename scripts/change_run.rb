@@ -73,7 +73,9 @@ require_relative 'change_trust'
 #
 # `--case <id>` (repeatable) narrows the testcases lane further to the named
 # cases, by `suite/id` or a bare id; an unknown id exits 2 listing the known
-# ids. It intersects with --suite and the lane's tags, never widens them.
+# ids. It intersects with --suite and the lane's tags, never widens them, and
+# is refused outside scope testcases so a filtered run cannot record the
+# comprehensive pass the merge gate reads.
 #
 # `--suite <suite-or-tag>` narrows the testcases lane to the named suite or tag.
 # It is the deterministic regression entry point `cf:qa --suite` drives: no
@@ -543,8 +545,10 @@ class ChangeRun
     # indistinguishable, from the outside, from a filter that matched.
     abort_and_exit('--suite narrows the testcases lane; run scope testcases or all') if
       !suites.empty? && !%w[testcases all].include?(scope)
-    abort_and_exit('--case narrows the testcases lane; run scope testcases or all') if
-      !cases.empty? && !%w[testcases all].include?(scope)
+    # Only a testcases-scope run: a filtered `all` run would still record a
+    # comprehensive pass for the gate while skipping the excluded cases.
+    abort_and_exit('--case narrows the testcases lane; run scope testcases (not all)') if
+      !cases.empty? && scope != 'testcases'
     abort_and_exit('schedule needs a schedule name: change_run.rb schedule <name>') if scope == 'schedule' && schedule.nil?
     abort_and_exit('--dry-run applies only to schedule <name>') if dry_run && scope != 'schedule'
     abort_and_exit('--mode applies only to the zap scope') if zap_mode && scope != 'zap'

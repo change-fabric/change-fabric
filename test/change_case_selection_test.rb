@@ -68,8 +68,10 @@ class ChangeCaseSelectionTest < Minitest::Test
 
   def test_case_flag_is_refused_outside_the_testcases_scope
     runner = ChangeRun.new(%w[all])
-    assert_raises(SystemExit) do
-      capture_io { runner.send(:parse_args, %w[k6 --case a]) }
+    %w[k6 all].each do |scope|
+      assert_raises(SystemExit) do
+        capture_io { runner.send(:parse_args, [ scope, "--case", "a" ]) }
+      end
     end
   end
 
