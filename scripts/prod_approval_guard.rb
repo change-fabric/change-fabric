@@ -104,10 +104,26 @@ class ProdApprovalGuard
     return nil unless @in_queue || command.include?('manual/queue')
     return nil if runner_only?(list, command)
 
+    return piped_denial if piped_or_redirected?(command)
+
     segment = command.split(SEGMENT_BREAKS).map { |part| part.tr(%q('"), ' ').split }.find { |words| runs_queued?(words) }
     segment && 'a shell command running a queued script directly: queued scripts run only through ' \
                "`ruby #{RUNNER_CLI} <script>` after a phone run-script approval"
   end
+
+  PIPED_DENIAL = 'a queued script fed to a shell through a pipe or redirection: queued scripts run only through ' \
+                 '`ruby cf_run_approved.rb <script>` after a phone run-script approval'
+
+  # `bash < <queued>` and `cat <queued> | bash`: the script reaches an
+  # interpreter on stdin, so no argument names it.
+  def piped_or_redirected?(command)
+    shells = INTERPRETERS.map { |name| Regexp.escape(name) }.join('|')
+    wrappers = WRAPPERS.join('|')
+    command.match?(%r{(?:\A|[\s;&|(])(?:#{shells})\b[^;&|\n]*<[^<]*cf/manual/queue/}) ||
+      (command.match?(/\|\s*(?:(?:#{wrappers})\s+)*(?:#{shells})\b/) && command.match?(QUEUE))
+  end
+
+  def piped_denial = PIPED_DENIAL
 
   def runner_only?(list, command)
     !command.match?(CHAINING) && list.first.to_s.end_with?('ruby') && File.basename(list[1].to_s) == RUNNER_CLI
