@@ -208,6 +208,19 @@ class ChangeLaneA11y < ChangeLane
   # shape the browserless lane already has.
   def route_wait_for = routes.to_h { |route| [ route, lane_wait_for ] }
 
+  # Two opt-in page settings for a target the lane cannot otherwise inspect:
+  # `bypass_csp` lets the vendored axe source run on a page whose strict CSP
+  # blocks inline scripts (axe is injected as source text), and `color_scheme`
+  # ("light" or "dark") scans the page under that prefers-color-scheme. Both
+  # are absent by default, so an ordinary scan emits nothing here.
+  def page_setup_js
+    lines = []
+    lines << 'await page.setBypassCSP(true);' if @config['bypass_csp'] == true
+    scheme = @config['color_scheme'].to_s
+    lines << "await page.emulateMediaFeatures([{ name: \"prefers-color-scheme\", value: #{JSON.generate(scheme)} }]);" if %w[light dark].include?(scheme)
+    lines.join("\n        ")
+  end
+
   # The ES module POSTed to browserless /function. Values are interpolated as
   # JSON literals; the module loops routes, injects axe, and returns one entry
   # per route with its violations flattened to the fields the finding needs.
@@ -220,6 +233,7 @@ class ChangeLaneA11y < ChangeLane
         const axeSource = #{JSON.generate(axe_source)};
         const basicAuth = #{JSON.generate(basic_auth)};
         const auth = #{JSON.generate(js_auth(auth))};
+        #{page_setup_js}
 
         #{ChangeLane.wait_for_js}
         #{ChangeFlowCompiler.auth_runtime_js}

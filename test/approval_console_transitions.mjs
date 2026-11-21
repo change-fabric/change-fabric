@@ -25,7 +25,12 @@ const SCENARIOS = {
   approved_elsewhere: { type: "482913", click: true, status: 409, body: { error: "not_pending" } },
   replayed_code: { type: "482913", click: true, status: 409, body: { error: "replay" } },
   passkey_cancelled: { type: "482913", click: true, cancel: true },
-  passkey_unsupported: { click: false, noPasskey: true }
+  passkey_unsupported: { click: false, noPasskey: true },
+  // in-app browser (P2): hint above the form, form unchanged
+  in_app_facebook: { click: false, ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/450.0]" },
+  in_app_webview: { click: false, ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148" },
+  safari: { click: false, ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" },
+  desktop_chrome: { click: false }
 };
 
 async function snapshot(page) {
@@ -44,6 +49,9 @@ async function snapshot(page) {
       totp_disabled: $("totp") ? $("totp").disabled : null,
       go_disabled: $("go") ? $("go").disabled : null,
       go_focused: document.activeElement === $("go"),
+      hint_hidden: $("inapp") ? $("inapp").hidden : null,
+      hint_text: $("inapp") ? $("inapp").textContent : null,
+      hint_before_form: $("inapp") ? !!($("inapp").compareDocumentPosition($("approve")) & Node.DOCUMENT_POSITION_FOLLOWING) : null,
       has_bar: document.body.classList.contains("has-bar"),
       what_changes: document.querySelector(".changes").textContent,
       calls: window.__calls || []
@@ -54,6 +62,7 @@ async function snapshot(page) {
 async function runScenario(browser, cfg) {
   const page = await browser.newPage();
   await page.setViewport({ width: 390, height: 844 });
+  if (cfg.ua) await page.setUserAgent(cfg.ua);
   await page.evaluateOnNewDocument((c) => {
     window.__calls = [];
     const buf = () => new ArrayBuffer(4);

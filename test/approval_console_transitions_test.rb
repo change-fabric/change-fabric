@@ -158,4 +158,20 @@ class ApprovalConsoleTransitionsTest < Minitest::Test
     assert shot["totp_disabled"]
     assert shot["go_disabled"]
   end
+
+  def test_the_in_app_browser_hint_shows_for_a_webview_and_leaves_the_form_alone
+    [ "in_app_facebook", "in_app_webview" ].each do |name|
+      shot = scenario(name)
+      refute shot["hint_hidden"], "#{name}: the hint is shown"
+      assert_equal "Open in Safari for passkeys", shot["hint_text"]
+      assert shot["hint_before_form"], "#{name}: the hint sits above the form"
+      assert shot["form"]
+      assert shot["go_disabled"], "#{name}: the form behaves as pending"
+      refute shot["totp_disabled"]
+    end
+  end
+
+  def test_the_in_app_browser_hint_stays_hidden_in_safari_and_desktop_chrome
+    %w[safari desktop_chrome].each { |name| assert scenario(name)["hint_hidden"], "#{name}: no hint" }
+  end
 end

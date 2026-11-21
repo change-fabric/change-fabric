@@ -123,6 +123,11 @@ module ConsolePages
     [data-zone="agent"] q { quotes: "\201C" "\201D"; }
     details { margin: 0 0 0.5rem; }
     summary { display: flex; align-items: center; min-height: 2.75rem; cursor: pointer; font-weight: 600; color: var(--accent); }
+    details.more { margin: 0.25rem 0 0; }
+    details.more summary { font-size: 0.875rem; }
+    details.more q { display: block; white-space: pre-wrap; }
+    .hint { margin: 0 0 0.75rem; padding: 0.625rem 0.75rem; border: 1px solid var(--border-strong); font-size: 0.9375rem; font-weight: 600; }
+    .hint[hidden] { display: none; }
     details.sec { border-top: 1px solid var(--border); margin: 0; }
     details.sec summary { color: var(--text); }
     pre { margin: 0; padding: 0.75rem; background: var(--code-bg); overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -309,9 +314,19 @@ module ConsolePages
 
   def attr(path) = txt(path.join('.'))
 
+  LONG_TEXT = 600
+
   def leaf(path, value, tag)
     extra = tag == 'time' ? %( datetime="#{txt(value)}") : ''
-    %(<#{tag} data-field="#{attr(path)}"#{extra}>#{txt(shown(path, value))}</#{tag}>)
+    text = shown(path, value)
+    return %(<#{tag} data-field="#{attr(path)}"#{extra}>#{txt(text)}</#{tag}>) unless tag == 'q' && text.length > LONG_TEXT
+
+    # A long agent leaf shows its first LONG_TEXT characters; the rest stays in
+    # the DOM inside a details element, cut before neutralizing so a marker is
+    # never split.
+    rest = text[LONG_TEXT..]
+    %(<q data-field="#{attr(path)}">#{txt(text[0, LONG_TEXT])}</q>) +
+      %(<details class="more" data-rest="#{attr(path)}"><summary>Show the rest (#{rest.length} more characters)</summary><q>#{txt(rest)}</q></details>)
   end
 
   def dig_current(current, rel)
@@ -518,6 +533,7 @@ module ConsolePages
   def approve_form(body)
     <<~HTML
       <div id="away" class="approve-info">
+      <p id="inapp" class="hint" hidden>Open in Safari for passkeys</p>
       <p class="lead">Approve this request with your passkey and a code.</p>
       <p class="muted">Not approving? Close this page. It expires at #{at(body, 'expires_at')}.</p>
       </div>
@@ -541,6 +557,8 @@ module ConsolePages
     document.querySelectorAll('time[datetime]').forEach(t=>{const ms=Date.parse(t.getAttribute('datetime'));if(!isNaN(ms))t.textContent=hm(ms)+' local'});
     sha(d.body).then(b=>{$('hash').textContent=[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')});
     if(form){
+      const ua=navigator.userAgent,hint=$('inapp');
+      if(hint&&(/FBAN|FBAV|Instagram|Line\/|MicroMessenger|LinkedInApp|Twitter|Snapchat|Slack|GSA\/|; wv\)/.exec(ua)||(/iPhone|iPad|iPod/.exec(ua)&&!/Safari\//.exec(ua))))hint.hidden=false;
       let tick,locked=false;
       const note=t=>{msg.textContent=t;form.classList.toggle('has-msg',t!=='')};
       const sync=()=>{go.disabled=locked||totp.value.length!==6};
