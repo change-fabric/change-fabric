@@ -172,17 +172,32 @@ module ChangeProdRedeploy
 
   def git_tags(repo, sha) = git(repo, 'tag', '--points-at', sha).split("\n")
 
-  # Deployment history newest first, each with the state of its latest status.
-  def gh_history(repo, environment)
-    out, status = Open3.capture2e('gh', 'api', "repos/{owner}/{repo}/deployments?environment=#{environment}&per_page=30", chdir: repo)
-    raise Refused, 'cannot read the deployment history' unless status.success?
-
-    JSON.parse(out).map { |d| { 'sha' => d['sha'], 'state' => deployment_state(repo, d['id']) } }
+  # Deployment history newest first. A deployment counts as a success when any
+  # of its statuses was `success`: GitHub's auto-inactivation adds an `inactive`
+  # status after a newer success, so the latest status alone would drop a valid
+  # rollback target. Any failed lookup refuses, because skipping a deployment
+  # would silently pick the wrong predecessor.
+  def gh_history(repo, environment, gh: method(:gh_api))
+    deployments = gh.call(repo, "repos/{owner}/{repo}/deployments?environment=#{environment}&per_page=30")
+    deployments.map do |d|
+      statuses = gh.call(repo, "repos/{owner}/{repo}/deployments/#{Integer(d['id'])}/statuses?per_page=100")
+      { 'sha' => d['sha'], 'state' => state_from(statuses) }
+    end
   end
 
-  def deployment_state(repo, id)
-    out, status = Open3.capture2e('gh', 'api', "repos/{owner}/{repo}/deployments/#{Integer(id)}/statuses?per_page=1", chdir: repo)
-    status.success? ? JSON.parse(out).first&.fetch('state', nil) : nil
+  def state_from(statuses)
+    return 'success' if Array(statuses).any? { |s| s['state'] == 'success' }
+
+    Array(statuses).first&.fetch('state', nil)
+  end
+
+  def gh_api(repo, path)
+    out, status = Open3.capture2e('gh', 'api', path, chdir: repo)
+    raise Refused, "cannot read #{path.split('?').first}" unless status.success?
+
+    JSON.parse(out)
+  rescue JSON::ParserError
+    raise Refused, "unreadable response for #{path.split('?').first}"
   end
 end
 

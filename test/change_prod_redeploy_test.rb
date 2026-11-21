@@ -96,6 +96,35 @@ class ChangeProdRedeployTest < Minitest::Test
     end
   end
 
+  def fake_gh(statuses_by_id, fail_on: nil)
+    lambda do |_repo, path|
+      raise R::Refused, "cannot read #{path}" if fail_on && path.include?(fail_on)
+
+      if path.include?("/statuses")
+        statuses_by_id.fetch(path[%r{deployments/(\d+)/}, 1].to_i)
+      else
+        statuses_by_id.keys.map { |id| { "id" => id, "sha" => id == 1 ? NEW : OLD } }
+      end
+    end
+  end
+
+  def test_history_keeps_a_success_behind_an_inactive_status
+    gh = fake_gh({ 1 => [ { "state" => "success" } ], 2 => [ { "state" => "inactive" }, { "state" => "success" } ] })
+    history = R.gh_history(".", "production", gh: gh)
+    assert_equal %w[success success], history.map { |d| d["state"] }
+    assert_equal OLD, R.predecessor(history)
+  end
+
+  def test_history_refuses_when_a_status_lookup_fails
+    gh = fake_gh({ 1 => [ { "state" => "success" } ], 2 => [ { "state" => "success" } ] }, fail_on: "deployments/2/statuses")
+    assert_raises(R::Refused) { R.gh_history(".", "production", gh: gh) }
+  end
+
+  def test_history_never_counts_a_deployment_that_only_failed
+    gh = fake_gh({ 1 => [ { "state" => "success" } ], 2 => [ { "state" => "inactive" }, { "state" => "failure" } ] })
+    assert_raises(R::Refused) { R.predecessor(R.gh_history(".", "production", gh: gh)) }
+  end
+
   def test_cli_refuses_an_unknown_verb_and_missing_history
     assert_equal 2, R.run([ "nope" ], stderr: StringIO.new)
     err = StringIO.new
