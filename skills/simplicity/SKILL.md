@@ -28,6 +28,10 @@ What is the least code, the fewest files, and the fewest dependencies that meet 
 2. Give a concrete simpler alternative: what to delete, inline, or replace, and with what.
 3. Estimate the saving (lines, files, deps removed if the fix is applied) at the end of the issue's `fix` field (the roast schema has no separate field for it), for example `Saves about 40 lines and one file.`. An estimate is never a measurement.
 
+## Marking
+
+Begin each simplicity finding's `problem` with `cf:simplicity:`. `simplicity_signals.rb verdict` counts only findings carrying that prefix (or a non-null `saving`), so other issues in the same round never move the verdict.
+
 ## Priority
 
 The verdict follows mechanically from the accepted findings: any accepted P0 means rethink, else any accepted P1 means trim, else ship.

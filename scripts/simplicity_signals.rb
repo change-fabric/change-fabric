@@ -392,23 +392,150 @@ module SimplicitySignals
     end
   end
 
-  # Command-line entry: `signals [--base REF] [--head REF] [--repo DIR]`.
+  # Measured change between two refs (D3): numstat lines, files deleted,
+  # declared dependencies dropped and the lockfile delta. lines_net is deleted
+  # minus added, so a rewrite that adds more than it removes is negative.
+  # Measured figures only; estimates live in the verdict and are never summed
+  # into these.
+  def savings(repo:, before:, after:)
+    range = Range.new(repo:, base: rev(repo, before), head: rev(repo, after))
+    counts = line_counts(range)
+    {
+      'lines_added' => counts['added'], 'lines_deleted' => counts['removed'],
+      'lines_net' => counts['removed'] - counts['added'],
+      'files_removed' => range.git('diff', '--name-only', '--diff-filter=D', range.base, range.head).lines.size,
+      'deps_removed' => dropped_deps(range),
+      'lockfile_removed' => lock_count(range, range.base) - lock_count(range, range.head)
+    }
+  end
+
+  def dropped_deps(range)
+    gone = gems(range.show(range.base, 'Gemfile')) - gems(range.show(range.head, 'Gemfile'))
+    gone += packages(range.show(range.base, 'package.json')) - packages(range.show(range.head, 'package.json'))
+    gone.size
+  end
+
+  # The verdict from accepted simplicity findings (D8, amended): any accepted
+  # P0 is rethink, else any accepted P1 is trim, else ship. Findings from other
+  # lenses are ignored. A rebuttal that cites neither a requirement nor a
+  # settled decision counts as an accept, matching roast.rb.
+  module Verdict
+    PREFIX = 'cf:simplicity:'
+    GROUND = /\b(requirement|decision|decided|settled|D\d+)\b/i
+
+    module_function
+
+    # Normalized findings from a roast round and its optional response file.
+    def from_roast(round, response)
+      answers = Array(response && response['responses']).dup
+      Array(round['issues']).filter_map do |issue|
+        where = (issue['where'] || issue['screen']).to_s
+        next unless simplicity_issue?(issue)
+
+        reply = answers.delete_at(answers.index { |a| (a['where'] || a['screen']).to_s == where } || answers.size)
+        rebuttal = reply && reply['verdict'] == 'rebut' ? reply['reason'].to_s : nil
+        finding(issue, rebuttal, nil)
+      end
+    end
+
+    def simplicity_issue?(issue)
+      [ issue['problem'], issue['where'] ].any? { |text| text.to_s.strip.start_with?(PREFIX) } || !issue['saving'].nil?
+    end
+
+    # Normalized findings from a drive-lane findings list.
+    def from_findings(list)
+      Array(list).select { |f| f['lens'].to_s.delete_prefix('cf:') == 'simplicity' }.map do |f|
+        finding(f, f['accepted'] == false ? f['rebuttal'].to_s : nil, f['requirement'])
+      end
+    end
+
+    def finding(issue, rebuttal, requirement)
+      required = (requirement || issue['requirement']).to_s.strip
+      grounded = rebuttal && !rebuttal.strip.empty? &&
+                 ((!required.empty? && required.casecmp('none') != 0) || rebuttal.match?(GROUND))
+      { 'priority' => issue['priority'], 'saving' => issue['saving'], 'accepted' => !grounded }
+    end
+
+    def summarize(findings)
+      accepted = findings.select { |f| f['accepted'] }
+      rebutted = findings.size - accepted.size
+      {
+        'verdict' => verdict(accepted), 'accepted' => accepted.size, 'rebutted' => rebutted,
+        'precision' => findings.empty? ? nil : (accepted.size.to_f / findings.size).round(2),
+        'estimated' => %w[lines files deps].to_h { |k| [ k, accepted.sum { |f| f['saving'].to_h[k].to_i } ] }
+      }
+    end
+
+    def verdict(accepted)
+      priorities = accepted.map { |f| f['priority'] }
+      return 'rethink' if priorities.include?('P0')
+
+      priorities.include?('P1') ? 'trim' : 'ship'
+    end
+
+    # `dir` holds round-N.json (and round-N.response.json); N defaults to the latest.
+    def from_dir(dir, round = nil)
+      round ||= Dir.glob(File.join(dir, 'round-*.json')).filter_map { |p| File.basename(p)[/\Around-(\d+)\.json\z/, 1]&.to_i }.max
+      raise ArgumentError, "no round-N.json in #{dir}" unless round
+
+      critic = File.join(dir, "round-#{round}.json")
+      raise ArgumentError, "missing #{critic}" unless File.file?(critic)
+
+      response = File.join(dir, "round-#{round}.response.json")
+      from_roast(JSON.parse(File.read(critic)), File.file?(response) ? JSON.parse(File.read(response)) : nil)
+    rescue JSON::ParserError => e
+      raise ArgumentError, "unreadable round file: #{e.message}"
+    end
+  end
+
+  # Command-line entry: `signals`, `verdict` and `savings` subcommands.
   module CLI
-    USAGE = 'usage: simplicity_signals.rb signals [--base REF] [--head REF] [--repo DIR]'
+    USAGE = <<~TXT.freeze
+      usage: simplicity_signals.rb signals [--base REF] [--head REF] [--repo DIR]
+             simplicity_signals.rb verdict (--roast-dir DIR [--round N] | --findings FILE)
+             simplicity_signals.rb savings --before REF --after REF [--repo DIR]
+    TXT
+    FLAGS = {
+      'signals' => %w[--base --head --repo], 'verdict' => %w[--roast-dir --round --findings],
+      'savings' => %w[--before --after --repo]
+    }.freeze
 
     def self.run(argv, out: $stdout, err: $stderr)
       command, *rest = argv
-      flags = parse(rest)
-      return usage(err) unless command == 'signals' && flags
+      flags = FLAGS.key?(command) && parse(rest, FLAGS[command])
+      return usage(err) unless flags
 
-      repo = flags.fetch('repo', Dir.pwd)
-      head = flags.fetch('head', 'HEAD')
-      base = flags['base'] || merge_base(repo, head)
-      out.puts JSON.pretty_generate(SimplicitySignals.run(repo:, base:, head:))
+      out.puts JSON.pretty_generate(send("run_#{command}", flags))
       0
-    rescue ArgumentError => e
+    rescue ArgumentError, JSON::ParserError => e
       err.puts e.message
       2
+    end
+
+    def self.run_signals(flags)
+      repo = flags.fetch('repo', Dir.pwd)
+      head = flags.fetch('head', 'HEAD')
+      SimplicitySignals.run(repo:, base: flags['base'] || merge_base(repo, head), head:)
+    end
+
+    def self.run_verdict(flags)
+      findings =
+        if flags['findings'] && !flags['roast-dir']
+          Verdict.from_findings(JSON.parse(File.read(flags['findings'])))
+        elsif flags['roast-dir'] && !flags['findings']
+          Verdict.from_dir(flags['roast-dir'], flags['round']&.to_i)
+        else
+          raise ArgumentError, USAGE
+        end
+      Verdict.summarize(findings)
+    rescue SystemCallError => e
+      raise ArgumentError, e.message
+    end
+
+    def self.run_savings(flags)
+      raise ArgumentError, USAGE unless flags['before'] && flags['after']
+
+      SimplicitySignals.savings(repo: flags.fetch('repo', Dir.pwd), before: flags['before'], after: flags['after'])
     end
 
     def self.usage(err)
@@ -423,9 +550,9 @@ module SimplicitySignals
       out.strip
     end
 
-    def self.parse(args)
+    def self.parse(args, allowed)
       args.each_slice(2).each_with_object({}) do |(key, value), flags|
-        return nil unless %w[--base --head --repo].include?(key) && value
+        return nil unless allowed.include?(key) && value
 
         flags[key.delete_prefix('--')] = value
       end
