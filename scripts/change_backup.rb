@@ -49,18 +49,30 @@ module ChangeBackup
 
   # Runs an argv without a shell, killing it at the timeout.
   class Executor
+    # The command runs in its own process group, and the group is killed at the
+    # timeout, so a child it started cannot outlive the limit or hold the output
+    # pipes open.
     def call(argv, env: {}, timeout: AWS_TIMEOUT_S, chdir: nil)
-      options = chdir ? { chdir: chdir } : {}
+      options = { pgroup: true }
+      options[:chdir] = chdir if chdir
       Open3.popen3(env, *argv, **options) do |stdin, out, err, waiter|
         stdin.close
         readers = [ Thread.new { out.read }, Thread.new { err.read } ]
         finished = waiter.join(timeout)
-        Process.kill('KILL', waiter.pid) unless finished
+        kill_group(waiter.pid) unless finished
         waiter.join
         Outcome.new(ok: finished && waiter.value.success?, stdout: readers[0].value.to_s, stderr: readers[1].value.to_s, timed_out: !finished)
       end
     rescue SystemCallError => e
       Outcome.new(ok: false, stdout: '', stderr: e.message, timed_out: false)
+    end
+
+    private
+
+    def kill_group(pid)
+      Process.kill('KILL', -pid)
+    rescue SystemCallError
+      nil
     end
   end
 
@@ -220,10 +232,10 @@ module ChangeBackup
       raise Unprovable, 'automated backups are off (retention 0)' unless retention.positive?
 
       backup = aws('rds', 'describe-db-instance-automated-backups', '--db-instance-identifier', resource).fetch('DBInstanceAutomatedBackups', []).first
-      earliest = backup.is_a?(Hash) ? backup.dig('RestoreWindow', 'EarliestTime') : nil
-      raise Unprovable, 'no automated backup restore window' unless earliest
+      window = backup.is_a?(Hash) ? backup['RestoreWindow'] : nil
+      raise Unprovable, 'no automated backup restore window' unless window.is_a?(Hash)
 
-      [ (now - parse_time(earliest, 'EarliestTime')) / 3600.0, retention * 24.0 ].min
+      [ span_hours(window['EarliestTime'], window['LatestTime']), retention * 24.0 ].min
     end
 
     def cluster_window
@@ -232,9 +244,23 @@ module ChangeBackup
 
       retention = cluster['BackupRetentionPeriod'].to_i
       raise Unprovable, 'automated backups are off (retention 0)' unless retention.positive?
-      raise Unprovable, 'no earliest restorable time' unless cluster['EarliestRestorableTime']
 
-      [ (now - parse_time(cluster['EarliestRestorableTime'], 'EarliestRestorableTime')) / 3600.0, retention * 24.0 ].min
+      [ span_hours(cluster['EarliestRestorableTime'], cluster['LatestRestorableTime']), retention * 24.0 ].min
+    end
+
+    # The recovery history is the span between both ends of the restore window.
+    # Measuring from `now` would count time the latest restorable point has
+    # not reached, so a missing or inverted endpoint is unprovable.
+    def span_hours(earliest, latest)
+      raise Unprovable, 'the restore window is missing an endpoint' if earliest.to_s.empty? || latest.to_s.empty?
+
+      first = parse_time(earliest, 'earliest restorable time')
+      last = parse_time(latest, 'latest restorable time')
+      raise Unprovable, 'the restore window ends before it starts' unless last > first
+
+      (last - first) / 3600.0
+    rescue Error => e
+      raise Unprovable, e.message
     end
   end
 

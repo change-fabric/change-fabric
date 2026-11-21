@@ -39,6 +39,9 @@ module ChangeBackupProbeGen
     raise Refused, 'no backup declares restore_probe.oidc_roles' if jobs.empty?
 
     region = region_of(config)
+    jobs.group_by { |backup, profile, _| job_id(backup, profile) }.each_value do |pair|
+      raise Refused, "probes #{pair.map { |backup, profile, _| "#{backup}/#{profile}" }.join(' and ')} share one job id; rename one" if pair.size > 1
+    end
     body = [ preamble, 'jobs:', *jobs.map { |backup, profile, role| job(backup, profile, role, region) } ].join("\n")
     "#{HEADER}\n# digest: sha256:#{Digest::SHA256.hexdigest(body)}\n#{body}"
   end
@@ -91,7 +94,10 @@ module ChangeBackupProbeGen
     YAML
   end
 
-  def job_id(backup, profile) = "probe-#{backup.tr('_', '-')}-#{profile.tr('_', '-')}"
+  # Underscores stay, since a job id allows them and main_db and main-db are
+  # different backups. A hyphen split can still be ambiguous, which generate
+  # refuses.
+  def job_id(backup, profile) = "probe-#{backup}-#{profile}"
 
   def job(backup, profile, role, region)
     <<~YAML.gsub(/^(?=.)/, '  ')

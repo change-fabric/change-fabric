@@ -30,7 +30,7 @@ class ChangeBackupProbeGenTest < Minitest::Test
 
   def test_one_job_per_backup_and_profile_with_a_literal_role
     jobs = YAML.safe_load(Gen.generate(config))["jobs"]
-    assert_equal [ "probe-main-db-production" ], jobs.keys
+    assert_equal [ "probe-main_db-production" ], jobs.keys
     job = jobs.values.first
     assert_equal({ "id-token" => "write", "contents" => "read" }, job["permissions"])
     assert_equal "arn:aws:iam::222222222222:role/cf-probe", job["steps"].find { |step| step["uses"].to_s.start_with?("aws-actions") }["with"]["role-to-assume"]
@@ -49,6 +49,21 @@ class ChangeBackupProbeGenTest < Minitest::Test
     assert_includes run, "base/.github/cf-prod/scripts/change_backup.rb probe"
     assert_includes run, "--backup main_db --environment production"
     assert_includes ChangeProdRunnerGen::VENDORED, "change_backup.rb"
+  end
+
+  def test_backups_that_differ_only_by_underscore_keep_distinct_jobs
+    cfg = config
+    cfg["change_config"]["backups"]["main-db"] = cfg["change_config"]["backups"]["main_db"].dup
+    assert_equal %w[probe-main-db-production probe-main_db-production], YAML.safe_load(Gen.generate(cfg))["jobs"].keys.sort
+  end
+
+  def test_refuses_two_probes_that_would_share_a_job_id
+    cfg = config
+    probe = cfg["change_config"]["backups"]["main_db"]
+    cfg["change_config"]["backups"]["main"] = probe.merge("restore_probe" => probe["restore_probe"].merge("oidc_roles" => { "db-production" => "arn:aws:iam::222222222222:role/cf-probe" }))
+    cfg["change_config"]["backups"]["main-db"] = probe
+    error = assert_raises(Gen::Refused) { Gen.generate(cfg) }
+    assert_match(/share one job id/, error.message)
   end
 
   def test_refuses_with_no_probe_roles

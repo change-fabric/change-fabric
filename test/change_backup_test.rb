@@ -47,7 +47,7 @@ class ChangeBackupTest < Minitest::Test
     "wait db-snapshot-available" => { out: "" },
     "describe-db-snapshots" => { out: JSON.generate("DBSnapshots" => [ { "Status" => snapshot_status, "SnapshotCreateTime" => (NOW - 120).iso8601 } ]) },
     "describe-db-instances" => { out: JSON.generate("DBInstances" => [ { "BackupRetentionPeriod" => retention } ]) },
-    "describe-db-instance-automated-backups" => { out: JSON.generate("DBInstanceAutomatedBackups" => [ { "RestoreWindow" => { "EarliestTime" => (NOW - hours * 3600).iso8601 } } ]) }
+    "describe-db-instance-automated-backups" => { out: JSON.generate("DBInstanceAutomatedBackups" => [ { "RestoreWindow" => { "EarliestTime" => (NOW - hours * 3600).iso8601, "LatestTime" => NOW.iso8601 } } ]) }
   }
   end
 
@@ -93,7 +93,7 @@ class ChangeBackupTest < Minitest::Test
     answers = {
       "create-db-cluster-snapshot" => { out: "{}" }, "wait db-cluster-snapshot-available" => {},
       "describe-db-cluster-snapshots" => { out: JSON.generate("DBClusterSnapshots" => [ { "Status" => "available", "SnapshotCreateTime" => NOW.iso8601 } ]) },
-      "describe-db-clusters" => { out: JSON.generate("DBClusters" => [ { "BackupRetentionPeriod" => 14, "EarliestRestorableTime" => (NOW - 200 * 3600).iso8601 } ]) }
+      "describe-db-clusters" => { out: JSON.generate("DBClusters" => [ { "BackupRetentionPeriod" => 14, "EarliestRestorableTime" => (NOW - 200 * 3600).iso8601, "LatestRestorableTime" => NOW.iso8601 } ]) }
     }
     executor = FakeExecutor.new(answers)
     prov = provider("main_db", executor: executor, cfg: cfg)
@@ -104,6 +104,34 @@ class ChangeBackupTest < Minitest::Test
 
   def test_pitr_window_is_the_time_since_the_earliest_restorable_time
     assert_in_delta 100.0, provider("main_db", executor: FakeExecutor.new(rds_answers(hours: 100))).pitr_window_hours, 0.01
+  end
+
+  def window_answers(earliest:, latest:)
+    window = { "EarliestTime" => earliest&.iso8601, "LatestTime" => latest&.iso8601 }.compact
+    rds_answers.merge("describe-db-instance-automated-backups" => { out: JSON.generate("DBInstanceAutomatedBackups" => [ { "RestoreWindow" => window } ]) })
+  end
+
+  def test_a_lagging_latest_restorable_time_does_not_count_as_history
+    answers = window_answers(earliest: NOW - 96 * 3600, latest: NOW - 95 * 3600)
+    assert_in_delta 1.0, provider("main_db", executor: FakeExecutor.new(answers)).pitr_window_hours, 0.01
+  end
+
+  def test_a_missing_or_inverted_restore_window_endpoint_is_unprovable
+    [ window_answers(earliest: NOW - 96 * 3600, latest: nil), window_answers(earliest: nil, latest: NOW),
+      window_answers(earliest: NOW, latest: NOW - 3600) ].each do |answers|
+      assert_raises(ChangeBackup::Unprovable) { provider("main_db", executor: FakeExecutor.new(answers)).pitr_window_hours }
+    end
+  end
+
+  def test_an_aurora_cluster_window_uses_its_latest_restorable_time
+    cfg = config
+    cfg["change_config"]["backups"]["main_db"]["kind"] = "aurora_snapshot"
+    cluster = { "BackupRetentionPeriod" => 14, "EarliestRestorableTime" => (NOW - 96 * 3600).iso8601, "LatestRestorableTime" => (NOW - 95 * 3600).iso8601 }
+    executor = FakeExecutor.new("describe-db-clusters" => { out: JSON.generate("DBClusters" => [ cluster ]) })
+    assert_in_delta 1.0, provider("main_db", executor: executor, cfg: cfg).pitr_window_hours, 0.01
+    cluster.delete("LatestRestorableTime")
+    executor = FakeExecutor.new("describe-db-clusters" => { out: JSON.generate("DBClusters" => [ cluster ]) })
+    assert_raises(ChangeBackup::Unprovable) { provider("main_db", executor: executor, cfg: cfg).pitr_window_hours }
   end
 
   def test_retention_caps_the_pitr_window
@@ -391,6 +419,15 @@ class ChangeBackupTest < Minitest::Test
     assert slow.timed_out
     refute slow.ok?
     refute executor.call([ "/nonexistent/binary" ], timeout: 1).ok?
+  end
+
+  # A child the command started must not keep the run, or its output pipes,
+  # alive past the timeout.
+  def test_real_executor_kills_the_whole_process_group_on_timeout
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    out = ChangeBackup::Executor.new.call([ "sh", "-c", "sleep 30 & sleep 30" ], timeout: 0.3)
+    assert out.timed_out
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 10
   end
 
   def with_config(cfg = config)
