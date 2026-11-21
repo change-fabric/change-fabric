@@ -1,0 +1,3 @@
+expect: "timeout_s"
+patch:
+  change_config: { operations: { rotate_tenant_key: { timeout_s: null } } }

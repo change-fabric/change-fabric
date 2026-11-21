@@ -1,0 +1,3 @@
+expect: "exactly passkey_uv and totp"
+patch:
+  change_policy: { prod_guard: { approval: { factors: [totp] } } }

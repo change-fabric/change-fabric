@@ -1,0 +1,3 @@
+expect: "online_safe.reason must be"
+patch:
+  change_config: { operations: { redeploy_previous: { online_safe: { reason: "  " } } } }

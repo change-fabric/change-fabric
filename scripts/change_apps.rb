@@ -7,6 +7,8 @@ require_relative 'change_delivery_schema'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
 require_relative 'change_prod_classes'
+require_relative 'change_prod_runner_gen'
+require_relative 'change_prod_schema'
 require_relative 'change_schema'
 
 # Reads a root CHANGE.md's change_config.apps registry (schema 0.4.0), the
@@ -140,6 +142,7 @@ class ChangeAppRegistry
     lines.concat(tracker_policy_errors(change_md_path))
     lines.concat(delivery_lines(change_md_path))
     lines.concat(prod_class_lines(change_md_path))
+    lines.concat(prod_schema_lines(change_md_path))
     lines.concat(promotion_target_lines(change_md_path))
     lines.concat(require_scheduled_lines(change_md_path))
 
@@ -241,6 +244,28 @@ class ChangeAppRegistry
     []
   end
   private_class_method :prod_class_lines
+
+  # Bounded prod runner (0.29.0): schema errors, a notice for every
+  # online_safe opt-out (never a failure), a warning for each backup with no
+  # restore probe, and an error for a hand-edited cf-prod.yml. Silent when the
+  # config declares none of the blocks and no workflow exists.
+  def self.prod_schema_lines(change_md_path)
+    data = ChangeFrontmatter.parse_file(change_md_path)
+    config = data['change_config'].is_a?(Hash) ? data['change_config'] : {}
+    declared = %w[runners backups maintenance operations].any? { |key| config.key?(key) }
+    workflow = File.join(File.dirname(change_md_path), ChangeProdRunnerGen::WORKFLOW)
+    lines = []
+    if declared
+      lines.concat(ChangeProdSchema.errors(data).map { |message| "error: #{message}" })
+      lines.concat(ChangeProdSchema.online_safe_ops(data).map { |op| "notice: prod op #{op[:op]} is online_safe: #{op[:reason]}" })
+      lines.concat(ChangeProdSchema.missing_probes(data).map { |name| "warning: prod backup #{name} has no restore_probe" })
+    end
+    lines << "error: #{ChangeProdRunnerGen::WORKFLOW} was edited by hand; regenerate it with change_prod_runner_gen.rb" if File.exist?(workflow) && ChangeProdRunnerGen.tampered?(File.read(workflow))
+    lines
+  rescue StandardError
+    []
+  end
+  private_class_method :prod_schema_lines
 
   def self.delivery_rollout_line(rollout)
     stages = rollout.stages.map { |stage| stage.is_a?(Hash) ? stage['cohort'] : '?' }.join(' > ')

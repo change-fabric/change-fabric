@@ -1,0 +1,3 @@
+expect: "not both"
+patch:
+  change_config: { operations: { rotate_tenant_key: { online_safe: { reason: both } } } }

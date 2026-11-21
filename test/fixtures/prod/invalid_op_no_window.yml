@@ -1,0 +1,3 @@
+expect: "needs a maintenance window or an online_safe.reason"
+patch:
+  change_config: { operations: { rotate_tenant_key: { maintenance: null } } }

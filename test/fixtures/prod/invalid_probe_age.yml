@@ -1,0 +1,3 @@
+expect: "max_age_days"
+patch:
+  change_config: { backups: { main_db: { restore_probe: { max_age_days: 14 } } } }

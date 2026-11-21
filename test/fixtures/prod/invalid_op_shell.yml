@@ -1,0 +1,3 @@
+expect: "must not start a shell"
+patch:
+  change_config: { operations: { rotate_tenant_key: { argv: [bash, -c, "{tenant_id}"] } } }

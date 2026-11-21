@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.28.0
+Schema version: 0.29.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -87,6 +87,8 @@ Field paths are dotted. Placeholder segments are literal and mean:
   "execution, outbound, trackers" and "change_policy.trackers" below.
 - `<flags>`, `<metrics>`, `<cohort>`, `<verdict_source>`, `<rollout>` (0.24.0):
   see "change_config.delivery" and "change_policy.delivery" below.
+- `<runner>`, `<backup>`, `<window>`, `<op>`, `<param>` (0.29.0): see "Bounded
+  prod runner" below.
 - `[]`: a field on each item of a list.
 
 Required means the platform cannot run without it. Almost everything is optional
@@ -1533,6 +1535,83 @@ change_policy:
 A full copy-paste `CHANGE.md` for this topology is
 `reference/CHANGE.trunk-tags.example.md`.
 
+### Bounded prod runner (0.29.0): runners, backups, maintenance, operations
+
+Agents never hold production credentials. A generated GitHub Actions runner
+(`.github/workflows/cf-prod.yml`) runs declared `operations` only, bound to a
+GitHub Environment with a per-environment OIDC role, after one person approves
+the request digest with a passkey (user verification) and a TOTP code through
+the approval console. A fresh snapshot, a PITR window of at least 72 hours and a
+passed weekly restore probe come first, and the op runs inside a maintenance
+window unless it carries a reasoned `online_safe` opt-out. These blocks are
+read from the base branch and validated by `scripts/change_prod_schema.rb`;
+`doctor` lists ops by class, flags every `online_safe` opt-out and every backup
+with no restore probe, and flags a hand-edited `cf-prod.yml`. The generator
+emits the production job only when the rest of the runner has landed.
+
+Placeholders: `<runner>`, `<backup>`, `<window>`, `<op>` and `<param>` are any
+name under that map; `<profile>` is a profile name. Commands are argv arrays
+run without a shell. The floors are schema-fixed: both approval factors with a
+remote proof, PITR of at least 72 hours, a probe age of at most 7 days, a
+maintenance `exit` and `verify` whenever there is an `enter`, a backup on every
+op, a window or an `online_safe.reason` on every op, string params with anchored
+patterns, argv placeholders only from declared params, and one op at a time.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `change_config.runners.<runner>.kind` | `github_actions` or `fixture` | yes | (0.29.0) The runner kind. The generated workflow serves `github_actions`; `fixture` is for tests. |
+| `change_config.runners.<runner>.workflow` | path | yes | (0.29.0) The generated workflow, `.github/workflows/cf-prod.yml`. Doctor flags a hand edit. |
+| `change_config.runners.<runner>.environments.<profile>` | string | yes | (0.29.0) The GitHub Environment for a profile. Two profiles may not share one. |
+| `change_config.runners.<runner>.oidc_roles.<profile>` | IAM role ARN | yes | (0.29.0) The per-environment OIDC role for the profile. Agents never hold it. |
+| `change_config.runners.<runner>.region` | AWS region | no (default us-east-1) | (0.29.0) Region of the claim table. |
+| `change_config.runners.<runner>.claim_role` | IAM role ARN | yes for the prod runner | (0.29.0) The OIDC role that may write claim items. |
+| `change_config.runners.<runner>.claim_table` | string | yes for the prod runner | (0.29.0) The approval console table holding single-use claims. |
+| `change_config.backups.<backup>.kind` | `rds_snapshot`, `aurora_snapshot`, `pg_dump_s3`, `command` or `fixture` | yes | (0.29.0) The backup provider kind. `pg_dump_s3` and `command` cannot prove PITR. |
+| `change_config.backups.<backup>.target` | string | one of target, targets | (0.29.0) The resource to back up. |
+| `change_config.backups.<backup>.targets.<profile>` | string | one of target, targets | (0.29.0) The resource per environment; recovery evidence must match the op's environment. |
+| `change_config.backups.<backup>.provider` | string | yes | (0.29.0) The enrolled provider name. Credentials never appear here. |
+| `change_config.backups.<backup>.verify.argv` | list of string | yes | (0.29.0) Command that verifies a fresh snapshot, run without a shell. |
+| `change_config.backups.<backup>.verify.timeout_s` | integer 1 to 86400 | yes | (0.29.0) Timeout for the verify command. |
+| `change_config.backups.<backup>.pitr.required_hours` | integer, at least 72 | no (default 72) | (0.29.0) The PITR window the runner requires. Floor: 72. |
+| `change_config.backups.<backup>.pitr_source` | backup name | yes for `pg_dump_s3` and `command` | (0.29.0) A `rds_snapshot` or `aurora_snapshot` backup that proves PITR. Fails closed otherwise. |
+| `change_config.backups.<backup>.restore_probe.schedule` | `weekly` | yes with a probe | (0.29.0) How often the restore probe runs. |
+| `change_config.backups.<backup>.restore_probe.argv` | list of string | yes with a probe | (0.29.0) The probe command; it tears down what it restores. |
+| `change_config.backups.<backup>.restore_probe.timeout_s` | integer 1 to 86400 | yes with a probe | (0.29.0) Probe timeout. |
+| `change_config.backups.<backup>.restore_probe.max_age_days` | integer 1 to 7 | no (default 7) | (0.29.0) Oldest passing probe the runner accepts. Floor: 7 days. Doctor flags a backup with no probe. |
+| `change_config.maintenance.windows.<window>.cron` | five cron fields | yes | (0.29.0) When the window opens. |
+| `change_config.maintenance.windows.<window>.duration_minutes` | integer 1 to 1440 | yes | (0.29.0) How long it stays open. |
+| `change_config.maintenance.windows.<window>.tz` | time zone | yes | (0.29.0) `UTC` or an Area/City name. |
+| `change_config.maintenance.enter.argv` | list of string | no | (0.29.0) Enters maintenance. Requires `exit` and `verify`. |
+| `change_config.maintenance.enter.timeout_s` | integer | with enter | (0.29.0) Timeout. |
+| `change_config.maintenance.verify.argv` | list of string | with enter | (0.29.0) Confirms the maintenance state. |
+| `change_config.maintenance.verify.timeout_s` | integer | with verify | (0.29.0) Timeout. |
+| `change_config.maintenance.exit.argv` | list of string | with enter | (0.29.0) Leaves maintenance. Always runs, even on failure. |
+| `change_config.maintenance.exit.timeout_s` | integer | with exit | (0.29.0) Timeout. |
+| `change_config.operations.<op>.class` | `destructive_data`, `contracts_and_auth`, `money_and_sends`, `gate_config` or `routine` | yes | (0.29.0) The one-way-door class. It drives doctor and the notify text; every class needs both approval factors. |
+| `change_config.operations.<op>.runner` | runner name | yes | (0.29.0) A declared runner. |
+| `change_config.operations.<op>.argv` | list of string | yes | (0.29.0) The op command, no shell. Placeholders `{param}` only for declared params. |
+| `change_config.operations.<op>.cwd` | `repo` | no (default repo) | (0.29.0) The only working directory. |
+| `change_config.operations.<op>.params.<param>.type` | `string` | yes | (0.29.0) The param type. The request envelope carries string params only. |
+| `change_config.operations.<op>.params.<param>.pattern` | anchored regex | yes | (0.29.0) A string param is never free-form. Anchor with `^` and `$`. |
+| `change_config.operations.<op>.params.<param>.per_environment` | mapping | no | (0.29.0) Per-environment values for the staging attestation match. |
+| `change_config.operations.<op>.backup` | backup name | yes | (0.29.0) A declared backup. Every op needs one, whatever its class. |
+| `change_config.operations.<op>.maintenance` | window name | one of maintenance, online_safe | (0.29.0) A declared window the op waits for. |
+| `change_config.operations.<op>.online_safe.reason` | string | one of maintenance, online_safe | (0.29.0) Opt-out of the window. A written reason; doctor flags each one. |
+| `change_config.operations.<op>.verify.argv` | list of string | yes | (0.29.0) Verifies the op result. |
+| `change_config.operations.<op>.verify.timeout_s` | integer | yes | (0.29.0) Timeout. |
+| `change_config.operations.<op>.timeout_s` | integer 1 to 86400 | yes | (0.29.0) The op's hard timeout, part of the window budget. |
+| `change_config.operations.<op>.estimate.minutes` | number | no | (0.29.0) Informational only. |
+| `change_config.operations.<op>.estimate.cost_usd` | number | no | (0.29.0) Informational only. |
+| `change_config.operations.<op>.staging_first` | boolean | no | (0.29.0) Needs a passing staging run first. |
+| `change_policy.prod_guard.approval.via` | `approval_console` | yes | (0.29.0) Where approval happens. |
+| `change_policy.prod_guard.approval.factors` | `[passkey_uv, totp]` | yes | (0.29.0) Floor: both factors. |
+| `change_policy.prod_guard.approval.proof` | `remote` | yes | (0.29.0) Floor: a console-signed remote proof. |
+| `change_policy.prod_guard.approval.ttl_minutes` | integer 1 to 60 | no (default 30) | (0.29.0) Approval lifetime. |
+| `change_policy.prod_guard.dispatch_gate` | `github_environment` | no | (0.29.0) An optional reviewer before the job starts. Never counted as a factor. |
+| `change_policy.prod_guard.require_staging_first` | boolean | no | (0.29.0) Staging success before production. |
+| `change_policy.prod_guard.refuse_without_pitr` | `true` | no (default true) | (0.29.0) Floor: cannot be false. |
+| `change_policy.prod_guard.max_concurrent_ops` | `1` | no (default 1) | (0.29.0) Floor: cannot exceed 1. |
+
 ## Versioning and changelog
 
 The schema carries its own semantic version (`ChangeSchema::VERSION` in
@@ -1914,3 +1993,10 @@ root `RELEASING.md`.
 - 0.28.0: additive. The merge guard enforces
   `change_policy.admin_bypass.carve_out_paths`: a carve-out PR merges only at
   a phone-approved head with `--match-head-commit`. No new field.
+- 0.29.0: additive. Adds the bounded prod runner blocks:
+  `change_config.runners`, `backups`, `maintenance` and `operations`, and
+  `change_policy.prod_guard`, validated with schema-fixed floors (both approval
+  factors with a remote proof, PITR of at least 72 hours, a 7 day probe age, a
+  maintenance exit, a backup and a window or reasoned opt-out on every op).
+  `doctor` reports ops by class, opt-outs, missing probes and a hand-edited
+  `cf-prod.yml`.

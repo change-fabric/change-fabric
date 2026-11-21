@@ -1,0 +1,3 @@
+expect: "maintenance must name a window"
+patch:
+  change_config: { operations: { rotate_tenant_key: { maintenance: nightly } } }

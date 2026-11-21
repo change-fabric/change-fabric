@@ -1,0 +1,3 @@
+expect: "cron must be five"
+patch:
+  change_config: { maintenance: { windows: { weekday_night: { cron: soon } } } }

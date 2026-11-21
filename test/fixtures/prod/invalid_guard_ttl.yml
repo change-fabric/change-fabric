@@ -1,0 +1,3 @@
+expect: "ttl_minutes"
+patch:
+  change_policy: { prod_guard: { approval: { ttl_minutes: 600 } } }

@@ -1,0 +1,3 @@
+expect: "at least 72"
+patch:
+  change_config: { backups: { main_db: { pitr: { required_hours: 24 } } } }

@@ -1,0 +1,64 @@
+change_config:
+  runners:
+    prod:
+      kind: github_actions
+      workflow: .github/workflows/cf-prod.yml
+      region: us-east-1
+      claim_role: arn:aws:iam::333333333333:role/cf-prod-claim
+      claim_table: cf-approval-console
+      environments: { staging: staging, production: production }
+      oidc_roles:
+        staging: arn:aws:iam::111111111111:role/cf-staging
+        production: arn:aws:iam::222222222222:role/cf-prod
+  backups:
+    main_db:
+      kind: rds_snapshot
+      targets: { staging: app-staging, production: app-prod }
+      provider: aws_prod
+      verify: { argv: [scripts/verify_snapshot.sh], timeout_s: 600 }
+      pitr: { required_hours: 72 }
+      restore_probe: { schedule: weekly, argv: [scripts/restore_probe.sh], timeout_s: 3600, max_age_days: 7 }
+    dump_db:
+      kind: pg_dump_s3
+      target: app-dump
+      provider: aws_prod
+      verify: { argv: [scripts/verify_dump.sh], timeout_s: 600 }
+      pitr_source: main_db
+  maintenance:
+    windows:
+      weekday_night: { cron: "0 3 * * 1-5", duration_minutes: 60, tz: UTC }
+    enter: { argv: [pnpm, app, maint, "on"], timeout_s: 60 }
+    verify: { argv: [pnpm, app, maint, status], timeout_s: 30 }
+    exit: { argv: [pnpm, app, maint, "off"], timeout_s: 60 }
+  operations:
+    rotate_tenant_key:
+      class: contracts_and_auth
+      runner: prod
+      argv: [pnpm, app, ops, rotate-key, "{tenant_id}"]
+      cwd: repo
+      params:
+        tenant_id: { type: string, pattern: "^t_[0-9]+$" }
+      backup: main_db
+      maintenance: weekday_night
+      verify: { argv: [pnpm, app, ops, verify-key, "{tenant_id}"], timeout_s: 120 }
+      timeout_s: 900
+      estimate: { minutes: 5, cost_usd: 0 }
+      staging_first: true
+    redeploy_previous:
+      class: routine
+      runner: prod
+      argv: [pnpm, app, deploy, --ref, "{previous_release}"]
+      params:
+        previous_release: { type: string, pattern: "^v[0-9.]+$" }
+      backup: main_db
+      online_safe: { reason: "redeploys an already-released build" }
+      verify: { argv: [pnpm, app, health], timeout_s: 120 }
+      timeout_s: 1200
+      staging_first: true
+change_policy:
+  prod_guard:
+    approval: { via: approval_console, factors: [passkey_uv, totp], proof: remote, ttl_minutes: 30 }
+    dispatch_gate: github_environment
+    require_staging_first: true
+    refuse_without_pitr: true
+    max_concurrent_ops: 1

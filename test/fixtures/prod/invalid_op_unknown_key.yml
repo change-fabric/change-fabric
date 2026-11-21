@@ -1,0 +1,3 @@
+expect: "unknown key"
+patch:
+  change_config: { operations: { rotate_tenant_key: { sudo: true } } }

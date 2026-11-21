@@ -1,0 +1,3 @@
+expect: "type must be string"
+patch:
+  change_config: { operations: { rotate_tenant_key: { params: { tenant_id: { type: any } } } } }

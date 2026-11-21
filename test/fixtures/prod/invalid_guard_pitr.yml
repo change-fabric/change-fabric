@@ -1,0 +1,3 @@
+expect: "refuse_without_pitr"
+patch:
+  change_policy: { prod_guard: { refuse_without_pitr: false } }

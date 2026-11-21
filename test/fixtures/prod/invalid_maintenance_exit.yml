@@ -1,0 +1,3 @@
+expect: "exit is required"
+patch:
+  change_config: { maintenance: { exit: null } }
