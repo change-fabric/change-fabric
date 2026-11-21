@@ -1,0 +1,3 @@
+expect: "kind must be one of"
+patch:
+  change_config: { backups: { main_db: { kind: tar } } }

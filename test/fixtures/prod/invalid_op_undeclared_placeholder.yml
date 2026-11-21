@@ -1,0 +1,3 @@
+expect: "undeclared params: tenant"
+patch:
+  change_config: { operations: { rotate_tenant_key: { argv: [pnpm, "{tenant}"] } } }

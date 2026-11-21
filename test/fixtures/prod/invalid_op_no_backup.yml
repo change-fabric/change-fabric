@@ -1,0 +1,3 @@
+expect: "backup must name a declared backup"
+patch:
+  change_config: { operations: { rotate_tenant_key: { backup: null } } }

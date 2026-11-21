@@ -1,0 +1,3 @@
+expect: "runner must name a declared runner"
+patch:
+  change_config: { operations: { rotate_tenant_key: { runner: other } } }

@@ -1,0 +1,3 @@
+expect: "pitr_source"
+patch:
+  change_config: { backups: { dump_db: { pitr_source: null } } }

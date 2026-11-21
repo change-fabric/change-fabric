@@ -18,6 +18,24 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.29.0] - 2026-11-20
+
+Bounded prod runner keys. Additive for CHANGE.md: a file with none of the new
+blocks is unaffected.
+
+### Added
+
+- `change_config.runners`, `backups`, `maintenance` and `operations`, and
+  `change_policy.prod_guard`, validated by `scripts/change_prod_schema.rb`.
+  Floors: both approval factors (passkey with user verification and TOTP) with
+  a remote proof, PITR of at least 72 hours, a restore probe no older than 7
+  days, a maintenance exit and verify whenever there is an enter, a backup on
+  every op, a window or a reasoned `online_safe` opt-out on every op, typed
+  params with anchored patterns, argv placeholders only from declared params,
+  and one op at a time.
+- `doctor` lists ops by class, flags every `online_safe` opt-out and every
+  backup with no restore probe, and flags a hand-edited `cf-prod.yml`.
+
 ## [0.28.0] - 2026-11-20
 
 Carve-out enforcement. Additive for CHANGE.md: no new field.

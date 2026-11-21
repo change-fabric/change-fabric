@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.28.0'
+  VERSION = '0.29.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -52,6 +52,9 @@ module ChangeSchema
   #   <persona> any name under change_config.lanes.testcases.personas (0.22.0)
   #   <flags>, <metrics>, <cohort>, <rollout>, <verdict_source> (0.24.0): any
   #             name under that change_config.delivery map
+  #   <runner>, <backup>, <window>, <op>, <param> (0.29.0): any name under that
+  #             change_config.runners, backups, maintenance.windows, operations
+  #             or an op's params map
   #   []        a field on each item of a list
   FIELDS = [
     # The one field outside both change_config: and change_policy: (0.3.0):
@@ -599,6 +602,63 @@ module ChangeSchema
     'change_policy.trackers.<tracker>.locks.estimates',
     'change_policy.trackers.<tracker>.locks.move_between_boards',
     'change_policy.trackers.<tracker>.locks.rename',
+    # change_config.runners, backups, maintenance and operations plus
+    # change_policy.prod_guard (0.29.0): the bounded prod runner. Validated by
+    # ChangeProdSchema with schema-fixed floors.
+    'change_config.runners.<runner>.kind',
+    'change_config.runners.<runner>.workflow',
+    'change_config.runners.<runner>.environments.<profile>',
+    'change_config.runners.<runner>.oidc_roles.<profile>',
+    'change_config.runners.<runner>.region',
+    'change_config.runners.<runner>.claim_role',
+    'change_config.runners.<runner>.claim_table',
+    'change_config.backups.<backup>.kind',
+    'change_config.backups.<backup>.target',
+    'change_config.backups.<backup>.targets.<profile>',
+    'change_config.backups.<backup>.provider',
+    'change_config.backups.<backup>.verify.argv',
+    'change_config.backups.<backup>.verify.timeout_s',
+    'change_config.backups.<backup>.pitr.required_hours',
+    'change_config.backups.<backup>.pitr_source',
+    'change_config.backups.<backup>.restore_probe.schedule',
+    'change_config.backups.<backup>.restore_probe.argv',
+    'change_config.backups.<backup>.restore_probe.timeout_s',
+    'change_config.backups.<backup>.restore_probe.max_age_days',
+    'change_config.maintenance.windows.<window>.cron',
+    'change_config.maintenance.windows.<window>.duration_minutes',
+    'change_config.maintenance.windows.<window>.tz',
+    'change_config.maintenance.enter.argv',
+    'change_config.maintenance.enter.timeout_s',
+    'change_config.maintenance.verify.argv',
+    'change_config.maintenance.verify.timeout_s',
+    'change_config.maintenance.exit.argv',
+    'change_config.maintenance.exit.timeout_s',
+    'change_config.operations.<op>.class',
+    'change_config.operations.<op>.runner',
+    'change_config.operations.<op>.argv',
+    'change_config.operations.<op>.cwd',
+    'change_config.operations.<op>.params.<param>.type',
+    'change_config.operations.<op>.params.<param>.pattern',
+    'change_config.operations.<op>.params.<param>.min',
+    'change_config.operations.<op>.params.<param>.max',
+    'change_config.operations.<op>.params.<param>.per_environment',
+    'change_config.operations.<op>.backup',
+    'change_config.operations.<op>.maintenance',
+    'change_config.operations.<op>.online_safe.reason',
+    'change_config.operations.<op>.verify.argv',
+    'change_config.operations.<op>.verify.timeout_s',
+    'change_config.operations.<op>.timeout_s',
+    'change_config.operations.<op>.estimate.minutes',
+    'change_config.operations.<op>.estimate.cost_usd',
+    'change_config.operations.<op>.staging_first',
+    'change_policy.prod_guard.approval.via',
+    'change_policy.prod_guard.approval.factors',
+    'change_policy.prod_guard.approval.proof',
+    'change_policy.prod_guard.approval.ttl_minutes',
+    'change_policy.prod_guard.dispatch_gate',
+    'change_policy.prod_guard.require_staging_first',
+    'change_policy.prod_guard.refuse_without_pitr',
+    'change_policy.prod_guard.max_concurrent_ops',
     # change_policy.delivery (0.24.0): the governance joined to each
     # change_config.delivery rollout by name: guards, pacing, checkpoints
     # and the breach response, with floors ChangeDeliverySchema enforces.

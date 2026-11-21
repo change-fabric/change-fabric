@@ -28,6 +28,24 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.29.0": {
+    version: "0.29.0",
+    date: "2026-11-20",
+    headline: "Bounded prod runner keys: declared ops, backups and maintenance windows with fixed floors.",
+    highlights: [
+      {
+        title: "runners, backups, maintenance and operations",
+        body:
+          "Declare the ops an agent may request, the backup each one needs, and the window it runs in. A validator enforces both approval factors with a remote proof, PITR of at least 72 hours, a 7 day probe age, a maintenance exit, and a window or reasoned online_safe opt-out on every op.",
+      },
+      {
+        title: "Doctor reports the runner",
+        body:
+          "Doctor lists ops by class, flags every online_safe opt-out and every backup with no restore probe, and flags a hand-edited cf-prod.yml.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. A repo with none of the new blocks is unaffected.",
+  },
   "0.28.0": {
     version: "0.28.0",
     date: "2026-11-20",

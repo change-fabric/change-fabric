@@ -1,0 +1,3 @@
+expect: "verify"
+patch:
+  change_config: { backups: { main_db: { verify: null } } }

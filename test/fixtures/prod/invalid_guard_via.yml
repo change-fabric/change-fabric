@@ -1,0 +1,3 @@
+expect: "via must be approval_console"
+patch:
+  change_policy: { prod_guard: { approval: { via: terminal } } }

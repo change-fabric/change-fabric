@@ -1,0 +1,3 @@
+expect: "proof must be remote"
+patch:
+  change_policy: { prod_guard: { approval: { proof: passkey } } }

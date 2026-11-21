@@ -1,0 +1,3 @@
+expect: "verify is required"
+patch:
+  change_config: { maintenance: { verify: null } }

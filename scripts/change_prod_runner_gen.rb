@@ -20,8 +20,9 @@ require_relative 'change_prod_envelope'
 #
 # The production job is emitted only when `production_blockers` is empty. This
 # release has no op executor, so the blocker list is never empty: only staging
-# is generated. Config is read from a fixture or CHANGE.md frontmatter passed
-# on the command line, not yet from the 0.25.0 keys.
+# is generated. Config is the CHANGE.md frontmatter (or a fixture) passed on the
+# command line; the runner and operations keys are the 0.29.0 spec keys,
+# validated by ChangeProdSchema (reported by doctor).
 module ChangeProdRunnerGen
   class Refused < StandardError; end
 

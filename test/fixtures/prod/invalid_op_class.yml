@@ -1,0 +1,3 @@
+expect: "class must be one of"
+patch:
+  change_config: { operations: { rotate_tenant_key: { class: infra } } }

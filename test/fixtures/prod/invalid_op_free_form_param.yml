@@ -1,0 +1,3 @@
+expect: "pattern is required"
+patch:
+  change_config: { operations: { rotate_tenant_key: { params: { tenant_id: { type: string, pattern: null } } } } }
