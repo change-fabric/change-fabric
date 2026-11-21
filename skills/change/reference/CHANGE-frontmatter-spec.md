@@ -2024,6 +2024,6 @@ root `RELEASING.md`.
 - 0.31.0: additive. Maintenance windows for the bounded prod runner. Adds
   `change_config.runners.<runner>.reconcile_role` (the role the generated
   `cf-prod-reconcile.yml` assumes). The runner waits for a window, refuses an
-  op whose hard budget (enter, verify, op, op verify and exit timeouts) does
+  op whose hard budget (enter, verify twice, op, op verify and exit timeouts) does
   not fit what is left of it, writes a durable lease, and always runs exit.
   `maintenance.verify` is now read as exit 0 while maintenance is on.

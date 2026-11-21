@@ -147,15 +147,16 @@ module ChangeMaintenance
     command.is_a?(Hash) ? command['timeout_s'].to_i : 0
   end
 
-  # enter + verify + op timeout + op verify + exit. `estimate` is informational
-  # and never enters the sum. An op with no enter command runs none of the
-  # maintenance commands.
+  # enter + verify + op timeout + op verify + exit + verify. Maintenance verify
+  # runs twice (after enter, and again to confirm the exit), so it counts twice.
+  # `estimate` is informational and never enters the sum. An op with no enter
+  # command runs none of the maintenance commands.
   def budget_s(config, op_name)
     op = op_definition(config, op_name)
     raise Error, "op #{op_name} has no timeout_s" unless op['timeout_s'].to_i.positive?
 
     block = maintenance_block(config)
-    around = block['enter'] ? %w[enter verify exit].sum { |step| timeout_of(block[step]) } : 0
+    around = block['enter'] ? %w[enter verify exit verify].sum { |step| timeout_of(block[step]) } : 0
     around + op['timeout_s'].to_i + timeout_of(op['verify'])
   end
 
@@ -322,6 +323,9 @@ module ChangeMaintenance
       return refusal if refusal
 
       op = ChangeMaintenance.op_definition(@config, op_name)
+      # Rendered before any lease or enter: a bad param must not leave
+      # maintenance on.
+      commands = render(op, params)
       decision = await_window(op_name)
       return refuse(decision[:reason]) if decision[:action] == :refuse
 
@@ -333,10 +337,10 @@ module ChangeMaintenance
 
       if decision[:action] == :online_safe
         record('online_safe', reason: decision[:reason])
-        return mutate(op, params)
+        return mutate(op, commands)
       end
 
-      windowed(op, params, decision)
+      windowed(op, commands, decision)
     rescue ChangeMaintenance::Error => e
       refuse(e.message)
     end
@@ -361,14 +365,14 @@ module ChangeMaintenance
       ChangeMaintenance.plan(@config, op_name, @clock.call)
     end
 
-    def windowed(op, params, decision)
+    def windowed(op, commands, decision)
       block = ChangeMaintenance.maintenance_block(@config)
-      return mutate(op, params) unless block['enter']
+      return mutate(op, commands) unless block['enter']
 
       # The lease is durable before enter runs, so a runner lost inside enter
       # still leaves something the reconciler can find.
       record('maintenance_entered', expires_at: decision[:ends_at].utc.iso8601)
-      result = enter(block) || mutate(op, params)
+      result = enter(block) || mutate(op, commands)
       leave(block, result)
     end
 
@@ -378,9 +382,14 @@ module ChangeMaintenance
       refuse('maintenance did not verify as on after enter') unless command(block['verify'])
     end
 
-    def mutate(op, params)
+    def render(op, params)
       argv = ChangeMaintenance.render_argv(op.fetch('argv'), op['params'], params)
       verify = op['verify'] && ChangeMaintenance.render_argv(op['verify'].fetch('argv'), op['params'], params)
+      [ argv, verify ]
+    end
+
+    def mutate(op, commands)
+      argv, verify = commands
       record('launching')
       outcome = @executor.call(argv, timeout: op.fetch('timeout_s'), chdir: @repo)
       return uncertain(outcome.timed_out ? 'op timed out' : 'op failed') unless outcome.ok?
@@ -473,17 +482,35 @@ module ChangeMaintenance
     end
 
     def call
-      @journal.ids.filter_map do |id|
+      judged = @journal.ids.map do |id|
         entries = @journal.entries(id)
-        kind, reason = ChangeMaintenance.classify(entries, @now)
-        next if kind == :skip
+        [ id, entries, *ChangeMaintenance.classify(entries, @now) ]
+      end
+      judged.filter_map do |id, entries, kind, reason|
+        next if kind == :skip # a live lease is a run in progress, not an action
 
-        reason = exit_lease(id, entries) if kind == :exit
+        next Action.new(request_id: id, kind: :page, reason: reason) if kind == :page
+
+        holder = other_holder(judged, id, entries)
+        next Action.new(request_id: id, kind: :hold, reason: "maintenance stays on: #{holder} holds a lease in the same environment") if holder
+
+        reason = exit_lease(id, entries)
         Action.new(request_id: id, kind: reason == NOT_CONFIRMED ? :page : kind, reason: reason)
       end
     end
 
     private
+
+    # Another request in the same environment whose lease is live or paged:
+    # exiting maintenance now would disable it underneath that operation.
+    def other_holder(judged, id, entries)
+      environment = ChangeMaintenance.lease_of(entries)['environment']
+      other = judged.find do |other_id, other_entries, kind, _|
+        lease = ChangeMaintenance.lease_of(other_entries)
+        other_id != id && kind != :exit && lease && lease['environment'] == environment
+      end
+      other&.first
+    end
 
     NOT_CONFIRMED = 'exit not confirmed'
 

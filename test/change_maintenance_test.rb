@@ -16,8 +16,8 @@ class ChangeMaintenanceTest < Minitest::Test
   UUID = "0b9c3f0e-3a55-4c0a-9d5e-6f3a0b1c2d3e"
   # A Monday, 03:10 UTC: inside weekday_night (0 3 * * 1-5, 60 minutes).
   OPEN = Time.utc(2026, 11, 23, 3, 10, 0)
-  # Budget for rotate_tenant_key: 60 + 30 + 60 enter/verify/exit + 900 + 120.
-  BUDGET = 1170
+  # Budget for rotate_tenant_key: enter 60 + verify 30 twice + exit 60 + op 900 + op verify 120.
+  BUDGET = 1200
 
   class FakeExecutor
     attr_reader :calls
@@ -133,15 +133,21 @@ class ChangeMaintenanceTest < Minitest::Test
     assert_equal BUDGET, M.budget_s(cfg, "rotate_tenant_key")
   end
 
+  def test_the_maintenance_verify_timeout_counts_twice_since_it_confirms_enter_and_exit
+    cfg = config
+    cfg["change_config"]["maintenance"]["verify"]["timeout_s"] = 100
+    assert_equal BUDGET + 140, M.budget_s(cfg, "rotate_tenant_key")
+  end
+
   def test_an_open_window_that_holds_the_budget_runs
     assert_equal :run, M.plan(config, "rotate_tenant_key", OPEN)[:action]
   end
 
   def test_an_open_window_without_room_refuses
-    late = Time.utc(2026, 11, 23, 3, 50, 0) # 600s left, budget 1170
+    late = Time.utc(2026, 11, 23, 3, 50, 0) # 600s left, budget 1200
     decision = M.plan(config, "rotate_tenant_key", late)
     assert_equal :refuse, decision[:action]
-    assert_match(/600s left.*1170s budget/, decision[:reason])
+    assert_match(/600s left.*1200s budget/, decision[:reason])
   end
 
   def test_a_closed_window_waits_for_the_next_start
@@ -339,12 +345,13 @@ class ChangeMaintenanceTest < Minitest::Test
     end
   end
 
-  def test_a_bad_param_refuses_without_running
+  def test_a_bad_param_refuses_before_any_lease_or_maintenance_command
     with_journal do |journal|
       executor = maintenance_executor
       result = runner(journal, executor).execute("rotate_tenant_key", { "tenant_id" => "nope" })
       assert_equal "refused", result.state
-      refute executor.ran?("rotate-key")
+      assert_empty executor.calls
+      assert_equal %w[refused], states(journal)
     end
   end
 
@@ -454,6 +461,41 @@ class ChangeMaintenanceTest < Minitest::Test
       assert_equal [ :exit ], reconcile(journal, executor).map(&:kind)
       refute executor.ran?("maint off")
       assert_equal "maintenance_exited", states(journal).last
+    end
+  end
+
+  OTHER = "1c2d3e4f-0000-4000-8000-000000000001"
+
+  def test_it_does_not_exit_maintenance_under_another_live_lease
+    with_journal do |journal|
+      seed(journal, "maintenance_entered", "launching", "observed_complete") # expired, safe
+      journal.append(OTHER, { "state" => "maintenance_entered", "expires_at" => "2026-11-23T06:00:00Z", "environment" => "production" })
+      journal.append(OTHER, { "state" => "launching" })
+      executor = FakeExecutor.new
+      actions = reconcile(journal, executor)
+      assert_equal [ :hold ], actions.map(&:kind)
+      assert_match(/#{OTHER}/, actions.first.reason)
+      assert_empty executor.calls
+      assert M.lease_of(journal.entries(UUID))
+    end
+  end
+
+  def test_a_lease_in_another_environment_does_not_block_the_exit
+    with_journal do |journal|
+      seed(journal, "maintenance_entered")
+      journal.append(OTHER, { "state" => "maintenance_entered", "expires_at" => "2026-11-23T06:00:00Z", "environment" => "staging" })
+      executor = maintenance_executor
+      executor.call([ "pnpm", "app", "maint", "on" ])
+      assert_equal [ :exit ], reconcile(journal, executor).map(&:kind)
+    end
+  end
+
+  def test_it_does_not_exit_maintenance_under_a_paged_lease
+    with_journal do |journal|
+      seed(journal, "maintenance_entered")
+      journal.append(OTHER, { "state" => "maintenance_entered", "expires_at" => "2026-11-23T04:00:00Z", "environment" => "production" })
+      journal.append(OTHER, { "state" => "launching" })
+      assert_equal %i[hold page], reconcile(journal, FakeExecutor.new).map(&:kind).sort
     end
   end
 
