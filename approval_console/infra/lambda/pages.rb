@@ -250,18 +250,19 @@ module ConsolePages
 
   TYPE_TITLES = {
     'step' => 'Approve a gated step', 'override' => 'Override a merge or tag gate', 'prod-op' => 'Run a production operation',
-    'money' => 'Spend money', 'carve-out' => 'Merge a carve-out PR', 'release' => 'Publish a release'
+    'money' => 'Spend money', 'carve-out' => 'Merge a carve-out PR', 'release' => 'Publish a release', 'run-script' => 'Run a script on this machine'
   }.freeze
   DEFAULT_TITLE = 'Approve a request'
   # Risk comes from the signed type only, never from agent text or argv.
-  RISK = { 'step' => :standard, 'override' => :high, 'prod-op' => :high, 'money' => :high, 'carve-out' => :elevated, 'release' => :elevated }.freeze
+  RISK = { 'step' => :standard, 'override' => :high, 'prod-op' => :high, 'money' => :high, 'carve-out' => :elevated, 'release' => :elevated, 'run-script' => :high }.freeze
   RISK_WORDS = { standard: 'Standard', high: 'High risk', elevated: 'Elevated risk' }.freeze
   CONSEQUENCE = {
     'override' => 'Lifts a safety guard for this commit.',
     'prod-op' => 'Runs against production. The console shows the command, not what it will change.',
     'money' => 'Spends real money. The console shows the command, not the cost.',
     'carve-out' => 'Skips the normal review gates for this merge.',
-    'release' => 'Publishes a release that others can install.'
+    'release' => 'Publishes a release that others can install.',
+    'run-script' => 'Runs the script below, once, with no further prompt. Read all of it.'
   }.freeze
 
   HIDDEN = /[​-‏‪-‮⁦-⁩﻿]/
@@ -290,14 +291,16 @@ module ConsolePages
   VERIFIED_KEYS = %w[repo sha type created_at expires_at].freeze
   TECHNICAL_KEYS = %w[machine_id request_id profile v pr_url].freeze
   TYPED_VERIFIED = {
-    'override' => %w[scope], 'prod-op' => %w[argv], 'money' => %w[argv], 'carve-out' => %w[base files], 'release' => %w[tag commit]
+    'override' => %w[scope], 'prod-op' => %w[argv], 'money' => %w[argv], 'carve-out' => %w[base files], 'release' => %w[tag commit],
+    'run-script' => %w[script_sha256 script_path script_text account]
   }.freeze
-  VERIFIED_ORDER = %w[repo sha tag commit base scope items argv type created_at expires_at files].freeze
-  AGENT_ORDER = %w[pr_title summary reason items].freeze
+  VERIFIED_ORDER = %w[repo sha tag commit base scope account script_path script_sha256 script_text items argv type created_at expires_at files].freeze
+  AGENT_ORDER = %w[pr_title title summary reason items].freeze
   LABELS = {
     'repo' => 'Repo', 'sha' => 'Commit', 'tag' => 'Tag', 'commit' => 'Release commit', 'base' => 'Base', 'scope' => 'Scope',
     'type' => 'Type', 'created_at' => 'Created', 'expires_at' => 'Expires', 'pr_title' => 'PR title', 'summary' => 'Summary',
-    'reason' => 'Reason'
+    'reason' => 'Reason', 'title' => 'Title', 'account' => 'AWS account', 'script_path' => 'Script path',
+    'script_sha256' => 'Script SHA-256', 'script_text' => 'Script'
   }.freeze
 
   # The zone that holds a body leaf. Anything not named as signed and
@@ -365,6 +368,14 @@ module ConsolePages
     %(<ul class="mono">#{argv.each_with_index.map { |token, i| "<li>#{leaf([ 'argv', i ], token, 'code')}</li>" }.join}</ul>)
   end
 
+  # The whole script, rendered from the signed bytes, never cut short: the
+  # approver reads exactly what will run.
+  def script_block(text)
+    %(<pre class="script" data-field="script_text">#{txt(text)}</pre>)
+  end
+
+  def account_text(body) = body['account'].nil? ? 'no AWS account' : "AWS account #{body['account']}"
+
   def step_verified_rows(items)
     items.each_with_index.flat_map do |item, i|
       next [] unless item.is_a?(Hash)
@@ -402,6 +413,8 @@ module ConsolePages
       case key
       when 'files' then [ row('Files', files_block(value)) ]
       when 'argv' then [ row('Command', argv_block(value)) ]
+      when 'script_text' then [ row(LABELS.fetch(key), script_block(value)) ]
+      when 'account' then [ row(LABELS.fetch(key), "<code data-field=\"account\">#{txt(value.nil? ? 'none' : value)}</code>") ]
       when 'items' then value.is_a?(Array) ? step_verified_rows(value) : []
       else [ row(LABELS.fetch(key), nested([ key ], value, key.end_with?('_at') ? 'time' : 'code')) ]
       end
@@ -468,6 +481,7 @@ module ConsolePages
     when 'money' then "Spend via: #{command_text(body, 80)} (#{repo} at #{sha7})"
     when 'carve-out' then "Merge #{pr_number(body) ? "PR ##{pr_number(body)}" : 'a PR'} into #{body['base']} at #{sha7} (#{plural(Array(body['files']).size, 'file')})"
     when 'release' then "Publish #{body['tag']} at #{body['commit'].to_s[0, 7]}"
+    when 'run-script' then "Run #{File.basename(body['script_path'].to_s)} (#{body['script_sha256'].to_s[0, 12]}) at #{sha7} against #{account_text(body)} (#{repo})"
     else "Approve a #{body['type']} request at #{sha7}"
     end
   end
@@ -480,6 +494,7 @@ module ConsolePages
     when 'prod-op', 'money' then command_text(body, 200)
     when 'carve-out' then "Carve-out · PR ##{pr_number(body) || '?'} · #{sha7}"
     when 'release' then "Release · #{body['tag']}"
+    when 'run-script' then "Run script · #{body['account'] || 'no account'} · #{sha7}"
     else "Request · #{sha7}"
     end
   end

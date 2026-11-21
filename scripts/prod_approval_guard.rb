@@ -48,6 +48,9 @@ class ProdApprovalGuard
     list = words(command)
     stream = stream_denial(list)
     return stream if stream
+
+    queued = queue_denial(list, command)
+    return queued if queued
     return unless MARKERS.any? { |marker| command.include?(marker) }
 
     inspect_words(list, command)
@@ -79,6 +82,79 @@ class ProdApprovalGuard
 
     nil
   end
+
+  QUEUE = %r{cf/manual/queue/}
+  QUEUE_DIR = %r{cf/manual/queue/?\z}
+  SCRIPT_FILE = /\.(?:sh|rb)\z/
+  QUEUED_NAME = /\A(?:\.\/)?\d{4}-[\w.-]+\.(?:sh|rb)\z/
+  RUNNER_CLI = 'cf_run_approved.rb'
+  INTERPRETERS = %w[bash sh zsh dash ksh source . ruby python python3 node perl].freeze
+  WRAPPERS = %w[env time nohup sudo command exec xargs nice].freeze
+  OPTION_VALUES = %w[-o +o -O +O -I -r].freeze
+  SEGMENT_BREAKS = /&&|\|\||[;&|\n`()]|\$\(/
+  CHAINING = /[;&|<>`\n]|\$\(/
+
+  # A script queued under ~/.claude/cf/manual/queue/ runs only through
+  # `ruby cf_run_approved.rb <script>`, which needs Patrick's phone approval of
+  # that exact script text. Running one any other way (interpreter with or
+  # without options, ./path, source) is denied. Reading or listing the queue
+  # stays open. A loud guardrail, not a sandbox: the agent's own shell is the limit.
+  def queue_denial(list, command)
+    @in_queue = @event['cwd'].to_s.match?(QUEUE_DIR)
+    return nil unless @in_queue || command.include?('manual/queue')
+    return nil if runner_only?(list, command)
+
+    return piped_denial if piped_or_redirected?(command)
+
+    segment = command.gsub(/\d*[<>]&\d*-?|&>>?/, ' ').split(SEGMENT_BREAKS).map { |part| part.tr(%q('"), ' ').split }.find { |words| runs_queued?(words) }
+    segment && 'a shell command running a queued script directly: queued scripts run only through ' \
+               "`ruby #{RUNNER_CLI} <script>` after a phone run-script approval"
+  end
+
+  PIPED_DENIAL = 'a queued script fed to a shell through a pipe or redirection: queued scripts run only through ' \
+                 '`ruby cf_run_approved.rb <script>` after a phone run-script approval'
+
+  # `bash < <queued>` and `cat <queued> | bash`: the script reaches an
+  # interpreter on stdin, so no argument names it.
+  def piped_or_redirected?(command)
+    shells = INTERPRETERS.map { |name| Regexp.escape(name) }.join('|')
+    wrappers = WRAPPERS.join('|')
+    command.match?(%r{(?:\A|[\s;&|(])(?:#{shells})\b[^;&|\n]*<[^<]*cf/manual/queue/}) ||
+      (command.match?(/\|\s*(?:(?:#{wrappers})\s+)*(?:#{shells})\b/) && command.match?(QUEUE))
+  end
+
+  def piped_denial = PIPED_DENIAL
+
+  def runner_only?(list, command)
+    !command.match?(CHAINING) && list.first.to_s.end_with?('ruby') && File.basename(list[1].to_s) == RUNNER_CLI
+  end
+
+  # Whether one simple command runs a queued script: its command word (after
+  # variable assignments and wrappers such as env or time) is the script, or it
+  # is an interpreter whose script operand (the first argument that is not an
+  # option or an option's value) is one. A queued path that is only some other
+  # argument, such as `approval_console.rb request --script <queued>`, is a read.
+  def runs_queued?(words)
+    words = words.drop_while { |word| word.match?(/\A\w+=/) || WRAPPERS.include?(File.basename(word)) || word.start_with?('-') }
+    return false if words.empty?
+    return true if queued_word?(words.first)
+
+    # An interpreter in command position, also inside `sh -c '...'`.
+    words.each_index.any? do |i|
+      command_position = i.zero? || words[i - 1] == '-c' || WRAPPERS.include?(File.basename(words[i - 1]))
+      command_position && INTERPRETERS.include?(File.basename(words[i])) && queued_word?(script_operand(words.drop(i + 1)).to_s)
+    end
+  end
+
+  def script_operand(args)
+    args = args.reject { |arg| arg.match?(/\A\d*[<>&]/) }
+    args.shift(OPTION_VALUES.include?(args.first) ? 2 : 1) while args.first&.start_with?('-', '+')
+    args.first
+  end
+
+  # A word naming a queued script: a path into the queue, a queue-style name, or
+  # (when the shell is already in the queue dir) any script file there.
+  def queued_word?(word) = word.match?(QUEUE) || word.match?(QUEUED_NAME) || (@in_queue && word.match?(SCRIPT_FILE))
 
   # The argument run after each `gh api`.
   def api_calls(list)

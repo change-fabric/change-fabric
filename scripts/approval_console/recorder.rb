@@ -9,6 +9,7 @@ require_relative '../change_policy'
 require_relative '../change_override_store'
 require_relative '../change_carve_out_store'
 require_relative '../change_release_store'
+require_relative '../change_run_script_store'
 
 module ApprovalConsole
   # The one writer of every phone approval record. Given a console proof and
@@ -22,6 +23,7 @@ module ApprovalConsole
   #   override  ChangeOverrideStore   sha + profile
   #   carve-out ChangeCarveOutStore   repo + PR number + head sha
   #   release   ChangeReleaseStore    repo + tag + sha
+  #   run-script ChangeRunScriptStore repo + script sha256 + sha
   #
   # `authority` is a ChangePolicy::Authority (policy and policy_sha) from the
   # base or default branch, never the working tree.
@@ -88,7 +90,12 @@ module ApprovalConsole
         "the override reason is under #{MIN_REASON} characters" if expected['reason'].to_s.strip.length < MIN_REASON
       when 'carve-out' then carve_out_problem(expected)
       when 'release' then 'release needs a tag' if expected['tag'].to_s.strip.empty?
+      when 'run-script' then run_script_problem(expected)
       end
+    end
+
+    def run_script_problem(expected)
+      'run-script needs a 64-hex script_sha256' unless expected['script_sha256'].to_s.match?(/\A[0-9a-f]{64}\z/)
     end
 
     def carve_out_problem(expected)
@@ -128,6 +135,12 @@ module ApprovalConsole
       store(:release, ChangeReleaseStore).record(repo: expected['repo'], tag: expected['tag'], sha: expected['sha'], proof: proof,
                                                  policy_sha: policy_sha, recorded_by: @recorded_by)
       "release #{expected['tag']} at #{expected['sha'][0, 12]}"
+    end
+
+    def write_run_script(proof, expected)
+      store(:run_script, ChangeRunScriptStore).record(repo: expected['repo'], script_sha256: expected['script_sha256'], sha: expected['sha'],
+                                                      proof: proof, policy_sha: policy_sha, recorded_by: @recorded_by)
+      "run-script #{File.basename(expected['script_path'].to_s)} (#{expected['script_sha256'][0, 12]}) at #{expected['sha'][0, 12]}"
     end
 
     def approvals(sha) = @stores[:approval]&.call(sha) || ChangeApprovalStore.new(sha)

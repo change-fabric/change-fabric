@@ -1,0 +1,15 @@
+{
+  "type": "run-script",
+  "machine_id": "4f2a91c0-7b3d-4e58-9a16-2c8d5e0f7b34",
+  "repo": "repo:github.com/example-org/billing-api",
+  "sha": "9f1c2ab4d8e03a76b15c9e2f40d37a8c6b1e5d90",
+  "profile": null,
+  "request_id": "8c03d7e1-52fa-4b96-a0d3-6e1f9b27c845",
+  "created_at": "2026-11-20T21:28:04Z",
+  "expires_at": "2026-11-20T21:43:04Z",
+  "title": "Redeploy the approval console",
+  "account": "569032832755",
+  "script_path": "/Users/example/.claude/cf/manual/queue/0016-approval-console-redeploy.sh",
+  "script_text": "#!/usr/bin/env bash\nset -euo pipefail\n# Redeploy the approval console from one merged commit.\napproval_console/infra/redeploy.sh 9f1c2ab4d8e03a76b15c9e2f40d37a8c6b1e5d90\n",
+  "script_sha256": "27edf08bb2459716a19dc0b5a75ed8982d61d7d13839bf067b4a501467482e52"
+}

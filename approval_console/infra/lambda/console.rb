@@ -31,7 +31,7 @@ class ApprovalConsoleApp
   REC_TTL = 30 * 86_400
   UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
   MACHINE_ROUTE = %r{\A/m/(?<mid>#{UUID})(?<rest>/.*)?\z}
-  REQUEST_ROUTE = %r{\A/r/(?<rid>#{UUID})(?<tail>/approve|/proof)?\z}
+  REQUEST_ROUTE = %r{\A/r/(?<rid>#{UUID})(?<tail>/approve|/proof|/consume)?\z}
   ERRORS = [ JSON::ParserError, Verifier::Reject, Cbor::Error, OpenSSL::OpenSSLError, ArgumentError, KeyError, Canonical::Invalid ].freeze
 
   class HttpError < StandardError
@@ -117,6 +117,7 @@ class ApprovalConsoleApp
     when [ 'GET', nil ] then approve_page(req, mid, rid)
     when [ 'POST', '/approve' ] then approve(req, mid, rid)
     when [ 'GET', '/proof' ] then proof(req, mid, rid)
+    when [ 'POST', '/consume' ] then consume(req, mid, rid)
     else raise HttpError.new(404, 'not_found')
     end
   end
@@ -526,6 +527,27 @@ class ApprovalConsoleApp
     item = @store.get(pk(mid), "REQ##{rid}") or raise HttpError.new(404, 'not_found')
     pending = item['status'] == 'pending'
     json(200, status: pending && item['valid_until'].to_i <= now.to_i ? 'expired' : item['status'])
+  end
+
+  # ----- consume (CLI, run-script only) ----------------------------------
+
+  # A run-script receipt is single-use and good for RUN_SCRIPT_LIFETIME seconds
+  # from its signed accepted_at. The runner marks it consumed before the script
+  # starts; a second mark, or one after the window, is refused. The mark is one
+  # conditional write, so two racing runners cannot both win.
+  def consume(req, mid, rid)
+    authenticate!(req, mid)
+    item = @store.get(pk(mid), "REQ##{rid}") or raise HttpError.new(404, 'not_found')
+    raise HttpError.new(409, 'not_consumable') unless item['type'] == 'run-script'
+
+    rec = @store.get(pk(mid), "REC##{rid}") or raise HttpError.new(409, 'not_approved')
+    raise HttpError.new(409, 'consumed') if rec['consumed_at']
+    raise HttpError.new(410, 'expired') if now.to_i - Time.iso8601(rec['created_at']).to_i >= Canonical::RUN_SCRIPT_LIFETIME
+
+    marked = @store.transact([ { op: :put, item: rec.merge('consumed_at' => stamp(now)), expect: { 'consumed_at' => nil } } ])
+    raise HttpError.new(409, 'consumed') unless marked
+
+    json(200, status: 'consumed', request_id: rid)
   end
 
   # ----- terminal approvals and sync (machine signed) --------------------

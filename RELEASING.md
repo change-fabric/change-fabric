@@ -34,12 +34,20 @@ version.
      | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
    ```
 
-3. From an up to date `main`, tag and push it:
+3. From an up to date `main`, tag it, get Patrick's phone approval, and push.
+   The agent runs this; nothing is typed in a terminal:
 
    ```
    git tag -a skills/vX.Y.Z -m skills/vX.Y.Z
+   ruby scripts/approval_console.rb request --type release --tag skills/vX.Y.Z --sha "$(git rev-parse HEAD)"
+   # Patrick approves on the phone; then record it and push
+   ruby scripts/approval_console.rb record <request_id>
    git push origin skills/vX.Y.Z
    ```
+
+   `change_tag_guard.rb` refuses the push without a release approval for this
+   exact tag and commit, under 24h old, and without a passing cf:change run.
+   The same applies to the `spec/v*`, `site/v*` and `app/v*` tags below.
 
    `release-skills.yml` rejects the tag unless it is plain `MAJOR.MINOR.PATCH`,
    newly created rather than moved, and strictly greater than every existing
@@ -47,8 +55,8 @@ version.
    the commits since the previous toolkit tag. The same tag drives the
    Homebrew tap with no PR: `bump-tap-formula.yml` rewrites, builds, and tests
    the formula, then pushes it to the tap's main. `tap-drift.yml` fails daily
-   and keeps an issue open while the tap trails the newest tag. The one manual
-   command is `~/.claude/cf/manual/release-toolkit.sh`.
+   and keeps an issue open while the tap trails the newest tag. The tag push is
+   the only step; there is no manual script.
 
 A toolkit tag releases everything on `main` at that commit, so pick the number
 from what actually landed since the last one: a new skill or hook is a minor, a
@@ -216,3 +224,30 @@ can authenticate.
 The spec is at 0.6.0 with no tag behind it, so the first `site/v*` push will
 fail its spec guard until `spec/v0.6.0` is cut. Cutting it is the intended
 bootstrap step, not a workaround.
+
+## Approved scripts and break-glass
+
+Any script Patrick would otherwise run by hand (a release, a console redeploy,
+a queued `~/.claude/cf/manual/queue/` script) is a phone-approved `run-script`:
+
+```
+ruby scripts/approval_console.rb request --type run-script --script <queued-script> --title "<what it does>" [--account <12-digit id>]
+ruby scripts/approval_console.rb record <request_id>
+ruby scripts/cf_run_approved.rb <queued-script>
+```
+
+The phone shows the whole script text, the commit and the AWS account. The
+runner refuses unless the script on disk hashes to the approved text, this
+checkout is on the approved commit, the receipt is under 15 minutes old and
+unused, and the current AWS account matches. It consumes the receipt on the
+console and in a local ledger, runs the script with no tty, then moves it to
+`queue/done/`. The hooks deny running a queued script any other way. Execution
+is local only.
+
+Break-glass: a console redeploy changes the console that approves, so it keeps
+a manual path. `approval_console/infra/redeploy.sh <sha>` and the other
+queued scripts need no console and no receipt: Patrick runs them from a real
+terminal. If a run-script redeploys the console and the console is then down,
+run `redeploy.sh` (or the previous good commit) by hand the same way. The
+runner fails closed while the console is unreachable, so nothing queued runs
+through it until the console is back.

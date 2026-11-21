@@ -25,6 +25,48 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "echo 1 | ruby change_prod_approve.rb abc"
   end
 
+  def test_queued_scripts_run_only_through_the_approved_runner
+    runner = "ruby ~/code/change-fabric/change-fabric/scripts/cf_run_approved.rb"
+    assert_allowed "#{runner} ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_allowed "ls ~/.claude/cf/manual/queue"
+    assert_allowed "cat ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "sh -c 'bash ~/.claude/cf/manual/queue/0016-redeploy.sh'"
+    assert_denied "source ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "cd ~/.claude/cf/manual/queue && ./0016-redeploy.sh"
+    assert_denied "ruby ~/.claude/cf/manual/queue/0016-x.rb"
+    assert_denied "bash -e ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash -o pipefail -x ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "env FOO=1 bash -eu ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "FOO=1 nohup sh ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "cd ~/.claude/cf/manual/queue;./0016-redeploy.sh"
+    assert_allowed "grep bash ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash < ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash 2>/dev/null ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "bash -e 2>&1 >/dev/null ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "sh -e <~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "cat ~/.claude/cf/manual/queue/0016-redeploy.sh | bash"
+    assert_denied "cat ~/.claude/cf/manual/queue/0016-redeploy.sh | sudo sh -s"
+    assert_allowed "cat ~/.claude/cf/manual/queue/0016-redeploy.sh | head -5"
+    assert_allowed "ruby scripts/approval_console.rb request --type run-script --script ~/.claude/cf/manual/queue/0016-redeploy.sh --title redeploy"
+    assert_denied "bash -c -e ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_allowed "ls -la ~/.claude/cf/manual/queue | head"
+    assert_denied "#{runner} ~/.claude/cf/manual/queue/0016-redeploy.sh; bash ~/.claude/cf/manual/queue/0017-x.sh"
+  end
+
+  def test_a_shell_already_in_the_queue_dir_cannot_run_scripts_by_relative_path
+    queue = File.join(Dir.home, ".claude/cf/manual/queue")
+    assert_denied_in "./0016-redeploy.sh", queue
+    assert_denied_in "bash -e 0016-redeploy.sh", queue
+    assert_denied_in "bash custom-name.sh", queue
+    assert_allowed "./0016-redeploy.sh", cwd: Dir.pwd
+    assert_allowed "ls", cwd: queue
+    assert_allowed "ruby ~/code/change-fabric/change-fabric/scripts/cf_run_approved.rb 0016-redeploy.sh", cwd: queue
+  end
+
+  def assert_denied_in(command, cwd) = assert_equal("deny", decide(command, cwd: cwd), "#{command} in #{cwd}")
+
   def test_denies_approving_a_pending_deployment
     assert_denied "gh api repos/o/r/actions/runs/123/pending_deployments -X POST -f state=approved"
     assert_denied "gh api repos/o/r/actions/runs/123/pending_deployments"

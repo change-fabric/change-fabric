@@ -108,6 +108,27 @@ class ApprovalConsoleCanonicalTest < Minitest::Test
     assert_raises(Canonical::Invalid) { Canonical.build(base.merge(carve_out_attrs.except(:files))) }
   end
 
+  def run_script_attrs(text: "echo hi\n", **over)
+    { type: "run-script", script_text: text, script_sha256: Digest::SHA256.hexdigest(text.b), script_path: "/q/0001-x.sh", title: "x", account: nil,
+      expires_at: "2026-11-18T12:15:00Z" }.merge(over)
+  end
+
+  def test_run_script_signs_the_hash_the_text_the_path_and_the_account
+    base = step_attrs.reject { |key, _| key == :items }
+    body = Canonical.parse(Canonical.build(base.merge(run_script_attrs(account: "123456789012"))))
+    assert_equal [ "123456789012", "/q/0001-x.sh", "echo hi\n" ], body.values_at("account", "script_path", "script_text")
+    assert_nil Canonical.parse(Canonical.build(base.merge(run_script_attrs)))["account"]
+    [ { script_sha256: "0" * 64 }, { account: "12345" }, { title: " " }, { script_path: "" }, { script_text: " ", script_sha256: Digest::SHA256.hexdigest(" ") } ].each do |bad|
+      assert_raises(Canonical::Invalid, bad.inspect) { Canonical.build(base.merge(run_script_attrs.merge(bad))) }
+    end
+  end
+
+  def test_run_script_lifetime_is_capped_at_fifteen_minutes
+    base = step_attrs.reject { |key, _| key == :items }
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(run_script_attrs(expires_at: "2026-11-18T12:15:01Z"))) }
+    assert Canonical.build(base.merge(run_script_attrs))
+  end
+
   def test_release_signs_the_tag_and_the_commit_it_points_at
     base = step_attrs.reject { |key, _| key == :items }
     body = Canonical.parse(Canonical.build(base.merge(type: "release", tag: "skills/v1.2.3", commit: base[:sha])))

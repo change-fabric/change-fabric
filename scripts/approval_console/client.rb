@@ -54,6 +54,10 @@ module ApprovalConsole
 
     def create_request(body) = call('POST', machine_path('/requests'), 'body' => body)
 
+    # Marks a run-script receipt consumed on the console (single use). Raises
+    # Refused 409 when it was already consumed and 410 when it has expired.
+    def consume(request_id) = call('POST', machine_path("/r/#{request_id}/consume"), {})
+
     def proof(request_id) = call('GET', machine_path("/r/#{request_id}/proof"), nil)
 
     def terminal_approve(body, code) = call('POST', machine_path('/terminal-approve'), 'body' => body, 'code' => code)

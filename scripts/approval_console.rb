@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'digest'
 require 'open3'
 require 'optparse'
 require 'securerandom'
@@ -73,13 +74,13 @@ module ApprovalConsoleCli
 
   def usage(stderr)
     stderr.puts 'usage: approval_console.rb totp-enroll | enroll --url URL --profile NAME | ' \
-                'request --type prod-op|carve-out|money|release|override [--summary TEXT] [--pr-url URL] [--tag TAG] ' \
+                'request --type prod-op|carve-out|money|release|override|run-script [--summary TEXT] [--script PATH --title TEXT [--account ID]] [--pr-url URL] [--tag TAG] ' \
                 '[--reason TEXT] [--scope merge|tag] [--profile NAME] [--sha SHA] [--no-wait] [-- argv...] | ' \
                 'wait <request_id> | record <request_id> [--repo PATH] | sync | verify <sha> [--repo PATH] [--profile NAME] | status | unlock'
     1
   end
 
-  REQUEST_TYPES = %w[prod-op carve-out money release override].freeze
+  REQUEST_TYPES = %w[prod-op carve-out money release override run-script].freeze
   SUMMARY_TYPES = %w[prod-op carve-out money].freeze
 
   # Asks the console to approve one high-risk action, bound to this repo, its
@@ -117,6 +118,9 @@ module ApprovalConsoleCli
       o.on('--pr-url URL') { |value| opts[:pr_url] = value }
       o.on('--sha SHA') { |value| opts[:sha] = value }
       o.on('--tag TAG') { |value| opts[:tag] = value }
+      o.on('--script PATH') { |value| opts[:script] = value }
+      o.on('--title TEXT') { |value| opts[:title] = value }
+      o.on('--account ID') { |value| opts[:account] = value }
       o.on('--reason TEXT') { |value| opts[:reason] = value }
       o.on('--scope SCOPE', ApprovalConsole::Canonical::SCOPES) { |value| opts[:scope] = value }
       o.on('--profile NAME') { |value| opts[:profile] = value }
@@ -146,6 +150,7 @@ module ApprovalConsoleCli
     case opts[:type]
     when 'carve-out' then 'carve-out needs --pr-url' if opts[:pr_url].to_s.empty?
     when 'release' then 'release needs --tag' if opts[:tag].to_s.strip.empty?
+    when 'run-script' then run_script_refusal(opts)
     when 'override'
       min = ApprovalConsole::Recorder::MIN_REASON
       "override needs a --reason of at least #{min} characters" if opts[:reason].to_s.strip.length < min
@@ -155,6 +160,7 @@ module ApprovalConsoleCli
 
   def request_attrs(opts, gh = nil)
     root = File.expand_path(opts[:repo] || Dir.pwd)
+    return run_script_attrs(opts, root) if opts[:type] == 'run-script'
     return carve_out_attrs(opts, gh || ChangePrFacts.method(:gh)) if opts[:type] == 'carve-out'
 
     attrs = { 'type' => opts[:type], 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root),
@@ -164,6 +170,26 @@ module ApprovalConsoleCli
     when 'override' then attrs.merge({ 'reason' => opts[:reason] }, opts[:scope] ? { 'scope' => opts[:scope] } : {})
     else attrs.merge('summary' => opts[:summary], 'argv' => opts[:argv])
     end
+  end
+
+  def run_script_refusal(opts)
+    return 'run-script needs --script PATH to an existing file' unless opts[:script] && File.file?(File.expand_path(opts[:script]))
+    return 'run-script needs a --title' if opts[:title].to_s.strip.empty?
+    return '--account must be a 12-digit AWS account id' unless opts[:account].nil? || opts[:account].to_s.match?(ApprovalConsole::Canonical::ACCOUNT)
+
+    nil
+  end
+
+  # The phone shows the whole script, so the body carries the exact bytes read
+  # here; the runner re-hashes the file on disk and refuses on any difference.
+  def run_script_attrs(opts, root)
+    path = File.expand_path(opts[:script])
+    text = File.binread(path).force_encoding(Encoding::UTF_8)
+    raise RequestRefused, 'the script is not valid UTF-8 text' unless text.valid_encoding?
+
+    { 'type' => 'run-script', 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root), 'profile' => opts[:profile],
+      'script_sha256' => Digest::SHA256.hexdigest(text.b), 'script_path' => path, 'script_text' => text, 'title' => opts[:title],
+      'account' => opts[:account] }
   end
 
   # The sha is the PR's head as GitHub reports it, never the working tree's

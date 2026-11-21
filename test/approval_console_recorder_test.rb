@@ -64,6 +64,20 @@ class ApprovalConsoleRecorderTest < Minitest::Test
     assert_nil ChangeOverrideStore.new(SHA).read, "another profile's key stays empty"
   end
 
+  def run_script_attrs(text: "echo hi\n")
+    { "type" => "run-script", "repo" => REPO, "sha" => SHA, "profile" => nil, "title" => "hi", "account" => nil,
+      "script_sha256" => Digest::SHA256.hexdigest(text.b), "script_path" => "/q/0001-hi.sh", "script_text" => text }
+  end
+
+  def test_a_run_script_routes_to_the_run_script_store_by_repo_hash_and_commit
+    attrs = run_script_attrs
+    result = record(attrs)
+    assert_predicate result, :ok?, result.error
+    stored = ChangeRunScriptStore.new.lookup(repo: REPO, script_sha256: attrs["script_sha256"], sha: SHA)
+    assert_equal POLICY_SHA, stored["policy_sha"]
+    assert_nil ChangeRunScriptStore.new.lookup(repo: REPO, script_sha256: "0" * 64, sha: SHA)
+  end
+
   def test_a_carve_out_routes_to_the_carve_out_store_by_repo_pr_and_head
     result = record(carve_out_attrs)
     assert_predicate result, :ok?, result.error

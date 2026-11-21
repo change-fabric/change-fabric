@@ -455,4 +455,48 @@ class ApprovalConsoleRecordVerbTest < Minitest::Test
     assert_match(/rpId pin/, err)
     assert_nil ChangeOverrideStore.new(SHA).read
   end
+
+  # The host-health preflight wants the read guard installed.
+  def healthy_host
+    guard = File.join(@home, ApprovalConsole::HostHealth::GUARD)
+    FileUtils.mkdir_p(File.dirname(guard))
+    File.write(guard, "")
+    yield
+  end
+
+  def test_a_run_script_request_signs_the_exact_bytes_then_record_stores_it
+    checkout = File.join(@home, "widgets")
+    FileUtils.mkdir_p(checkout)
+    script = File.join(@home, "0001-hi.sh")
+    File.write(script, "echo hi\n")
+    [ [ "init", "-q", "-b", "main" ], [ "remote", "add", "origin", "https://github.com/acme/widgets.git" ],
+      [ "-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "c" ] ].each { |args| system("git", "-C", checkout, *args, exception: true) }
+    head = `git -C #{checkout} rev-parse HEAD`.strip
+    argv = [ "request", "--type", "run-script", "--script", script, "--title", "say hi", "--repo", checkout, "--no-wait" ]
+    healthy_host do
+      status, out, err = cli(argv)
+      assert_equal 0, status, err
+      rid = JSON.parse(out)["request_id"]
+      body = ApprovalConsole::Canonical.parse(@store.saved_request(rid))
+      assert_equal [ "run-script", head, "echo hi\n", Digest::SHA256.hexdigest("echo hi\n"), script, nil ],
+                   body.values_at("type", "sha", "script_text", "script_sha256", "script_path", "account")
+      status, out, err = cli([ "record", rid, "--repo", checkout ])
+      assert_equal 0, status, err
+      assert_match(/recorded run-script 0001-hi.sh/, out)
+    end
+  end
+
+  def test_a_run_script_request_refuses_a_missing_script_a_missing_title_and_a_bad_account
+    script = File.join(@home, "x.sh")
+    File.write(script, "echo\n")
+    healthy_host do
+      [ [ [ "--script", File.join(@home, "nope.sh"), "--title", "t" ], /needs --script PATH/ ],
+        [ [ "--script", script ], /needs a --title/ ],
+        [ [ "--script", script, "--title", "t", "--account", "12" ], /12-digit/ ] ].each do |extra, pattern|
+        status, _out, err = cli([ "request", "--type", "run-script", "--no-wait" ] + extra)
+        assert_equal 2, status
+        assert_match(pattern, err)
+      end
+    end
+  end
 end

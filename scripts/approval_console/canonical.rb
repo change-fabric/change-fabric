@@ -15,7 +15,7 @@ module ApprovalConsole
     class Invalid < StandardError; end
 
     VERSION = 1
-    TYPES = %w[step override prod-op carve-out money release].freeze
+    TYPES = %w[step override prod-op carve-out money release run-script].freeze
     SCOPES = %w[merge tag].freeze
     MAX_LIFETIME = 3600
     # A carve-out signs its whole file list. The client and the Lambda share
@@ -38,8 +38,14 @@ module ApprovalConsole
       'prod-op' => %w[summary argv],
       'money' => %w[summary argv],
       'carve-out' => %w[summary pr_url pr_title base files],
-      'release' => %w[tag commit]
+      'release' => %w[tag commit],
+      'run-script' => %w[script_sha256 script_path script_text title account]
     }.freeze
+    # A run-script receipt is single-use and good for 15 minutes; the body
+    # carries the whole script so the phone shows exactly the bytes that run.
+    RUN_SCRIPT_LIFETIME = 900
+    MAX_SCRIPT_BYTES = 200_000
+    ACCOUNT = /\A\d{12}\z/
     # Fields a body may omit: an override with no scope unlocks both the merge
     # and the tag guard; with one, only that guard. Absent equals nil when a
     # verifier compares a body to its expected context.
@@ -168,6 +174,7 @@ module ApprovalConsole
       when 'override' then override_errors(body)
       when 'carve-out' then carve_out_errors(body)
       when 'release' then release_errors(body)
+      when 'run-script' then run_script_errors(body)
       else summary_errors(body) + argv_errors(body['argv'])
       end
     end
@@ -193,6 +200,26 @@ module ApprovalConsole
       errors << 'tag is empty' unless nonempty?(body['tag'])
       errors << 'commit must equal sha' unless body['commit'] == body['sha']
       errors
+    end
+
+    def run_script_errors(body)
+      errors = []
+      text = body['script_text']
+      errors << 'script_text must be non-empty text' unless nonempty?(text)
+      errors << "script_text is over #{MAX_SCRIPT_BYTES} bytes" if text.is_a?(String) && text.bytesize > MAX_SCRIPT_BYTES
+      errors << 'script_sha256 does not match script_text' unless text.is_a?(String) && body['script_sha256'] == Digest::SHA256.hexdigest(text.b)
+      errors << 'script_path is empty' unless nonempty?(body['script_path'])
+      errors << 'title is empty' unless nonempty?(body['title'])
+      errors << 'account must be a 12-digit AWS account id or null' unless body['account'].nil? || body['account'].to_s.match?(ACCOUNT)
+      errors.concat(script_lifetime_errors(body))
+    end
+
+    def script_lifetime_errors(body)
+      created = parse_time(body['created_at'])
+      expires = parse_time(body['expires_at'])
+      return [] unless created && expires && expires - created > RUN_SCRIPT_LIFETIME
+
+      [ "a run-script lifetime exceeds #{RUN_SCRIPT_LIFETIME} seconds" ]
     end
 
     def summary_errors(body) = nonempty?(body['summary']) ? [] : [ 'summary is empty' ]

@@ -292,6 +292,67 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_includes html, 'href="https://github.com/acme/app/commit/' + SHA + '"'
   end
 
+  SCRIPT = "set -e\necho <b>redeploy</b> & done\n"
+
+  def script_body(rid: SecureRandom.uuid, account: "569032832755", text: SCRIPT)
+    Canonical.build(type: "run-script", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil, request_id: rid,
+                    created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z", title: "redeploy the console",
+                    script_path: "/q/0016-redeploy.sh", script_sha256: Digest::SHA256.hexdigest(text.b), script_text: text, account: account)
+  end
+
+  def test_a_run_script_page_shows_the_whole_script_and_the_account_and_commit_in_the_headline
+    html = page_html(script_body)
+    verified = html[/<section data-zone="verified".*?<\/section>/m]
+    agent = html[/<section data-zone="agent".*?<\/section>/m]
+    assert_includes verified, %(<pre class="script" data-field="script_text">set -e\necho &lt;b&gt;redeploy&lt;/b&gt; &amp; done\n</pre>)
+    assert_includes verified, %(<code data-field="account">569032832755</code>)
+    assert_includes verified, "/q/0016-redeploy.sh"
+    assert_match(/<p class="changes">[^<]*569032832755[^<]*aaaaaaa|<p class="changes">[^<]*aaaaaaa[^<]*569032832755/, html)
+    assert_includes agent, %(<q data-field="title">redeploy the console</q>)
+    refute_includes agent, "redeploy.sh"
+    assert_includes html, "Run a script on this machine"
+  end
+
+  def test_a_body_whose_hash_does_not_match_its_script_is_refused_at_the_console
+    forged = JSON.parse(script_body).merge("script_text" => "rm -rf /\n")
+    status, data = create_request(Canonical.serialize(forged))
+    assert_equal [ 400, "invalid_body" ], [ status, data["error"] ]
+  end
+
+  def approved_script(**opts)
+    body = script_body(**opts)
+    rid = Canonical.parse(body)["request_id"]
+    assert_equal 201, create_request(body)[0]
+    assert_equal 200, approve(body, rid)[0]
+    rid
+  end
+
+  def test_a_run_script_receipt_is_consumed_once
+    rid = approved_script
+    path = "/m/#{MID}/r/#{rid}/consume"
+    status, data = signed("POST", path, {})
+    assert_equal [ 200, "consumed" ], [ status, data["status"] ]
+    status, data = signed("POST", path, {})
+    assert_equal [ 409, "consumed" ], [ status, data["error"] ]
+  end
+
+  def test_a_run_script_receipt_cannot_be_consumed_after_fifteen_minutes
+    rid = approved_script
+    @now += 15 * 60
+    status, data = signed("POST", "/m/#{MID}/r/#{rid}/consume", {})
+    assert_equal [ 410, "expired" ], [ status, data["error"] ]
+  end
+
+  def test_consume_needs_a_machine_signature_an_approved_request_and_the_run_script_type
+    body = script_body
+    rid = Canonical.parse(body)["request_id"]
+    create_request(body)
+    assert_equal 409, signed("POST", "/m/#{MID}/r/#{rid}/consume", {})[0], "not yet approved"
+    assert_equal 401, call("POST", "/m/#{MID}/r/#{rid}/consume", "{}")[0]
+    _, other = pending_request
+    assert_equal 409, signed("POST", "/m/#{MID}/r/#{other}/consume", {})[0], "a carve-out is not consumable"
+  end
+
   def test_no_link_is_built_from_a_pr_url_for_another_repo_or_host_or_a_non_github_repo
     ConsolePages.links("repo" => "repo:github.com/acme/app", "sha" => SHA, "pr_url" => "https://github.com/evil/app/pull/9").tap do |links|
       refute(links.any? { |_, url| url.include?("evil") })

@@ -52,7 +52,7 @@ class ApprovalConsolePreviewScriptsTest < Minitest::Test
   def test_targets_cover_every_server_route_and_the_client_stills
     targets = Capture.targets
     assert_equal ApprovalConsole::PreviewHost.routes.size + Capture::CLIENT_STILLS.size, targets.size
-    assert_equal 22, ApprovalConsole::PreviewHost.routes.size
+    assert_equal 25, ApprovalConsole::PreviewHost.routes.size
     assert_includes targets, [ "/type/carve-out/state/pending", "in-app" ]
     assert_equal targets.size, targets.map { |t| Capture::Still.new(route: t[0], state: t[1], viewport: "v", scheme: "s").filename }.uniq.size, "filenames are unique"
   end
