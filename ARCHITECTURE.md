@@ -64,6 +64,9 @@ the cf-prod workflow, whose jobs verify the approval offline through
 emits staging only and has no op executor; `prod_approval_guard.rb` denies the
 agent the approval paths. `change_prod_classes.rb` reports op classes for doctor
 and the request notice, and links them to `one_way_doors` paths.
+`change_backup.rb` takes and verifies the fresh snapshot, measures PITR and runs
+the restore probe, and its gate refuses an op on thin recovery evidence;
+`change_backup_probe_gen.rb` generates the weekly restore-probe workflow.
 Rubric skills are matched to edited files by `skill_detect.rb` and
 `skill_inject.rb`, queued, and reviewed at Stop by `skill_review.rb`.
 

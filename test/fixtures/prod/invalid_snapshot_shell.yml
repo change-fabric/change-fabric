@@ -1,0 +1,3 @@
+expect: "must not start a shell"
+patch:
+  change_config: { backups: { dump_db: { snapshot: { argv: [bash, -c, dump], timeout_s: 60 } } } }

@@ -21,8 +21,10 @@ module ChangeProdSchema
   RUNNER_KEYS = %w[kind workflow environments oidc_roles region claim_role claim_table].freeze
   BACKUP_KINDS = %w[rds_snapshot aurora_snapshot pg_dump_s3 command fixture].freeze
   PITR_KINDS = %w[rds_snapshot aurora_snapshot].freeze
-  BACKUP_KEYS = %w[kind target targets provider verify pitr pitr_source restore_probe].freeze
-  PROBE_KEYS = %w[schedule argv timeout_s max_age_days].freeze
+  BACKUP_KEYS = %w[kind target targets provider snapshot verify pitr pitr_source restore_probe].freeze
+  # Kinds with no provider API to snapshot through: the config names the command.
+  SNAPSHOT_COMMAND_KINDS = %w[pg_dump_s3 command].freeze
+  PROBE_KEYS = %w[schedule argv timeout_s max_age_days oidc_roles].freeze
   MAINTENANCE_KEYS = %w[windows enter verify exit].freeze
   WINDOW_KEYS = %w[cron duration_minutes tz].freeze
   OPERATION_KEYS = %w[class runner argv cwd params backup maintenance online_safe verify timeout_s estimate staging_first].freeze
@@ -170,9 +172,19 @@ module ChangeProdSchema
       add("#{where}.kind must be one of #{BACKUP_KINDS.join(', ')}") unless BACKUP_KINDS.include?(kind)
       check_target(backup, where)
       add("#{where}.provider must be a non-empty string") unless ChangeProdSchema.present?(backup['provider'])
+      check_snapshot(backup, where)
       check_command(backup['verify'], "#{where}.verify", required: true)
       check_pitr(backup, where)
       check_probe(backup['restore_probe'], "#{where}.restore_probe") if backup.key?('restore_probe')
+    end
+
+    # pg_dump_s3 and command have no API to snapshot through, so they name the
+    # command that does; the other kinds snapshot through the provider.
+    def check_snapshot(backup, where)
+      needed = SNAPSHOT_COMMAND_KINDS.include?(backup['kind'])
+      return add("#{where}.snapshot is required for #{backup['kind']} (it has no provider API to snapshot through)") if needed && backup['snapshot'].nil?
+
+      check_command(backup['snapshot'], "#{where}.snapshot") unless backup['snapshot'].nil?
     end
 
     def check_target(backup, where)
@@ -213,8 +225,23 @@ module ChangeProdSchema
       fail_unknown(probe, PROBE_KEYS, where)
       add("#{where}.schedule must be weekly") unless probe['schedule'] == 'weekly'
       check_command(probe, where, required: true)
+      check_probe_roles(probe['oidc_roles'], "#{where}.oidc_roles", where)
       age = probe['max_age_days']
       add("#{where}.max_age_days must be an integer from 1 to #{MAX_PROBE_AGE_DAYS}") unless age.nil? || ChangeProdSchema.int_in?(age, 1..MAX_PROBE_AGE_DAYS)
+    end
+
+    # The generated restore-probe workflow assumes one role per profile it
+    # probes. Optional: with none, the backup has a probe but no workflow job.
+    def check_probe_roles(roles, field, probe_where)
+      return if roles.nil?
+      return add("#{field} must map a profile to an IAM role ARN") unless roles.is_a?(Hash) && !roles.empty?
+
+      backup = section('backups')[probe_where.split('.')[-2]]
+      targets = backup.is_a?(Hash) ? backup['targets'] : nil
+      roles.each do |profile, role|
+        add("#{field}.#{profile} must be an IAM role ARN") unless role.to_s.match?(ROLE)
+        add("#{field}.#{profile} is not a profile of the backup targets") if targets.is_a?(Hash) && !targets.key?(profile)
+      end
     end
 
     # argv plus timeout_s, the shape every command has here.

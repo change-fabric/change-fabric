@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.29.0'
+  VERSION = '0.30.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -616,6 +616,8 @@ module ChangeSchema
     'change_config.backups.<backup>.target',
     'change_config.backups.<backup>.targets.<profile>',
     'change_config.backups.<backup>.provider',
+    'change_config.backups.<backup>.snapshot.argv',
+    'change_config.backups.<backup>.snapshot.timeout_s',
     'change_config.backups.<backup>.verify.argv',
     'change_config.backups.<backup>.verify.timeout_s',
     'change_config.backups.<backup>.pitr.required_hours',
@@ -624,6 +626,7 @@ module ChangeSchema
     'change_config.backups.<backup>.restore_probe.argv',
     'change_config.backups.<backup>.restore_probe.timeout_s',
     'change_config.backups.<backup>.restore_probe.max_age_days',
+    'change_config.backups.<backup>.restore_probe.oidc_roles.<profile>',
     'change_config.maintenance.windows.<window>.cron',
     'change_config.maintenance.windows.<window>.duration_minutes',
     'change_config.maintenance.windows.<window>.tz',

@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.29.0
+Schema version: 0.30.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -1549,6 +1549,16 @@ read from the base branch and validated by `scripts/change_prod_schema.rb`;
 with no restore probe, and flags a hand-edited `cf-prod.yml`. The generator
 emits the production job only when the rest of the runner has landed.
 
+Backups (0.30.0): `scripts/change_backup.rb` takes and verifies a fresh snapshot,
+measures the PITR window and runs the restore probe through `rds_snapshot`,
+`aurora_snapshot`, `pg_dump_s3`, `command` or `fixture` providers, and refuses an
+op when PITR is below 72 hours or cannot be proven, the latest probe is older
+than 7 days or failed, or the fresh snapshot fails verify or is older than 15
+minutes. Evidence records name the source resource, config digest, recovery
+point, completion time and result, and must match the op's environment.
+`scripts/change_backup_probe_gen.rb` generates `.github/workflows/cf-restore-probe.yml`,
+a weekly probe per backup and profile; doctor flags a hand edit.
+
 Placeholders: `<runner>`, `<backup>`, `<window>`, `<op>` and `<param>` are any
 name under that map; `<profile>` is a profile name. Commands are argv arrays
 run without a shell. The floors are schema-fixed: both approval factors with a
@@ -1570,6 +1580,8 @@ patterns, argv placeholders only from declared params, and one op at a time.
 | `change_config.backups.<backup>.target` | string | one of target, targets | (0.29.0) The resource to back up. |
 | `change_config.backups.<backup>.targets.<profile>` | string | one of target, targets | (0.29.0) The resource per environment; recovery evidence must match the op's environment. |
 | `change_config.backups.<backup>.provider` | string | yes | (0.29.0) The enrolled provider name. Credentials never appear here. |
+| `change_config.backups.<backup>.snapshot.argv` | list of string | yes for `pg_dump_s3` and `command` | (0.30.0) The command that takes the snapshot, run without a shell. It prints one JSON line `{"id": ..., "created_at": ...}`; both are required, so an old backup cannot pass as fresh. `rds_snapshot` and `aurora_snapshot` snapshot through the provider and need none. |
+| `change_config.backups.<backup>.snapshot.timeout_s` | integer 1 to 86400 | with a snapshot command | (0.30.0) Timeout for the snapshot command. |
 | `change_config.backups.<backup>.verify.argv` | list of string | yes | (0.29.0) Command that verifies a fresh snapshot, run without a shell. |
 | `change_config.backups.<backup>.verify.timeout_s` | integer 1 to 86400 | yes | (0.29.0) Timeout for the verify command. |
 | `change_config.backups.<backup>.pitr.required_hours` | integer, at least 72 | no (default 72) | (0.29.0) The PITR window the runner requires. Floor: 72. |
@@ -1578,6 +1590,7 @@ patterns, argv placeholders only from declared params, and one op at a time.
 | `change_config.backups.<backup>.restore_probe.argv` | list of string | yes with a probe | (0.29.0) The probe command; it tears down what it restores. |
 | `change_config.backups.<backup>.restore_probe.timeout_s` | integer 1 to 86400 | yes with a probe | (0.29.0) Probe timeout. |
 | `change_config.backups.<backup>.restore_probe.max_age_days` | integer 1 to 7 | no (default 7) | (0.29.0) Oldest passing probe the runner accepts. Floor: 7 days. Doctor flags a backup with no probe. |
+| `change_config.backups.<backup>.restore_probe.oidc_roles.<profile>` | IAM role ARN | no | (0.30.0) The role the generated `cf-restore-probe.yml` assumes to restore and tear down, per profile in the backup's targets. With none, no workflow runs the probe and doctor warns. |
 | `change_config.maintenance.windows.<window>.cron` | five cron fields | yes | (0.29.0) When the window opens. |
 | `change_config.maintenance.windows.<window>.duration_minutes` | integer 1 to 1440 | yes | (0.29.0) How long it stays open. |
 | `change_config.maintenance.windows.<window>.tz` | time zone | yes | (0.29.0) `UTC` or an Area/City name. |
@@ -2000,3 +2013,10 @@ root `RELEASING.md`.
   maintenance exit, a backup and a window or reasoned opt-out on every op).
   `doctor` reports ops by class, opt-outs, missing probes and a hand-edited
   `cf-prod.yml`.
+- 0.30.0: additive. Backup providers and the restore probe for the bounded prod
+  runner. Adds `change_config.backups.<backup>.snapshot` (the snapshot command
+  for `pg_dump_s3` and `command` backups) and
+  `change_config.backups.<backup>.restore_probe.oidc_roles.<profile>` (the roles
+  the generated weekly `cf-restore-probe.yml` assumes). The runner refuses an
+  op on PITR under 72 hours, a failed or stale probe, or a snapshot that fails
+  verify.
