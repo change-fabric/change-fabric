@@ -30,7 +30,7 @@ class ChangeMaintenanceTest < Minitest::Test
     def call(argv, env: {}, timeout: nil, chdir: nil)
       @calls << argv.join(" ")
       answer = @decide.call(argv)
-      ChangeBackup::Outcome.new(ok: answer.fetch(:ok, true), stdout: "", stderr: "", timed_out: answer[:timed_out] || false)
+      ChangeBackup::Outcome.new(ok: answer.fetch(:ok, true), stdout: "", stderr: "", timed_out: answer[:timed_out] || false, spawn_failed: answer[:spawn_failed])
     end
 
     def ran?(text) = @calls.any? { |call| call.include?(text) }
@@ -496,6 +496,98 @@ class ChangeMaintenanceTest < Minitest::Test
       journal.append(OTHER, { "state" => "maintenance_entered", "expires_at" => "2026-11-23T04:00:00Z", "environment" => "production" })
       journal.append(OTHER, { "state" => "launching" })
       assert_equal %i[hold page], reconcile(journal, FakeExecutor.new).map(&:kind).sort
+    end
+  end
+
+  def test_a_verify_timeout_in_the_reconciler_is_unknown_not_off
+    with_journal do |journal|
+      seed(journal, "maintenance_entered")
+      executor = FakeExecutor.new { |argv| argv.join(" ").include?("maint status") ? { ok: false, timed_out: true } : {} }
+      assert_equal [ :page ], reconcile(journal, executor).map(&:kind)
+      refute executor.ran?("maint off")
+      assert M.lease_of(journal.entries(UUID)), "the lease must survive an unknown state"
+    end
+  end
+
+  def test_a_post_exit_verify_timeout_keeps_the_lease_and_pages
+    with_journal do |journal|
+      seed(journal, "maintenance_entered")
+      statuses = [ { ok: true }, { ok: false, timed_out: true } ].each
+      executor = FakeExecutor.new { |argv| argv.join(" ").include?("maint status") ? statuses.next : {} }
+      assert_equal [ :page ], reconcile(journal, executor).map(&:kind)
+      assert executor.ran?("maint off")
+      assert M.lease_of(journal.entries(UUID))
+    end
+  end
+
+  def test_a_verify_that_never_started_is_unknown
+    assert_equal :unknown, M.maintenance_state(ChangeBackup::Outcome.new(ok: false, timed_out: false, spawn_failed: true))
+    assert_equal :off, M.maintenance_state(ChangeBackup::Outcome.new(ok: false, timed_out: false))
+    assert_equal :on, M.maintenance_state(ChangeBackup::Outcome.new(ok: true))
+  end
+
+  def test_the_runner_does_not_take_a_verify_timeout_as_a_confirmed_exit
+    with_journal do |journal|
+      on = false
+      executor = FakeExecutor.new do |argv|
+        line = argv.join(" ")
+        on = true if line.include?("maint on")
+        next({ ok: false, timed_out: true }) if line.include?("maint status") && !on
+        { ok: true }
+      end
+      result = runner(journal, executor).execute("rotate_tenant_key", { "tenant_id" => "t_101" })
+      assert result.page
+      assert_equal "exit_failed", states(journal).last
+    end
+  end
+
+  # A journal whose append fails once it reaches the given state.
+  class FlakyJournal < ChangeMaintenance::Journal
+    def initialize(root, fail_on:)
+      super(root, push: false)
+      @fail_on = fail_on
+    end
+
+    def append(request_id, entry)
+      raise ChangeMaintenance::Error, "push refused" if entry["state"] == @fail_on
+
+      super
+    end
+  end
+
+  def with_flaky(fail_on)
+    Dir.mktmpdir do |root|
+      system("git", "init", "-q", root)
+      yield FlakyJournal.new(root, fail_on: fail_on)
+    end
+  end
+
+  def test_exit_still_runs_when_the_observed_complete_write_fails
+    with_flaky("observed_complete") do |journal|
+      executor = maintenance_executor
+      result = runner(journal, executor).execute("rotate_tenant_key", { "tenant_id" => "t_101" })
+      assert result.page
+      assert_equal "uncertain", result.state
+      assert_match(/journal write failed/, result.reason)
+      assert executor.ran?("maint off")
+    end
+  end
+
+  def test_exit_still_runs_and_pages_when_the_launching_write_fails
+    with_flaky("launching") do |journal|
+      executor = maintenance_executor
+      result = runner(journal, executor).execute("rotate_tenant_key", { "tenant_id" => "t_101" })
+      assert result.page
+      refute executor.ran?("rotate-key"), "the op must not run unrecorded"
+      assert executor.ran?("maint off")
+    end
+  end
+
+  def test_a_failed_exit_record_pages
+    with_flaky("maintenance_exited") do |journal|
+      result = runner(journal, maintenance_executor).execute("rotate_tenant_key", { "tenant_id" => "t_101" })
+      assert result.page
+      assert_match(/journal write failed/, result.reason)
     end
   end
 

@@ -209,6 +209,16 @@ module ChangeMaintenance
     end
   end
 
+  # A maintenance verify run read as :on (exit 0), :off (it ran and exited
+  # non-zero) or :unknown (it timed out or never started). Only :off confirms
+  # an exit: a timeout says nothing about the state.
+  def maintenance_state(outcome)
+    return :on if outcome.ok?
+    return :unknown if outcome.timed_out || outcome.spawn_failed
+
+    :off
+  end
+
   # --- journal ----------------------------------------------------------------------
 
   # Append-only journal on refs/cf-prod/journal/<request_id>. Each commit's
@@ -388,7 +398,15 @@ module ChangeMaintenance
       [ argv, verify ]
     end
 
+    # A journal write that fails after launching leaves the outcome unknown, so
+    # it pages as uncertain and still lets the caller run exit.
     def mutate(op, commands)
+      launch(op, commands)
+    rescue ChangeMaintenance::Error => e
+      Result.new(ok: false, state: 'uncertain', reason: "journal write failed: #{e.message}", page: true)
+    end
+
+    def launch(op, commands)
       argv, verify = commands
       record('launching')
       outcome = @executor.call(argv, timeout: op.fetch('timeout_s'), chdir: @repo)
@@ -402,15 +420,24 @@ module ChangeMaintenance
     # Exit always runs, success or failure, and its result is confirmed by
     # verify reporting maintenance off. A failed exit pages and keeps the lease.
     def leave(block, result)
-      exited = command(block['exit']) && !command(block['verify'])
-      if exited
-        record('maintenance_exited', by: 'runner')
-        return result
-      end
+      return record_exit(result) if command(block['exit']) && state_of(block['verify']) == :off
 
-      record('exit_failed')
+      record_quietly('exit_failed')
       reason = [ result.reason, 'maintenance exit was not confirmed' ].compact.join('; ')
       Result.new(ok: false, state: result.ok? ? 'exit_failed' : result.state, reason: reason, page: true)
+    end
+
+    def record_exit(result)
+      record('maintenance_exited', by: 'runner')
+      result
+    rescue ChangeMaintenance::Error => e
+      Result.new(ok: false, state: result.ok? ? 'exit_failed' : result.state, reason: "maintenance exited but the journal write failed: #{e.message}", page: true)
+    end
+
+    def state_of(spec)
+      return :off unless spec.is_a?(Hash)
+
+      ChangeMaintenance.maintenance_state(@executor.call(spec.fetch('argv'), timeout: spec['timeout_s'].to_i, chdir: @repo))
     end
 
     def command(spec)
@@ -427,6 +454,14 @@ module ChangeMaintenance
     def refuse(reason)
       record('refused', reason: reason)
       Result.new(ok: false, state: 'refused', reason: reason, page: false)
+    rescue ChangeMaintenance::Error => e
+      Result.new(ok: false, state: 'refused', reason: "#{reason}; the journal write failed: #{e.message}", page: false)
+    end
+
+    def record_quietly(state)
+      record(state)
+    rescue ChangeMaintenance::Error
+      nil
     end
 
     def record(state, **extra)
@@ -524,14 +559,23 @@ module ChangeMaintenance
       'exited by the reconciler'
     end
 
+    # True only when verify reads off, before the exit (already off) or after
+    # it. A verify that times out is unknown, never off: the lease stays and
+    # the action pages.
     def exited?
-      return true if @block['verify'] && !succeeds?(@block['verify']) # already off
+      return run(@block['exit']).ok? unless @block['verify']
 
-      succeeds?(@block['exit']) && !(@block['verify'] && succeeds?(@block['verify']))
+      case state
+      when :off then true
+      when :unknown then false
+      else run(@block['exit']).ok? && state == :off
+      end
     end
 
-    def succeeds?(command)
-      @executor.call(command.fetch('argv'), timeout: command['timeout_s'].to_i, chdir: @repo).ok?
+    def state = ChangeMaintenance.maintenance_state(run(@block['verify']))
+
+    def run(command)
+      @executor.call(command.fetch('argv'), timeout: command['timeout_s'].to_i, chdir: @repo)
     end
   end
 
