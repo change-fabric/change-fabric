@@ -6,7 +6,7 @@ name: bump-tap-formula
 # files outside the Cellar (~/.claude/, ~/.pi/, ~/.config/opencode/), which
 # core rejects. Separate repo from this one on purpose too: brew's `tap
 # user/name` shorthand requires a repo literally named `homebrew-name`, and
-# it keeps the TAP_BUMP_TOKEN scoped to a small repo instead of this one.
+# it keeps the TAP_DEPLOY_KEY scoped to a small repo instead of this one.
 #
 # The tag drives the tap with no PR: this job rewrites the formula's url and
 # sha256, builds and tests the edited formula, and only then pushes straight
@@ -20,7 +20,7 @@ name: bump-tap-formula
 # independently. Triggers on the tag itself (a durable artifact) rather than
 # racing release-skills.yml inside the same push event.
 #
-# Skips cleanly while TAP_BUMP_TOKEN is unset, so a fork or a repo without
+# Skips cleanly while TAP_DEPLOY_KEY is unset, so a fork or a repo without
 # the secret does not fail on every skills/v* tag.
 
 on:
@@ -28,7 +28,7 @@ on:
     tags: ["skills/v*"]
 
 # This repo's own GITHUB_TOKEN does nothing here: the only auth used is the
-# TAP_BUMP_TOKEN PAT, scoped to the tap repo.
+# TAP_DEPLOY_KEY SSH deploy key, scoped to the tap repo.
 permissions: {}
 
 concurrency:
@@ -42,19 +42,32 @@ jobs:
       - name: Check the tap is configured
         id: gate
         run: |
-          if [ -z "$TAP_BUMP_TOKEN" ]; then
-            echo "TAP_BUMP_TOKEN not set; skipping."
+          if [ -z "$TAP_DEPLOY_KEY" ]; then
+            echo "TAP_DEPLOY_KEY not set; skipping."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
         env:
-          TAP_BUMP_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+      - name: Load the tap deploy key
+        if: steps.gate.outputs.ready == 'true'
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.TAP_DEPLOY_KEY }}
+      - name: Trust GitHub's published SSH host keys
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          curl -fsSL https://api.github.com/meta \
+            | ruby -rjson -e 'JSON.parse(STDIN.read).fetch("ssh_keys").each { |k| puts "github.com #{k}" }' \
+            >> ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
       - name: Bump, build, test, and push the tap formula
         if: steps.gate.outputs.ready == 'true'
         env:
-          TAP_BUMP_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
-          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_FROM_API: "1"
         run: |
@@ -63,8 +76,8 @@ jobs:
           url="https://github.com/change-fabric/change-fabric/archive/refs/tags/skills/v${version}.tar.gz"
 
           # Homebrew refuses to load a formula from a tap it has not been
-          # told to trust, so tap it explicitly, cloning with the token.
-          brew tap change-fabric/cf "https://x-access-token:${TAP_BUMP_TOKEN}@github.com/change-fabric/homebrew-cf.git"
+          # told to trust, so tap it explicitly, cloning over SSH with the deploy key.
+          brew tap change-fabric/cf git@github.com:change-fabric/homebrew-cf.git
           tap_dir="$(brew --repository change-fabric/cf)"
           formula="${tap_dir}/Formula/change-fabric.rb"
 
