@@ -29,7 +29,9 @@ module ChangeProdRedeploy
   OP = 'redeploy_previous'
   RELEASE = /\Av[0-9.]+\z/
   SHA = /\A[0-9a-f]{40}\z/
-  REASON = 'redeploys an already-released build'
+  PAGE_SIZE = 30
+  MAX_PAGES = 10
+  REASON ='redeploys an already-released build'
   APPROVE = 'ruby ~/.claude/cf/bin/change_prod_approve.rb'
 
   # Paste under change_config.operations. `previous_sha` is bound into the
@@ -177,13 +179,28 @@ module ChangeProdRedeploy
   # of its statuses was `success`: GitHub's auto-inactivation adds an `inactive`
   # status after a newer success, so the latest status alone would drop a valid
   # rollback target. Any failed lookup refuses, because skipping a deployment
-  # would silently pick the wrong predecessor.
+  # would silently pick the wrong predecessor. Pages are read until a predecessor
+  # is established, because retries of the current sha can fill a whole page.
   def gh_history(repo, environment, gh: method(:gh_api))
-    deployments = gh.call(repo, "repos/{owner}/{repo}/deployments?environment=#{environment}&per_page=30")
-    deployments.map do |d|
-      statuses = gh.call(repo, "repos/{owner}/{repo}/deployments/#{Integer(d['id'])}/statuses?per_page=100")
-      { 'sha' => d['sha'], 'state' => state_from(statuses) }
+    history = []
+    (1..MAX_PAGES).each do |page|
+      deployments = gh.call(repo, "repos/{owner}/{repo}/deployments?environment=#{environment}&per_page=#{PAGE_SIZE}&page=#{page}")
+      history.concat(deployments.map { |d| deployment_record(repo, d, gh) })
+      break if deployments.size < PAGE_SIZE || predecessor?(history)
     end
+    history
+  end
+
+  def deployment_record(repo, deployment, gh)
+    statuses = gh.call(repo, "repos/{owner}/{repo}/deployments/#{Integer(deployment['id'])}/statuses?per_page=100")
+    { 'sha' => deployment['sha'], 'state' => state_from(statuses) }
+  end
+
+  def predecessor?(history)
+    predecessor(history)
+    true
+  rescue Refused
+    false
   end
 
   def state_from(statuses)

@@ -142,6 +142,34 @@ class ChangeProdRedeployTest < Minitest::Test
     end
   end
 
+  def test_history_pages_past_retries_of_the_current_sha
+    retries = (1..R::PAGE_SIZE).map { |id| { "id" => id, "sha" => NEW } }
+    older = [ { "id" => 100, "sha" => OLD } ]
+    pages = []
+    gh = lambda do |_repo, path|
+      next [ { "state" => "success" } ] if path.include?("/statuses")
+
+      pages << path[/&page=(\d+)/, 1].to_i
+      pages.last == 1 ? retries : older
+    end
+    history = R.gh_history(".", "production", gh: gh)
+    assert_equal [ 1, 2 ], pages
+    assert_equal OLD, R.predecessor(history)
+  end
+
+  def test_history_stops_paging_at_the_cap
+    full = (1..R::PAGE_SIZE).map { |id| { "id" => id, "sha" => NEW } }
+    pages = 0
+    gh = lambda do |_repo, path|
+      next [ { "state" => "success" } ] if path.include?("/statuses")
+
+      pages += 1
+      full
+    end
+    assert_raises(R::Refused) { R.predecessor(R.gh_history(".", "production", gh: gh)) }
+    assert_equal R::MAX_PAGES, pages
+  end
+
   def test_cli_refuses_an_unknown_verb_and_missing_history
     assert_equal 2, R.run([ "nope" ], stderr: StringIO.new)
     err = StringIO.new
