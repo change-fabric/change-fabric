@@ -33,7 +33,7 @@ module ChangeProdRunnerGen
   # same relative layout so each require_relative resolves. A workflow that
   # calls a script that is not there would fail before verifying anything.
   VENDORED = %w[
-    change_prod_gate.rb change_prod_envelope.rb change_prod_store.rb change_prod_claim.rb change_prod_runner_gen.rb change_backup.rb change_maintenance.rb change_frontmatter.rb
+    change_prod_gate.rb change_prod_envelope.rb change_prod_store.rb change_prod_claim.rb change_prod_runner_gen.rb change_backup.rb change_maintenance.rb change_prod_schema.rb change_frontmatter.rb
     approval_console/canonical.rb approval_console/cbor.rb approval_console/verifier.rb
   ].freeze
   CREDENTIALS = '.github/cf-prod-approval-credentials.json'
