@@ -1554,7 +1554,7 @@ name under that map; `<profile>` is a profile name. Commands are argv arrays
 run without a shell. The floors are schema-fixed: both approval factors with a
 remote proof, PITR of at least 72 hours, a probe age of at most 7 days, a
 maintenance `exit` and `verify` whenever there is an `enter`, a backup on every
-op, a window or an `online_safe.reason` on every op, typed params with anchored
+op, a window or an `online_safe.reason` on every op, string params with anchored
 patterns, argv placeholders only from declared params, and one op at a time.
 
 | Field | Type | Required | Meaning |
@@ -1591,10 +1591,8 @@ patterns, argv placeholders only from declared params, and one op at a time.
 | `change_config.operations.<op>.runner` | runner name | yes | (0.29.0) A declared runner. |
 | `change_config.operations.<op>.argv` | list of string | yes | (0.29.0) The op command, no shell. Placeholders `{param}` only for declared params. |
 | `change_config.operations.<op>.cwd` | `repo` | no (default repo) | (0.29.0) The only working directory. |
-| `change_config.operations.<op>.params.<param>.type` | `string` or `integer` | yes | (0.29.0) The param type. |
-| `change_config.operations.<op>.params.<param>.pattern` | anchored regex | yes for string | (0.29.0) A string param is never free-form. Anchor with `^` and `$`. |
-| `change_config.operations.<op>.params.<param>.min` | integer | yes for integer | (0.29.0) Lower bound. |
-| `change_config.operations.<op>.params.<param>.max` | integer | yes for integer | (0.29.0) Upper bound. |
+| `change_config.operations.<op>.params.<param>.type` | `string` | yes | (0.29.0) The param type. The request envelope carries string params only. |
+| `change_config.operations.<op>.params.<param>.pattern` | anchored regex | yes | (0.29.0) A string param is never free-form. Anchor with `^` and `$`. |
 | `change_config.operations.<op>.params.<param>.per_environment` | mapping | no | (0.29.0) Per-environment values for the staging attestation match. |
 | `change_config.operations.<op>.backup` | backup name | yes | (0.29.0) A declared backup. Every op needs one, whatever its class. |
 | `change_config.operations.<op>.maintenance` | window name | one of maintenance, online_safe | (0.29.0) A declared window the op waits for. |

@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "yaml"
 require "tmpdir"
 require "fileutils"
+require_relative "../scripts/change_prod_envelope"
 require_relative "../scripts/change_prod_schema"
 require_relative "../scripts/change_prod_runner_gen"
 require_relative "../scripts/change_schema"
@@ -47,6 +48,21 @@ class ChangeProdSchemaTest < Minitest::Test
 
   def test_every_floor_has_an_invalid_fixture
     assert_operator Dir[File.join(FIXTURES, "invalid_*.yml")].size, :>=, 30
+  end
+
+  def test_integer_params_are_rejected_because_the_envelope_carries_strings
+    doc = load("valid.yml")
+    doc["change_config"]["operations"]["rotate_tenant_key"]["params"]["tenant_id"] = { "type" => "integer", "min" => 1, "max" => 9 }
+    assert ChangeProdSchema.errors(doc).any? { |message| message.include?("params.tenant_id.type must be string") }
+  end
+
+  def test_every_valid_op_can_build_an_envelope
+    doc = load("valid.yml")
+    params = { "rotate_tenant_key" => { "tenant_id" => "t_1" }, "redeploy_previous" => { "previous_release" => "v1.2" } }
+    params.each do |op, given|
+      definition = doc["change_config"]["operations"][op]
+      ChangeProdEnvelope.check_params(definition["params"], given)
+    end
   end
 
   def test_pitr_defaults_to_the_floor

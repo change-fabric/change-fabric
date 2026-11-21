@@ -25,8 +25,9 @@ module ChangeProdSchema
   WINDOW_KEYS = %w[cron duration_minutes tz].freeze
   OPERATION_KEYS = %w[class runner argv cwd params backup maintenance online_safe verify timeout_s estimate staging_first].freeze
   CLASSES = %w[destructive_data contracts_and_auth money_and_sends gate_config routine].freeze
-  PARAM_TYPES = %w[string integer].freeze
-  PARAM_KEYS = %w[type pattern min max per_environment].freeze
+  # The request envelope validator carries string params only.
+  PARAM_TYPES = %w[string].freeze
+  PARAM_KEYS = %w[type pattern per_environment].freeze
   ESTIMATE_KEYS = %w[minutes cost_usd].freeze
   GUARD_KEYS = %w[approval dispatch_gate require_staging_first refuse_without_pitr max_concurrent_ops].freeze
   APPROVAL_KEYS = %w[via factors proof ttl_minutes].freeze
@@ -287,8 +288,8 @@ module ChangeProdSchema
       estimate.each_value { |value| add("#{where} values must be non-negative numbers") unless value.is_a?(Numeric) && value >= 0 }
     end
 
-    # Typed, closed params: a string needs a pattern (no free-form text reaches
-    # argv), an integer a range. Returns the declared names.
+    # Typed, closed params: every param is a string with an anchored pattern, so
+    # no free-form text reaches argv. Returns the declared names.
     def check_params(params, where)
       return [] if params.nil?
       return add("#{where} must be a mapping") && [] unless params.is_a?(Hash)
@@ -304,12 +305,9 @@ module ChangeProdSchema
     end
 
     def check_param(spec, field)
-      unless PARAM_TYPES.include?(spec['type'])
-        return add("#{field}.type must be one of #{PARAM_TYPES.join(', ')}")
-      end
-      return check_pattern(spec['pattern'], field) if spec['type'] == 'string'
+      return add("#{field}.type must be string (the request envelope carries string params only)") unless PARAM_TYPES.include?(spec['type'])
 
-      add("#{field}.min and max must be integers") unless spec.values_at('min', 'max').all?(Integer)
+      check_pattern(spec['pattern'], field)
     end
 
     def check_pattern(pattern, field)

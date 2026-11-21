@@ -639,8 +639,6 @@ module ChangeSchema
     'change_config.operations.<op>.cwd',
     'change_config.operations.<op>.params.<param>.type',
     'change_config.operations.<op>.params.<param>.pattern',
-    'change_config.operations.<op>.params.<param>.min',
-    'change_config.operations.<op>.params.<param>.max',
     'change_config.operations.<op>.params.<param>.per_environment',
     'change_config.operations.<op>.backup',
     'change_config.operations.<op>.maintenance',
