@@ -114,6 +114,23 @@ class ChangeCaseDraftTest < Minitest::Test
     FileUtils.rm_rf(holder) if holder
   end
 
+  def test_a_drafts_symlink_into_the_repo_is_refused
+    FileUtils.mkdir_p(File.join(@root, "qa"))
+    File.symlink(File.join(@root, "qa"), File.join(@out, "drafts"))
+
+    assert_raises(ChangeCaseDraft::Error) { draft }
+    assert_empty Dir.children(File.join(@root, "qa"))
+  end
+
+  def test_a_hung_model_is_killed_and_the_skeleton_used
+    started = Time.now
+    result = draft(DIFF, model: true, timeout: 0.3, env: { "CF_CASE_DRAFT_MODEL" => "sleep 30", "PATH" => ENV.fetch("PATH") })
+
+    assert_operator Time.now - started, :<, 10
+    assert_equal "skeleton", result.origin
+    assert(result.notes.any? { |note| note.include?("timed out") })
+  end
+
   def test_an_empty_diff_is_an_error_and_an_unmatched_diff_writes_nothing
     assert_raises(ChangeCaseDraft::Error) { draft("") }
     assert_nil draft("+++ b/README.md\n+hello\n")
@@ -133,11 +150,12 @@ class ChangeCaseDraftTest < Minitest::Test
     reply = <<~JSON
       ```json
       [ { "id": "Pricing Shows Plan!", "acceptance": "The pricing page lists the new plan.",
-          "steps": [ { "goto": "/pricing" }, { "expect_text": "new plan" }, { "expect_status": 200 } ] },
+          "steps": [ { "goto": "/pricing" }, { "expect_text": { "selector": "main", "contains": "new plan" } }, { "expect_status": 200 } ] },
         { "id": "fills", "acceptance": "x", "steps": [ { "fill": "#a" } ] },
         { "id": "external", "acceptance": "x", "steps": [ { "goto": "https://evil.test/" } ] },
-        { "id": "secret", "acceptance": "x", "steps": [ { "expect_text": "token=abcdef123456" } ] },
-        "junk" ]
+        { "id": "secret", "acceptance": "x", "steps": [ { "expect_text": { "selector": "p", "contains": "token=abcdef123456" } } ] },
+        { "id": "scalar", "acceptance": "x", "steps": [ { "expect_text": "new plan" } ] },
+        { "id": "kept-last" } ]
       ```
     JSON
     result = draft(DIFF, model: true, runner: ->(_prompt) { reply })
@@ -148,6 +166,16 @@ class ChangeCaseDraftTest < Minitest::Test
     assert_equal "DRAFT: The pricing page lists the new plan.", document["cases"].first["acceptance"]
     assert_equal 4, result.notes.size
     assert_equal ChangeSuiteSchema::SUITE_VERSION, document["suite_version"]
+  end
+
+  def test_matcher_steps_need_exactly_one_mode_and_non_objects_are_dropped
+    reply = JSON.generate([ { "id" => "both", "acceptance" => "x", "steps" => [ { "expect_url" => { "equals" => "/a", "contains" => "/a" } } ] },
+                            "junk",
+                            { "id" => "ok", "acceptance" => "x", "steps" => [ { "goto" => "/pricing" }, { "expect_url" => { "contains" => "/pricing" } } ] } ])
+    result = draft(DIFF, model: true, runner: ->(_prompt) { reply })
+
+    assert_equal [ "ok" ], YAML.load_file(result.path)["cases"].map { |item| item["id"] }
+    assert_equal 2, result.notes.size
   end
 
   def test_model_failure_and_garbage_fall_back_to_the_skeleton

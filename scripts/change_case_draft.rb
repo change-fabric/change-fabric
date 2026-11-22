@@ -135,7 +135,7 @@ class ChangeCaseDraft
 
   attr_reader :source, :routes, :out, :root
 
-  def initialize(source, routes:, out:, root:, runner: nil, env: ENV, model: true)
+  def initialize(source, routes:, out:, root:, runner: nil, env: ENV, model: true, timeout: MODEL_TIMEOUT)
     @source = source
     @routes = routes
     @out = out
@@ -143,20 +143,22 @@ class ChangeCaseDraft
     @runner = runner
     @env = env
     @model = model
+    @timeout = timeout
   end
 
   # Writes the draft and returns it, or nil when there is nothing to draft.
   def write
     raise Error, 'the diff changes no files, so there is nothing to draft' if source.paths.empty?
-    refuse_inside_repo!
+    refuse_inside_repo!(out)
 
     cases, origin, notes = build
     return nil if cases.empty?
 
     document = { 'suite' => "draft-#{self.class.slug(source.label)}", 'suite_version' => ChangeSuiteSchema::SUITE_VERSION, 'cases' => cases }
     verify(document)
-    FileUtils.mkdir_p(File.join(out, 'drafts'))
     path = File.join(out, 'drafts', "#{self.class.slug(source.label)}.cf-testcases.yml")
+    FileUtils.mkdir_p(File.dirname(path))
+    refuse_inside_repo!(path)
     File.write(path, header(origin, notes) + YAML.dump(document))
     Draft.new(path: path, cases: cases, origin: origin, notes: notes)
   end
@@ -242,13 +244,35 @@ class ChangeCaseDraft
     DEFAULT_MODEL if @env.fetch('PATH', '').split(File::PATH_SEPARATOR).any? { |dir| File.executable?(File.join(dir, DEFAULT_MODEL.first)) }
   end
 
+  # The child runs in its own process group so a hung model and anything it
+  # spawned can be killed and reaped when the timeout expires; Timeout alone
+  # would leave Open3 waiting on the child.
   def run_command(command, prompt)
-    Timeout.timeout(MODEL_TIMEOUT) do
-      out, err, status = Open3.capture3(*command, stdin_data: prompt)
-      raise Error, "exit #{status.exitstatus}: #{err}" unless status.success?
+    Open3.popen3(*command, pgroup: true) do |stdin, stdout, stderr, thread|
+      readers = [ stdout, stderr ].map { |io| Thread.new { io.read }.tap { |reader| reader.report_on_exception = false } }
+      begin
+        stdin.write(prompt)
+      rescue Errno::EPIPE
+        nil
+      ensure
+        stdin.close
+      end
+      unless thread.join(@timeout)
+        stop(thread)
+        raise Error, "model timed out after #{@timeout}s"
+      end
+      raise Error, "exit #{thread.value.exitstatus}: #{readers.last.value}" unless thread.value.success?
 
-      out
+      readers.first.value
     end
+  end
+
+  def stop(thread)
+    Process.kill('-KILL', thread.pid)
+  rescue Errno::ESRCH
+    nil
+  ensure
+    thread.join
   end
 
   def prompt_text
@@ -282,7 +306,7 @@ class ChangeCaseDraft
 
     given = Array(raw['steps']).first(MAX_STEPS)
     steps = given.filter_map { |step| sanitize_step(step) }
-    return skip(notes, "case #{index + 1} had no usable steps") if steps.empty? || steps.size != given.size
+    return skip(notes, "case #{index + 1} had no usable steps") if steps.empty? || steps.size != given.size || !compiles?(steps)
 
     id = unique_id(self.class.slug(raw['id']), ids, index)
     acceptance = safe_text(raw['acceptance'], 200).strip
@@ -305,7 +329,8 @@ class ChangeCaseDraft
     id
   end
 
-  # One step, or nil when it is not a single allowed verb with a safe value.
+  # One step, or nil when it is not a single allowed verb with a value in the
+  # shape the compiler takes.
   def sanitize_step(step)
     return nil unless step.is_a?(Hash) && step.size == 1
 
@@ -315,15 +340,43 @@ class ChangeCaseDraft
     case verb.to_s
     when 'goto' then value.is_a?(String) && VISITABLE.match?(value) && value.length <= 200 ? { 'goto' => value } : nil
     when 'expect_status' then value.is_a?(Integer) && value.between?(100, 599) ? { 'expect_status' => value } : nil
+    when 'expect_text' then matcher_step(verb.to_s, value, selector: true)
+    when 'expect_url' then matcher_step(verb.to_s, value, selector: false)
     else text_step(verb.to_s, value)
     end
   end
 
   def text_step(verb, value)
+    clean = clean_text(value)
+    clean && { verb => clean }
+  end
+
+  # expect_text and expect_url take a mapping: a selector (expect_text only)
+  # and exactly one of equals or contains.
+  def matcher_step(verb, value, selector:)
+    return nil unless value.is_a?(Hash)
+
+    modes = value.slice('equals', 'contains')
+    expected = modes.size == 1 ? clean_text(modes.values.first) : nil
+    target = selector ? clean_text(value['selector']) : true
+    return nil unless expected && target
+
+    { verb => (selector ? { 'selector' => target } : {}).merge(modes.keys.first => expected) }
+  end
+
+  def clean_text(value)
     return nil unless value.is_a?(String) && !value.strip.empty?
 
     clean = safe_text(value, 200)
-    clean.include?(ChangeFlowCompiler::REDACTED) ? nil : { verb => clean }
+    clean.include?(ChangeFlowCompiler::REDACTED) ? nil : clean
+  end
+
+  # A case the compiler refuses would fail at promotion, so it is dropped here.
+  def compiles?(steps)
+    ChangeFlowCompiler.new(steps, base_url: 'http://draft.invalid').compile
+    true
+  rescue ChangeFlowCompiler::Error
+    false
   end
 
   # --- output -----------------------------------------------------------------
@@ -348,13 +401,14 @@ class ChangeCaseDraft
   end
 
   # A draft inside the repository could be picked up by a suites glob, so the
-  # output directory must be outside it.
-  def refuse_inside_repo!
-    target = resolve(out)
+  # destination must resolve outside it. Checked for the output directory and
+  # again for the final path, because `drafts` or the file may be a symlink.
+  def refuse_inside_repo!(path)
+    target = resolve(path)
     base = resolve(root)
     return unless target == base || target.start_with?("#{base}/")
 
-    raise Error, "--out #{self.class.clip(out)} is inside the repository; drafts go to run output only"
+    raise Error, "#{self.class.clip(path)} resolves inside the repository; drafts go to run output only"
   end
 
   def resolve(path)
