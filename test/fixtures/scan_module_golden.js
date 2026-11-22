@@ -160,10 +160,10 @@ async function settledRects(statePage, selectors, limitMs) {
   while (Date.now() < until) {
     await new Promise((done) => setTimeout(done, 50));
     const next = JSON.stringify(await readRects(statePage, selectors));
-    if (next === last) break;
+    if (next === last) return JSON.parse(last);
     last = next;
   }
-  return JSON.parse(last);
+  throw new Error("layout did not settle in " + limitMs + "ms");
 }
 
 async function runOneState(statePage, st, reload) {

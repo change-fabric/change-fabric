@@ -156,6 +156,12 @@ class ChangeRouteStatesTest < Minitest::Test
     assert_equal 2, js.scan("await settledRects(statePage, st.watch").length
   end
 
+  def test_rects_that_never_agree_fail_the_state_instead_of_passing
+    js = ChangeRouteStates.runtime_js
+    assert_includes js, 'throw new Error("layout did not settle in "'
+    refute_match(/if \(next === last\) break;/, js)
+  end
+
   def test_a_hidden_element_and_a_blocked_login_are_named
     zero = RECT.merge("width" => 0, "height" => 0)
     assert_includes ChangeRouteStates.runtime_js, "r.width === 0 && r.height === 0"
