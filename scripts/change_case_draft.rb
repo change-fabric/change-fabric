@@ -398,12 +398,13 @@ class ChangeCaseDraft
   # credential opened on a context line still masks the lines it covers. Each
   # added line carries a marker through the masker; a line the masker
   # replaced loses it and is dropped. A line too long to be hand-written (a
-  # bundle) is dropped whole, never clipped, so a secret cannot straddle a clip.
+  # bundle) is dropped whole after masking, never clipped, so a secret cannot
+  # straddle a clip and a long context line still opens its credential.
   def added_text(path)
-    lines = source.body[path].reject { |text, _added| text.length > MAX_LINE_CHARS }
-    marked = lines.map { |text, added| added ? "#{text.delete(MARK)}#{MARK}" : text.delete(MARK) }
+    marked = source.body[path].map { |text, added| added ? "#{text.delete(MARK)}#{MARK}" : text.delete(MARK) }
     masked = self.class.redact(marked.join("\n"), env: @env)
-    masked.lines.map(&:chomp).select { |line| line.end_with?(MARK) }.first(40).map { |line| line.delete_suffix(MARK) }.join("\n")
+    masked.lines.map(&:chomp).select { |line| line.end_with?(MARK) && line.length <= MAX_LINE_CHARS }
+          .first(40).map { |line| line.delete_suffix(MARK) }.join("\n")
   end
 
   def parse_reply(reply)
@@ -427,7 +428,8 @@ class ChangeCaseDraft
     steps = given.filter_map { |step| sanitize_step(step) }
     return skip(notes, "case #{index + 1} had no usable steps") if steps.empty? || steps.size != given.size || !compiles?(steps)
 
-    id = unique_id(self.class.slug(raw['id']), ids, index)
+    slug = self.class.slug(raw['id'])
+    id = unique_id(unmasked?(slug) ? slug : '', ids, index)
     acceptance = safe_text(raw['acceptance'], 200).strip
     acceptance = "DRAFT: #{id} works after this change." if acceptance.empty?
     { 'id' => id, 'acceptance' => acceptance.start_with?('DRAFT') ? acceptance : "DRAFT: #{acceptance}", 'steps' => steps }
@@ -450,7 +452,7 @@ class ChangeCaseDraft
     return nil unless MODEL_VERBS.include?(verb.to_s) && ChangeSuiteSchema.verb_version(verb.to_s) <= ChangeSuiteSchema::SUITE_VERSION
 
     case verb.to_s
-    when 'goto' then value.is_a?(String) && VISITABLE.match?(value) && value.length <= 200 ? { 'goto' => value } : nil
+    when 'goto' then value.is_a?(String) && VISITABLE.match?(value) && value.length <= 200 && unmasked?(value) ? { 'goto' => value } : nil
     when 'expect_status' then value.is_a?(Integer) && value.between?(100, 599) ? { 'expect_status' => value } : nil
     when 'expect_text' then matcher_step(verb.to_s, value, selector: true)
     when 'expect_url' then matcher_step(verb.to_s, value, selector: false)
@@ -475,6 +477,9 @@ class ChangeCaseDraft
 
     { verb => (selector ? { 'selector' => target } : {}).merge(modes.keys.first => expected) }
   end
+
+  # True when masking leaves the text as it is, so it holds no secret.
+  def unmasked?(value) = self.class.redact(value, env: @env) == value
 
   def clean_text(value)
     return nil unless value.is_a?(String) && !value.strip.empty?

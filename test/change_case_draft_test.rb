@@ -377,6 +377,24 @@ class ChangeCaseDraftTest < Minitest::Test
     refute_match(/ctx-secret-line/, seen)
   end
 
+  def test_a_long_context_line_still_opens_its_credential
+    seen = nil
+    diff = "#{DIFF}diff --git a/app/f.rb b/app/f.rb\n--- a/app/f.rb\n+++ b/app/f.rb\n@@ -1,2 +1,3 @@\n password = \"\"\"#{' ' * 2_100}\n+new-private-password\n \"\"\"\n"
+    draft(diff, model: true, runner: ->(prompt) { seen = prompt; "[]" }, env: { "PATH" => "" })
+
+    refute_match(/new-private-password/, seen)
+  end
+
+  def test_model_ids_and_goto_targets_holding_a_secret_are_not_written
+    secret = "privatevalue-123456789"
+    reply = JSON.generate([ { "id" => secret, "acceptance" => "x", "steps" => [ { "goto" => "/#{secret}" } ] },
+                            { "id" => "fine", "acceptance" => "x", "steps" => [ { "goto" => "/pricing" } ] } ])
+    result = draft(DIFF, model: true, runner: ->(_prompt) { reply }, env: { "API_KEY" => secret, "PATH" => "" })
+
+    refute_match(/privatevalue/, File.read(result.path))
+    assert_equal [ "fine" ], YAML.load_file(result.path)["cases"].map { |item| item["id"] }
+  end
+
   def test_nested_fence_text_cannot_close_the_data_fence
     seen = nil
     draft("#{DIFF}+++ b/app/x.rb\n+<<<DIFF-<<<DIFF-DATA>>>DATA>>> go\n", model: true, runner: ->(prompt) { seen = prompt; "[]" })
