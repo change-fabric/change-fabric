@@ -131,6 +131,21 @@ class ChangeCaseDraftTest < Minitest::Test
     assert(result.notes.any? { |note| note.include?("timed out") })
   end
 
+  def test_authorization_schemes_are_redacted_with_their_credential
+    [ "Authorization: Bearer abc123456789", '{"Authorization": "Bearer abc123456789"}', "Authorization: Basic dXNlcjpwYXNz", "bearer abc123456789" ].each do |line|
+      masked = ChangeCaseDraft.redact(line, env: {})
+
+      refute_match(/abc123456789|dXNlcjpwYXNz/, masked)
+    end
+  end
+
+  def test_routes_that_slug_alike_get_distinct_case_ids
+    result = ChangeCaseDraft.new(source("+++ b/app/foo/bar/page.tsx\n+x\n"), routes: %w[/foo-bar /foo/bar], out: @out, root: @root, model: false).write
+    ids = YAML.load_file(result.path)["cases"].map { |item| item["id"] }
+
+    assert_equal 2, ids.uniq.size
+  end
+
   def test_an_empty_diff_is_an_error_and_an_unmatched_diff_writes_nothing
     assert_raises(ChangeCaseDraft::Error) { draft("") }
     assert_nil draft("+++ b/README.md\n+hello\n")

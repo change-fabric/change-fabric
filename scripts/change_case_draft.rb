@@ -48,7 +48,7 @@ class ChangeCaseDraft
   ROOT_FILES = %w[page index home layout].freeze
   ROOT_DIRS = %w[. app pages src src/app src/pages public].freeze
   SENSITIVE_PATH = %r{(\A|/)(\.env[^/]*|[^/]*\.(pem|key|p12|pfx)|[^/]*(secret|credential)[^/]*)\z}i
-  SECRET = /(token|secret|passw(?:or)?d|api[_-]?key|authorization|bearer|cookie)\W{0,3}\S+|\$\{[^}]*\}/i
+  SECRET = /(token|secret|passw(?:or)?d|api[_-]?key|authorization|bearer|cookie)\W{0,5}(?:(?:bearer|basic|token)\s+)?\S+|\$\{[^}]*\}/i
   SECRET_ENV_NAME = /(token|secret|passw|key|auth|credential|cookie)/i
   # Verbs a model may use. `fill` and `eval` are never drafted: a fill needs a
   # secret and an eval is raw JS, and neither belongs in a guess.
@@ -182,7 +182,8 @@ class ChangeCaseDraft
       hits = source.paths.select { |path| touches?(route, path) }
       [ route, hits ] unless hits.empty?
     end
-    matched.first(MAX_CASES).map { |route, hits| skeleton_case(route, hits) }
+    ids = {}
+    matched.first(MAX_CASES).each_with_index.map { |(route, hits), index| skeleton_case(route, hits, ids, index) }
   end
 
   def touches?(route, path)
@@ -199,9 +200,10 @@ class ChangeCaseDraft
     ROOT_FILES.include?(File.basename(path, '.*').downcase) && ROOT_DIRS.include?(File.dirname(path))
   end
 
-  def skeleton_case(route, hits)
+  def skeleton_case(route, hits, ids, index)
     covers = hits.reject { |path| path.match?(/[*?\[\]{}]/) }.first(MAX_PATHS)
-    item = { 'id' => "route-#{self.class.slug(route).then { |id| id.empty? ? 'root' : id }}",
+    slug = self.class.slug(route)
+    item = { 'id' => unique_id("route-#{slug.empty? ? 'root' : slug}", ids, index),
              'acceptance' => "DRAFT: #{self.class.clip(route)} still loads after this change; replace with what the change should do.",
              'steps' => [ { 'goto' => route }, { 'expect_status' => 200 } ] }
     item['covers'] = covers unless covers.empty?
