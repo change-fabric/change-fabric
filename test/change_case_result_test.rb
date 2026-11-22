@@ -80,4 +80,14 @@ class ChangeCaseResultTest < Minitest::Test
     old = ChangeCaseResult.from_h("key" => "a/b", "suite" => "a", "id" => "b", "status" => "pass")
     refute old.quarantined?
   end
+
+  def test_selector_suggestions_default_empty_round_trip_and_never_change_status
+    assert_equal [], result("fail", "r1").selector_suggestions
+    suggested = ChangeCaseResult.from_h({ "key" => "a/b", "status" => "fail", "selector_suggestions" => [ { "step" => 0 }, "x" ] })
+
+    assert_equal [ { "step" => 0 } ], suggested.selector_suggestions
+    assert_equal [ { "step" => 0 } ], ChangeCaseResult.from_h(JSON.parse(suggested.to_json)).selector_suggestions
+    assert suggested.failure?
+    refute suggested.pass?
+  end
 end

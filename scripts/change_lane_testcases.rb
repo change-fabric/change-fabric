@@ -15,6 +15,7 @@ require_relative 'change_acceptance_grader'
 require_relative 'change_testcases_personas'
 require_relative 'change_testcases_evidence'
 require_relative 'change_case_result'
+require_relative 'change_selector_suggestions'
 require_relative 'change_testcases_video'
 
 # The deterministic regression lane. Runs committed test cases (suite files
@@ -120,7 +121,7 @@ class ChangeLaneTestcases < ChangeLane
         run_id: run_id, evidence_dir: result[:record]&.dig('evidenceDir'),
         acceptance_verdict: result[:verdict]&.verdict, step_durations: step_durations(result[:record]),
         quarantined: item.quarantined?(today), quarantine_reason: item.quarantined?(today) ? item.quarantine.reason : nil,
-        case_hash: item.content_hash
+        case_hash: item.content_hash, selector_suggestions: Array(result[:record]&.dig('selectorSuggestions'))
       )
     end
   end
@@ -568,10 +569,30 @@ class ChangeLaneTestcases < ChangeLane
     if persona && record.is_a?(Hash) && record['authExpired']
       record = resume_after_expiry(session, item, compiled, number, persona, generation, record, dir)
     end
+    record = suggest_selectors(item, record)
     dir ? evidence.close_attempt(dir, record) : record
   rescue PersonaCache::LoginError => e
     { 'ok' => false, 'notAttempted' => true, 'steps' => [],
       'authError' => "persona '#{item.persona_name}' could not log in: #{e.message}" }
+  end
+
+  # Suggest-only: turns the raw candidates a timed-out selector step carried
+  # into at most three redacted suggestions on the record, and removes the raw
+  # page facts so they never reach the evidence dir. The attempt's outcome is
+  # not touched here or anywhere after: a suggestion cannot pass a case.
+  def suggest_selectors(item, record)
+    return record unless record.is_a?(Hash)
+
+    steps = Array(record['steps']).select { |step| step.is_a?(Hash) }
+    return record unless steps.any? { |step| step.key?('candidates') }
+
+    secrets = secret_values(item)
+    suggestions = steps.filter_map do |step|
+      raw = step.delete('candidates')
+      ChangeSelectorSuggestions.build(step_index: step['index'], selector: step['selector'], raw: raw, secrets: secrets)
+    end
+    record['selectorSuggestions'] = suggestions unless suggestions.empty?
+    record
   end
 
   def unknown_persona(item)

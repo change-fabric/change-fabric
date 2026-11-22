@@ -105,6 +105,7 @@ class ChangeTestcasesReport
       <p class="meta">Run #{h(run_id)}#{commit ? " at #{h(commit[0, 12])}" : ''}. #{summary}</p>
       #{attention_section}
       #{flake_section}
+      #{suggestion_section}
       <h2>Cases</h2>
       <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Quarantine</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th><th>Video</th></tr></thead>
       <tbody>
@@ -177,6 +178,28 @@ class ChangeTestcasesReport
 
     "<h2>Flake proposals</h2><p>Quarantine proposals for flipping cases: <a href=\"#{ChangeFlakeTriage::MARKDOWN_FILE}\">" \
       "#{ChangeFlakeTriage::MARKDOWN_FILE}</a> (<a href=\"#{ChangeFlakeTriage::JSON_FILE}\">json</a>). No suite was edited.</p>"
+  end
+
+  # Suggest-only: what a human could change a failed selector to. The case is
+  # still failed; nothing here is applied. Values were redacted when recorded
+  # and are escaped again here.
+  def suggestion_section
+    rows = @records.flat_map do |record|
+      record.selector_suggestions.map { |entry| suggestion_item(record, entry) }
+    end
+    return '' if rows.empty?
+
+    "<h2>Selector suggestions</h2><p>Top candidates for a human to review. The case still fails; " \
+      "nothing was changed.</p><ul>#{rows.join}</ul>"
+  end
+
+  def suggestion_item(record, entry)
+    candidates = Array(entry['candidates']).grep(Hash).map do |candidate|
+      "<li><code>#{h(candidate['selector'])}</code> by #{h(candidate['by'])}, #{h(candidate['matches'])} match(es)</li>"
+    end
+    shown = candidates.empty? ? '<p>No candidate found.</p>' : "<ol>#{candidates.join}</ol>"
+    note = entry['note'] ? "<p>#{h(entry['note'])}</p>" : ''
+    "<li>#{h(record.key)} step #{h(entry['step'].to_i + 1)}: <code>#{h(entry['failed'])}</code>#{shown}#{note}</li>"
   end
 
   def case_row(record)

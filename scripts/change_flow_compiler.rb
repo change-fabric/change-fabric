@@ -176,6 +176,53 @@ class ChangeFlowCompiler
       return picked;
     };
 
+    // After a step's wait timed out on a selector that matches nothing,
+    // gathers raw facts about the elements that are there, for the host to
+    // score (ChangeSelectorSuggestions). Suggest-only: the step still fails.
+    // Walks the page and open shadow roots; an iframe is counted, never
+    // entered. Never reads a field's value, and skips password inputs.
+    const CF_CANDIDATE_LIMIT = 60;
+    const CF_CANDIDATE_SCAN = 3000;
+    async function cfCandidates(page, step) {
+      try {
+        if ((await cfCount(page, step)) > 0) return null;
+        return await page.evaluate((limit, scanMax) => {
+          const clip = (s) => String(s || "").replace(/\\s+/g, " ").trim().slice(0, 80);
+          const interesting = "a,button,input,select,textarea,summary,label,h1,h2,h3,h4,h5,h6,[role],[data-testid],[id]";
+          const implicit = { a: "link", button: "button", select: "combobox", textarea: "textbox", summary: "button", h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading" };
+          const found = { items: [], frames: 0, scanned: 0, truncated: false };
+          const walk = (root, scope) => {
+            for (const el of root.querySelectorAll("*")) {
+              if (found.scanned >= scanMax) { found.truncated = true; return; }
+              found.scanned += 1;
+              if (el.tagName === "IFRAME" || el.tagName === "FRAME") found.frames += 1;
+              if (el.shadowRoot) walk(el.shadowRoot, "shadow");
+              if (!el.matches(interesting)) continue;
+              const type = (el.getAttribute("type") || "").toLowerCase();
+              if (el.tagName === "INPUT" && (type === "password" || type === "hidden")) continue;
+              if (found.items.length >= limit) { found.truncated = true; return; }
+              const id = el.getAttribute("id");
+              const testid = el.getAttribute("data-testid");
+              found.items.push({
+                tag: el.tagName.toLowerCase(), scope,
+                id: id ? clip(id) : null, testid: testid ? clip(testid) : null,
+                role: clip(el.getAttribute("role") || implicit[el.tagName.toLowerCase()] || (el.tagName === "INPUT" ? "textbox" : "")) || null,
+                label: clip(el.getAttribute("aria-label")) || null,
+                text: clip(el.innerText || el.textContent) || null,
+                idCount: id ? root.querySelectorAll("[id=" + JSON.stringify(id) + "]").length : 0,
+                testidCount: testid ? root.querySelectorAll("[data-testid=" + JSON.stringify(testid) + "]").length : 0,
+              });
+            }
+          };
+          walk(document, "page");
+          return found;
+        }, CF_CANDIDATE_LIMIT, CF_CANDIDATE_SCAN);
+      } catch (err) {
+        void err;
+        return null;
+      }
+    }
+
     // Waits for a step's target: through Puppeteer's own selector engine for
     // a plain selector, through cfLocate for a text/nth one. Returns the
     // element handle, or null for mode "hidden".
@@ -601,6 +648,8 @@ class ChangeFlowCompiler
         } catch (err) {
           record.ok = false;
           record.error = String(err);
+          const waited = (err && err.name === "TimeoutError") || /Waiting (for selector|failed)/.test(String(err && err.message));
+          if (waited && step.selector) { record.selector = step.selector; record.candidates = await cfCandidates(page, step); }
         }
         const endedAt = Date.now();
         record.durationMs = endedAt - startedAt;
