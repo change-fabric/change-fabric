@@ -230,4 +230,10 @@ class ChangeFlowRunTest < Minitest::Test
 
     refute_includes code, "cfExpose(results)"
   end
+
+  def test_a_standalone_expect_visual_is_refused_rather_than_passed_unjudged
+    compiler = ChangeFlowCompiler.new([ { "expect_visual" => "hero" } ])
+
+    assert_raises(ChangeFlowCompiler::Error) { ChangeFlowRun.execute(compiler, {}) }
+  end
 end

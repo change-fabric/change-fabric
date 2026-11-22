@@ -1,0 +1,8 @@
+suite: compat-v7
+suite_version: 7
+cases:
+  - id: home
+    acceptance: The home page matches its baseline.
+    steps:
+      - goto: /
+      - expect_visual: { name: home, max_diff_ratio: 0.002, mask: [ ".clock" ] }

@@ -15,7 +15,8 @@ class ChangeCaseResult
   FAILURE_STATUSES = %w[fail auth_interrupted partial_evidence].freeze
 
   FIELDS = %i[key suite id persona status attempts duration_ms started_at commit run_id evidence_dir
-              acceptance_verdict step_durations quarantined quarantine_reason case_hash selector_suggestions].freeze
+              acceptance_verdict step_durations quarantined quarantine_reason case_hash selector_suggestions
+              visual_results].freeze
 
   attr_reader(*FIELDS)
 
@@ -32,6 +33,7 @@ class ChangeCaseResult
     @quarantine_reason = @quarantine_reason.to_s unless @quarantine_reason.nil?
     @case_hash = @case_hash.to_s unless @case_hash.nil?
     @selector_suggestions = Array(@selector_suggestions).grep(Hash)
+    @visual_results = Array(@visual_results).grep(Hash)
   end
 
   def self.from_h(hash)

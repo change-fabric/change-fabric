@@ -29,7 +29,7 @@ module ChangeSuiteSchema
   # field set before the key existed. Every PR that adds a suite field raises
   # this by one and records the field in FIELD_VERSIONS, so an install can tell
   # a file written for a newer toolkit from a file with a typo.
-  SUITE_VERSION = 6
+  SUITE_VERSION = 7
 
   # The version a file declares when it says nothing.
   DEFAULT_SUITE_VERSION = 1
@@ -113,13 +113,14 @@ module ChangeSuiteSchema
   # version 1 verb. Same rule as FIELD_VERSIONS: a file using a verb newer than
   # it declares is refused with the version that adds it.
   VERB_VERSIONS = (ChangeFlowCompiler::STATE_WAITS + ChangeFlowCompiler::EVENT_WAITS).to_h { |verb| [ verb, 4 ] }
-                                                                                    .merge('expect_stable' => 5).freeze
+                                                                                    .merge('expect_stable' => 5, 'expect_visual' => 7).freeze
 
   def self.verb_version(verb) = VERB_VERSIONS.fetch(verb, DEFAULT_SUITE_VERSION)
 
   # (v5) The step option and the read kinds newer than version 1, gated the
   # same way: a v4 file using them is refused naming the version that adds them.
-  OPTION_VERSIONS = { 'budget_ms' => 5, 'budget_from' => 5, 'label' => 5, 'tolerance' => 5, 'tolerance_px' => 5, 'wait' => 5, 'max_cls' => 5 }.freeze
+  OPTION_VERSIONS = { 'budget_ms' => 5, 'budget_from' => 5, 'label' => 5, 'tolerance' => 5, 'tolerance_px' => 5, 'wait' => 5, 'max_cls' => 5,
+                     'max_diff_ratio' => 7, 'mask' => 7 }.freeze
   KIND_VERSIONS = ChangeFlowCompiler::MEASURED_KINDS.to_h { |kind| [ kind, 5 ] }.freeze
 
   def self.option_version(option) = OPTION_VERSIONS.fetch(option, DEFAULT_SUITE_VERSION)

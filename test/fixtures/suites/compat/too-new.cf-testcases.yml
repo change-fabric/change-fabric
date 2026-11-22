@@ -1,7 +1,7 @@
 # Declares one more than ChangeSuiteSchema::SUITE_VERSION. Raise it with the
 # constant so it always reads as a file from a newer toolkit.
 suite: compat-too-new
-suite_version: 7
+suite_version: 8
 cases:
   - id: home
     acceptance: The home page loads.
