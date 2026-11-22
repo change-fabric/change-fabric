@@ -83,6 +83,14 @@ class ChangeRouteStatesTest < Minitest::Test
     assert_equal "pass", grade(watched("tolerance_px" => 4), result).first
   end
 
+  def test_a_move_plus_resize_is_measured_by_the_edge
+    result = { "before" => [ RECT ], "after" => [ RECT.merge("x" => 4, "width" => 104) ], "scrollWidth" => 390 }
+    status, _sev, detail = grade(watched("tolerance_px" => 5), result)
+    assert_equal "fail", status
+    assert_match(/by 8.0px/, detail)
+    assert_equal "pass", grade(watched("tolerance_px" => 8), result).first
+  end
+
   def test_a_resize_counts
     result = { "before" => [ RECT ], "after" => [ RECT.merge("height" => 80) ], "scrollWidth" => 390 }
     assert_equal "fail", grade(watched, result).first

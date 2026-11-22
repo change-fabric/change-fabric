@@ -196,8 +196,14 @@ module ChangeRouteStates
 
   # The largest change in any edge, so a pure resize counts like a move.
   def shift(from, to)
-    deltas = RECT_KEYS.map { |key| (to[key].to_f - from[key].to_f).abs }
-    deltas.max
+    edges(from).zip(edges(to)).map { |before, after| (after - before).abs }.max
+  end
+
+  # left, top, right, bottom: a move plus a resize can shift one edge by more
+  # than either the position or the size changed on its own.
+  def edges(rect)
+    x, y, width, height = RECT_KEYS.map { |key| rect[key].to_f }
+    [ x, y, x + width, y + height ]
   end
 
   def config_findings(entry, target:)
