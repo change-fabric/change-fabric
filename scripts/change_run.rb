@@ -667,7 +667,8 @@ class ChangeRun
 
   # `--changed`: turns the diff into the qualified ids of the cases it selects
   # (intersected with any `--case`), kept in @case_select for the lane. Returns
-  # :none when nothing is affected, before anything boots.
+  # :none when nothing is affected, before anything boots, and nil (no narrowing)
+  # whenever the lane should own the outcome, such as an empty or broken suite set.
   def resolve_changed(config, lanes)
     @case_select = nil
     return unless @args.changed && lanes.include?('testcases')
@@ -675,7 +676,9 @@ class ChangeRun
     lane = config.lane('testcases')
     set = ChangeSuiteSet.load(lane['suites'], lane.dir)
     # A broken suite, a mistyped --suite or an unmatched gate tag must reach the lane, which reports it
-    # as a failure; a successful "no cases affected" would hide it.
+    # as a failure, and a lane with no cases at all fails in the lane itself; a successful
+    # "no cases affected" would hide either.
+    return if set.cases.empty?
     return unless set.errors.empty? && set.unmatched_selectors(@args.suites).empty? &&
                   set.unmatched_gate_tags(Array(lane['gate_tags']).map(&:to_s)).empty?
 
