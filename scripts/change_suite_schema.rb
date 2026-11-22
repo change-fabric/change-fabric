@@ -29,7 +29,7 @@ module ChangeSuiteSchema
   # field set before the key existed. Every PR that adds a suite field raises
   # this by one and records the field in FIELD_VERSIONS, so an install can tell
   # a file written for a newer toolkit from a file with a typo.
-  SUITE_VERSION = 5
+  SUITE_VERSION = 6
 
   # The version a file declares when it says nothing.
   DEFAULT_SUITE_VERSION = 1
@@ -77,6 +77,10 @@ module ChangeSuiteSchema
     # (v3) The case ends its own session on purpose (a logout test), so
     # session-end detection and its re-login are off for it.
     'cases[].expects_logout',
+    # (v6) Repo-relative globs naming the paths this case exercises. `change_run.rb
+    # testcases --changed` selects the case when a changed path matches one. A case
+    # with no `covers` always runs under --changed.
+    'cases[].covers',
     # The time-boxed flake quarantine. All three keys or none: a quarantine
     # without a reason cannot be told from a defect somebody muted, and one
     # without an expiry is permanent, which is the state this feature exists to
@@ -99,7 +103,8 @@ module ChangeSuiteSchema
     'cases[].timeout_ms' => 2,
     'cases[].persona' => 3,
     'cases[].safe_retry' => 3,
-    'cases[].expects_logout' => 3
+    'cases[].expects_logout' => 3,
+    'cases[].covers' => 6
   }.freeze
 
   def self.field_version(field) = FIELD_VERSIONS.fetch(field, DEFAULT_SUITE_VERSION)

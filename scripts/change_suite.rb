@@ -66,7 +66,7 @@ class ChangeSuite
   # stays raw here; the lane compiles it through ChangeFlowCompiler, which owns
   # the step vocabulary.
   TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :quarantine, :steps,
-                        :timeout_ms, :safe_rerun, :persona, :safe_retry, :expects_logout,
+                        :timeout_ms, :safe_rerun, :persona, :safe_retry, :expects_logout, :covers,
                         keyword_init: true) do
     # The persona the case runs as; `default` when the case names none.
     def persona_name = persona || 'default'
@@ -199,8 +199,22 @@ class ChangeSuite
                  persona: persona(raw_case['persona'], where),
                  safe_retry: boolean(raw_case['safe_retry'], 'safe_retry', where),
                  expects_logout: boolean(raw_case['expects_logout'], 'expects_logout', where),
+                 covers: covers(raw_case['covers'], where),
                  quarantine: quarantine(raw_case, name, id, path),
                  steps: steps(raw_case['steps'], name, id, path, version))
+  end
+
+  # The `covers` globs: nil when absent (the case always runs under --changed),
+  # otherwise a non-empty list of repo-relative globs. An empty list is refused
+  # rather than read as "covers nothing", which would silently never select it.
+  def self.covers(value, where)
+    return nil if value.nil?
+
+    list = value.is_a?(Array) ? value : [ value ]
+    ok = list.all? { |glob| glob.is_a?(String) && !glob.strip.empty? && !glob.start_with?('/') && !glob.split('/').include?('..') }
+    raise Error, "#{where} has a `covers` that is not a non-empty list of repo-relative globs" unless ok && !list.empty?
+
+    list.map(&:strip)
   end
 
   def self.safe_rerun(value, where) = boolean(value, 'safe_rerun', where)
