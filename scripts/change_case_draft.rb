@@ -49,6 +49,9 @@ class ChangeCaseDraft
   ROOT_DIRS = %w[. app pages src src/app src/pages public].freeze
   SENSITIVE_PATH = %r{(\A|/)(\.env[^/]*|[^/]*\.(pem|key|p12|pfx)|[^/]*(secret|credential)[^/]*)\z}i
   SECRET = /(token|secret|passw(?:or)?d|api[_-]?key|authorization|bearer|cookie)\W{0,5}(?:(?:bearer|basic|token)\s+)?\S+|\$\{[^}]*\}/i
+  # A credential header holds several values (`Cookie: a=1; session=...`), so
+  # everything after its name to the end of the line goes.
+  CREDENTIAL_HEADER = /\b(?:set-)?cookie\b[^\n]*|\bauthorization\b[^\n]*/i
   SECRET_ENV_NAME = /(token|secret|passw|key|auth|credential|cookie)/i
   # Verbs a model may use. `fill` and `eval` are never drafted: a fill needs a
   # secret and an eval is raw JS, and neither belongs in a guess.
@@ -67,7 +70,7 @@ class ChangeCaseDraft
   def self.redact(text, env: ENV)
     secrets = env.select { |name, value| name.match?(SECRET_ENV_NAME) && value.to_s.length >= 8 }.values
     masked = secrets.empty? ? text.to_s : text.to_s.gsub(Regexp.union(secrets.sort_by { |value| -value.length }), ChangeFlowCompiler::REDACTED)
-    masked.gsub(SECRET, ChangeFlowCompiler::REDACTED)
+    masked.gsub(CREDENTIAL_HEADER, ChangeFlowCompiler::REDACTED).gsub(SECRET, ChangeFlowCompiler::REDACTED)
   end
 
   # A unified diff as changed paths plus the added lines of each non-sensitive

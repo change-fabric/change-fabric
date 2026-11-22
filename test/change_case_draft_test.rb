@@ -139,6 +139,13 @@ class ChangeCaseDraftTest < Minitest::Test
     end
   end
 
+  def test_a_multi_cookie_header_is_redacted_whole
+    [ "Cookie: theme=dark; session_id=abc123456789", '{"cookie": "theme=dark; session_id=abc123456789"}', "Set-Cookie: a=1; sid=abc123456789; Path=/" ].each do |line|
+      refute_match(/abc123456789/, ChangeCaseDraft.redact(line, env: {}))
+    end
+    assert_equal "keep this\n[redacted]", ChangeCaseDraft.redact("keep this\nCookie: a=1; b=2", env: {})
+  end
+
   def test_routes_that_slug_alike_get_distinct_case_ids
     result = ChangeCaseDraft.new(source("+++ b/app/foo/bar/page.tsx\n+x\n"), routes: %w[/foo-bar /foo/bar], out: @out, root: @root, model: false).write
     ids = YAML.load_file(result.path)["cases"].map { |item| item["id"] }
