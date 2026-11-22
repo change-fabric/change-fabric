@@ -74,6 +74,7 @@ class ChangeLaneTestcases < ChangeLane
   # Keys whose values are binary or paths, not page text: images, the frame
   # recording and the evidence location pass through untouched.
   RAW_KEYS = %w[screenshot diff video evidenceDir].freeze
+  STEP_LISTS = %w[steps preconditions].freeze
   CASE_BUDGET_FLOOR_MS = ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS
   DEFAULT_PARALLEL = 1
   # Seconds to wait before each retry of a call the container's queue
@@ -194,9 +195,18 @@ class ChangeLaneTestcases < ChangeLane
     when String then ChangeSelectorSuggestions.safe(value, secrets: secrets, max: max)
     when Numeric then secrets.any? { |secret| secret.to_s == value.to_s } ? ChangeSelectorSuggestions::REDACTED : value
     when Array then scrub_list(value, secrets, max, keep)
-    when Hash then value.to_h { |key, entry| [ key, keep.include?(key) ? entry : scrub_value(entry, secrets, max: max, keep: keep) ] }
+    when Hash then value.to_h { |key, entry| [ key, scrub_entry(key, entry, secrets, max, keep) ] }
     else value
     end
+  end
+
+  # The step lists are kept whole, though each step is masked: the verdict is
+  # read from them, and a case may have any number of steps.
+  def scrub_entry(key, entry, secrets, max, keep)
+    return entry if keep.include?(key)
+    return entry.map { |step| scrub_value(step, secrets, max: max, keep: keep) } if STEP_LISTS.include?(key) && entry.is_a?(Array)
+
+    scrub_value(entry, secrets, max: max, keep: keep)
   end
 
   def scrub_list(list, secrets, max, keep)
@@ -938,7 +948,7 @@ class ChangeLaneTestcases < ChangeLane
     record = result[:record] || {}
     observed = record['observation'] || {}
     { id: result[:case].qualified_id, acceptance: result[:case].acceptance, ok: true,
-      steps: Array(record['steps']), url: observed['url'], title: observed['title'], text: observed['text'],
+      steps: walked_steps(record), url: observed['url'], title: observed['title'], text: observed['text'],
       captured: captured_values(record), relations: relation_results(result[:case], record),
       secrets: secret_values(result[:case]) }
   end
@@ -947,7 +957,7 @@ class ChangeLaneTestcases < ChangeLane
   # value and time of that very read: a variable captured twice reports both
   # readings, never the later value under the earlier time.
   def captured_values(record)
-    Array(record['steps']).filter_map do |step|
+    walked_steps(record).filter_map do |step|
       next unless step['captured']
 
       { var: step['captured'], value: step['found'], kind: step['kind'], read_at: step['readAt'], url: step['url'],

@@ -1917,6 +1917,19 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  def test_a_drift_on_the_201st_step_is_still_a_drift_and_precondition_captures_are_graded
+    steps = Array.new(200) { |i| { "index" => i, "verb" => "goto", "ok" => true } } + DRIFT_STEPS.last(1).map { |step| step.merge("index" => 200) }
+    pre = [ { "index" => 0, "verb" => "capture", "ok" => true, "captured" => "badge", "found" => 70, "kind" => "number", "readAt" => "t" } ]
+    with_suite(V6_SUITE) do |dir|
+      grader = FakeGrader.new
+      runner = lane6(dir, FakeSession.new(ok_result(2).tap { |list| list[0] = list[0].merge("steps" => steps, "preconditions" => pre) }), grader: grader)
+      findings = step_findings(runner.run)
+      assert_equal "warn", findings.find { |finding| finding.check == "members/counts-agree" }.status
+      assert_equal "warn", runner.case_records.first.status
+      assert_includes grader.observations.first[:captured].map { |entry| entry[:var] }, "badge"
+    end
+  end
+
   def test_a_secret_in_a_failure_error_is_masked_in_the_finding
     with_suite(LEAK_SUITE) do |dir|
       ENV["LEAK_PW"] = "hunter2"
