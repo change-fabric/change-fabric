@@ -143,7 +143,7 @@ async function runStates(statePage, states, reload) {
     const st = states[i];
     const result = { name: st.name };
     try {
-      if (i > 0) await reload();
+      await reload();
       const before = await readRects(statePage, st.watch);
       if (st.click) {
         await statePage.waitForSelector(st.click, { timeout: st.timeoutMs });

@@ -108,8 +108,10 @@ module ChangeRouteStates
   end
 
   # The in-page runner, spliced into the scan module. `reload` brings the
-  # route back to its loaded state before every state after the first, so a
-  # state never depends on the one before it. Failures are caught per state.
+  # route back to a clean load before every state, the first included: the
+  # checks that ran earlier in the cell (a Figma diff injects style overrides)
+  # must not change what a state measures, and no state may depend on another.
+  # Failures are caught per state.
   def runtime_js
     <<~JS
       async function readRects(statePage, selectors) {
@@ -127,7 +129,7 @@ module ChangeRouteStates
           const st = states[i];
           const result = { name: st.name };
           try {
-            if (i > 0) await reload();
+            await reload();
             const before = await readRects(statePage, st.watch);
             if (st.click) {
               await statePage.waitForSelector(st.click, { timeout: st.timeoutMs });

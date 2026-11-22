@@ -131,6 +131,12 @@ class ChangeRouteStatesTest < Minitest::Test
     refute_includes findings.first.detail, secret
   end
 
+  def test_every_state_starts_from_a_fresh_load_including_the_first
+    js = ChangeRouteStates.runtime_js
+    assert_match(/^\s*await reload\(\);/, js)
+    refute_match(/if \(i > 0\)/, js)
+  end
+
   # --- through the lane ---------------------------------------------------
 
   Ctx = Struct.new(:network, :target_url, :browserless) do
