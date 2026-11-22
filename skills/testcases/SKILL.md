@@ -250,6 +250,20 @@ The same report is available alone with
 which takes `--runs` and `--threshold`. A case already under a live quarantine
 is listed, not proposed.
 
+### Drafting cases from a pull request
+
+`ruby scripts/change_case_draft.rb --pr <N> --out <dir>` (or `--diff <file>`)
+reads the diff and the browserless and a11y routes in CHANGE.md and writes
+`<dir>/drafts/<pr-N>.cf-testcases.yml`, a suite file headed as a DRAFT. A local
+model (`claude -p`, or the command in `CF_CASE_DRAFT_MODEL`) proposes cases;
+each is checked against the suite loader and a safe verb set (no `fill`, no
+`eval`), and anything else falls back to a skeleton: a visit and a status check
+for each route the diff appears to touch. `--no-model` forces the skeleton. A
+diff that touches no known route writes nothing. A draft is refused inside the
+repository, so it never lands in a suites tree. To promote a case, read it,
+write a real `acceptance`, and copy it into a suite file; nothing is run or
+gated until then.
+
 ## Graded acceptance
 
 Each case gets a second finding: its `acceptance` prose graded against what the
