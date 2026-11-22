@@ -76,6 +76,14 @@ class ChangeVisualBaselineDockerTest < Minitest::Test
     end
   end
 
+  def test_overlapping_masks_are_restored_after_the_capture
+    Dir.mktmpdir do |root|
+      record = run_flow(root, steps(mask: [ ".clock", ".clock" ]) + [ { "expect_visible" => ".clock" } ])
+
+      assert record["steps"].last["ok"], record["steps"].last["error"]
+    end
+  end
+
   def test_a_mask_that_matches_nothing_or_a_missing_element_fails_the_step
     Dir.mktmpdir do |root|
       stale = run_flow(root, steps(mask: [ ".gone" ]))

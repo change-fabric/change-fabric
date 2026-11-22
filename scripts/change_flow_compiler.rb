@@ -335,7 +335,7 @@ class ChangeFlowCompiler
         if (prepared) {
           try {
             await page.evaluate(() => {
-              for (const [node, value, priority] of window.__cfVisualHidden || []) {
+              for (const [node, value, priority] of (window.__cfVisualHidden || []).reverse()) {
                 if (value) node.style.setProperty("visibility", value, priority); else node.style.removeProperty("visibility");
               }
               window.__cfVisualHidden = [];
