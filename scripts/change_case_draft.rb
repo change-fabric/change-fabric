@@ -72,8 +72,12 @@ class ChangeCaseDraft
   # quoted values with spaces, multiline values, URL userinfo) by the shared
   # helper, plus the values of secret-looking environment variables.
   def self.redact(text, env: ENV)
-    secrets = env.select { |name, value| name.match?(SECRET_ENV_NAME) && value.to_s.length >= 8 }.values
-    ChangeSelectorSuggestions.mask(text, secrets: secrets)
+    ChangeSelectorSuggestions.mask(text, secrets: secret_values(env))
+  end
+
+  def self.secret_values(env)
+    values = env.select { |name, value| name.match?(SECRET_ENV_NAME) }.values.map { |value| value.to_s.strip }
+    values.select { |value| value.length >= 8 }
   end
 
   # A unified diff as changed paths plus the added lines of each non-sensitive
@@ -401,10 +405,23 @@ class ChangeCaseDraft
   # bundle) is dropped whole after masking, never clipped, so a secret cannot
   # straddle a clip and a long context line still opens its credential.
   def added_text(path)
-    marked = source.body[path].map { |text, added| added ? "#{text.delete(MARK)}#{MARK}" : text.delete(MARK) }
-    masked = self.class.redact(marked.join("\n"), env: @env)
+    texts = source.body[path].map { |text, _added| text.delete(MARK) }
+    texts = hide_secrets(texts)
+    marked = texts.each_with_index.map { |text, index| source.body[path][index].last ? "#{text}#{MARK}" : text }
+    masked = ChangeSelectorSuggestions.mask(marked.join("\n"))
     masked.lines.map(&:chomp).select { |line| line.end_with?(MARK) && line.length <= MAX_LINE_CHARS }
           .first(40).map { |line| line.delete_suffix(MARK) }.join("\n")
+  end
+
+  # Environment secret values, matched on the unmarked text so one spanning
+  # several lines still matches, and replaced keeping the line count so each
+  # line keeps its added-or-context flag.
+  def hide_secrets(texts)
+    text = texts.join("\n")
+    self.class.secret_values(@env).sort_by { |secret| -secret.length }.each do |secret|
+      text = text.gsub(secret) { |found| ChangeSelectorSuggestions::REDACTED + ("\n" * found.count("\n")) }
+    end
+    text.split("\n", -1)
   end
 
   def parse_reply(reply)
