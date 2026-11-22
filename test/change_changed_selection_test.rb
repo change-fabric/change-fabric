@@ -200,4 +200,32 @@ class ChangeChangedSelectionTest < Minitest::Test
       capture_io { assert_equal :none, runner.send(:resolve_changed, config, [ "testcases" ]) }
     end
   end
+
+  def resolver(repo, argv, files_lane = { "suites" => [ "*.cf-testcases.yml" ] })
+    lane = ChangeConfig::LaneConfig.new("testcases", files_lane, repo)
+    config = Object.new
+    config.define_singleton_method(:lane) { |_name| lane }
+    runner = ChangeRun.new(%w[all])
+    runner.instance_variable_set(:@repo_root, repo)
+    runner.instance_variable_set(:@args, runner.send(:parse_args, argv))
+    [ runner, config ]
+  end
+
+  def test_a_diff_touching_only_an_excluded_suite_is_no_cases_affected
+    files = { "checkout.cf-testcases.yml" => ANNOTATED, "other.cf-testcases.yml" => MIXED.sub("suite: profile", "suite: other") }
+    with_repo(files) do |repo|
+      commit_file(repo, "app/profile/x.rb")
+      runner, config = resolver(repo, %w[testcases --changed main --suite checkout])
+      capture_io { assert_equal :none, runner.send(:resolve_changed, config, [ "testcases" ]) }
+    end
+  end
+
+  def test_a_broken_suite_is_left_for_the_lane_to_report
+    with_repo do |repo|
+      commit_file(repo, "broken.cf-testcases.yml", "suite: broken\ncases: nope\n")
+      runner, config = resolver(repo, %w[testcases --changed main])
+      capture_io { assert_nil runner.send(:resolve_changed, config, [ "testcases" ]) }
+      assert_nil runner.instance_variable_get(:@case_select)
+    end
+  end
 end

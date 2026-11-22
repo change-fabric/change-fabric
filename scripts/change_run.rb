@@ -674,10 +674,16 @@ class ChangeRun
 
     lane = config.lane('testcases')
     set = ChangeSuiteSet.load(lane['suites'], lane.dir)
+    # A broken suite must reach the lane, which reports it as a failure; a
+    # successful "no cases affected" would hide it.
+    return unless set.errors.empty?
+
     paths = ChangeCaseSelection.changed_paths(@args.changed, repo_root)
     result = ChangeCaseSelection.select(set, paths, repo: repo_root, strict: @args.strict)
     ChangeCaseSelection.summary(result, set.cases.size, @args.changed).each { |line| log(line) }
-    picked = result.cases.select { |item| @args.cases.to_a.empty? || item.named_by_case?(@args.cases) }
+    # Only cases the lane would run under --suite, its tags and --case.
+    eligible = set.selected(Array(lane['tags']).map(&:to_s), selectors: @args.suites, case_ids: @args.cases)
+    picked = result.cases & eligible
     return :none if picked.empty?
 
     @case_select = picked.map(&:qualified_id)
