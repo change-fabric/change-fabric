@@ -687,6 +687,9 @@ class ChangeRun
     ChangeCaseSelection.summary(result, set.cases.size, @args.changed).each { |line| log(line) }
     # Only cases the lane would run under --suite, its tags and --case.
     eligible = set.selected(Array(lane['tags']).map(&:to_s), selectors: @args.suites, case_ids: @args.cases)
+    # Nothing eligible before the diff (a renamed tag, say) is the lane's failure to report, not a no-op.
+    return if eligible.empty?
+
     picked = result.cases & eligible
     return :none if picked.empty?
 

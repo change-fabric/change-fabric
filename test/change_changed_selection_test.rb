@@ -238,6 +238,15 @@ class ChangeChangedSelectionTest < Minitest::Test
     end
   end
 
+  def test_tags_selecting_no_cases_are_left_for_the_lane_to_report
+    with_repo do |repo|
+      commit_file(repo, "docs/readme.txt")
+      runner, config = resolver(repo, %w[testcases --changed main], { "suites" => [ "*.cf-testcases.yml" ], "tags" => [ "no-such-tag" ] })
+      capture_io { assert_nil runner.send(:resolve_changed, config, [ "testcases" ]) }
+      assert_nil runner.instance_variable_get(:@case_select)
+    end
+  end
+
   def test_an_unknown_suite_selector_is_left_for_the_lane_to_report
     with_repo do |repo|
       commit_file(repo, "docs/readme.txt")
