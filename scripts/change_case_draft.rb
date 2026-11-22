@@ -34,7 +34,7 @@ require_relative 'change_suite'
 class ChangeCaseDraft
   class Error < StandardError; end
 
-  Source = Struct.new(:label, :paths, :added, keyword_init: true)
+  Source = Struct.new(:label, :paths, :added, :body, keyword_init: true)
   Draft = Struct.new(:path, :cases, :origin, :notes, keyword_init: true)
 
   CLIP = 100
@@ -46,6 +46,7 @@ class ChangeCaseDraft
   MAX_CASES = 5
   MAX_STEPS = 8
   MODEL_TIMEOUT = 120
+  MARK = "\f"
   FENCE = '<<<DIFF-DATA>>>'
   MODEL_ENV = 'CF_CASE_DRAFT_MODEL'
   # No tools and no saved session: the model only answers, whatever the diff says.
@@ -82,13 +83,17 @@ class ChangeCaseDraft
   def self.parse_diff(text, label:)
     paths = []
     added = Hash.new { |hash, key| hash[key] = [] }
+    body = Hash.new { |hash, key| hash[key] = [] }
     file = nil
     left = right = 0
     finish = lambda do
       next unless file && file[:path] && !file[:deleted]
 
       paths << file[:path] unless paths.include?(file[:path])
-      added[file[:path]].concat(file[:added]) unless SENSITIVE_PATH.match?(file[:path])
+      next if SENSITIVE_PATH.match?(file[:path])
+
+      added[file[:path]].concat(file[:added])
+      body[file[:path]].concat(file[:body])
     end
     text.to_s.scrub.each_line do |raw|
       line = raw.chomp
@@ -97,19 +102,21 @@ class ChangeCaseDraft
         left -= 1 unless line.start_with?('+', '\\')
         right -= 1 unless line.start_with?('-', '\\')
         file[:added] << line[1..] if line.start_with?('+')
+        file[:body] << [ line[1..], line.start_with?('+') ] if line.start_with?('+', ' ')
         next
       end
       if line.start_with?('diff --git ')
         finish.call
-        file = { path: header_path(line), deleted: false, added: [] }
+        file = { path: header_path(line), deleted: false, added: [], body: [] }
       elsif line.start_with?('+++ ')
         finish.call if file.nil? || file[:seen]
-        file = { path: nil, deleted: false, added: [] } if file.nil? || file[:seen]
+        file = { path: nil, deleted: false, added: [], body: [] } if file.nil? || file[:seen]
         file[:seen] = true
         target = line.delete_prefix('+++ ')
         target == '/dev/null' ? file[:deleted] = true : file[:path] = path_of(target.sub(/\t.*/, ''), strip: true)
       elsif file && file[:seen] && line.start_with?('+')
         file[:added] << line[1..]
+        file[:body] << [ line[1..], true ]
       elsif file && (record = line.match(/\A(?:rename|copy) to (.*)/))
         file[:path] = path_of(record[1])
       elsif file && line.start_with?('deleted file mode')
@@ -120,7 +127,7 @@ class ChangeCaseDraft
       end
     end
     finish.call
-    Source.new(label: label, paths: paths, added: added)
+    Source.new(label: label, paths: paths, added: added, body: body)
   end
 
   # `diff --git a/P b/P`: the path when both sides name the same one.
@@ -368,11 +375,7 @@ class ChangeCaseDraft
 
   def prompt_text
     files = source.paths.first(MAX_PATHS).map do |path|
-      # A line too long to be hand-written (a bundle) is dropped whole, never
-      # clipped, so a secret cannot straddle the clip and escape the masker.
-      kept = source.added[path].reject { |line| line.length > MAX_LINE_CHARS }
-      masked = self.class.redact(kept.join("\n"), env: @env)
-      "FILE #{safe_text(path, 200)}\n#{masked.lines.first(40).map(&:chomp).join("\n")}"
+      "FILE #{safe_text(path, 200)}\n#{added_text(path)}"
     end
     body = files.join("\n\n")[0, MAX_PROMPT_CHARS]
     body = body.gsub(FENCE, '') while body.include?(FENCE)
@@ -389,6 +392,18 @@ class ChangeCaseDraft
       #{FENCE}
       Answer with the JSON array only.
     PROMPT
+  end
+
+  # The added lines of a file, masked with their unchanged neighbours so a
+  # credential opened on a context line still masks the lines it covers. Each
+  # added line carries a marker through the masker; a line the masker
+  # replaced loses it and is dropped. A line too long to be hand-written (a
+  # bundle) is dropped whole, never clipped, so a secret cannot straddle a clip.
+  def added_text(path)
+    lines = source.body[path].reject { |text, _added| text.length > MAX_LINE_CHARS }
+    marked = lines.map { |text, added| added ? "#{text.delete(MARK)}#{MARK}" : text.delete(MARK) }
+    masked = self.class.redact(marked.join("\n"), env: @env)
+    masked.lines.map(&:chomp).select { |line| line.end_with?(MARK) }.first(40).map { |line| line.delete_suffix(MARK) }.join("\n")
   end
 
   def parse_reply(reply)
