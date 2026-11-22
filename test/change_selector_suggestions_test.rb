@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "benchmark"
 require_relative "../scripts/change_selector_suggestions"
 
 # The scoring and redaction of selector suggestions. The browser side that
@@ -137,6 +138,55 @@ class ChangeSelectorSuggestionsTest < Minitest::Test
     assert_equal "a b", S.safe("a\u0000\nb")
     assert_equal "#{'x' * 5}...", S.safe("x" * 50, max: 5)
     assert_equal "", S.safe(nil)
+  end
+
+  def test_mask_hides_quoted_values_with_spaces_through_the_closing_quote
+    assert_equal '{"password": [redacted], "x": 1}', S.mask('{"password": "correct horse battery staple", "x": 1}')
+    assert_equal "PASSWORD=[redacted] run", S.mask('PASSWORD="a b c" run')
+    assert_equal "password: [redacted]", S.mask("password: 'a b \"c'")
+    assert_equal "api_key: [redacted]", S.mask('api_key: "a \"quoted\" word"')
+    assert_equal "the token count is 3", S.mask("the token count is 3")
+  end
+
+  def test_mask_hides_multiline_block_and_heredoc_values
+    assert_equal "a\nsecret = [redacted]\n[redacted]\n[redacted] tail\nok", S.mask("a\nsecret = \"x\ny z\nend\" tail\nok")
+    assert_equal "token: [redacted]\n[redacted]\n[redacted]\nkeep: 1", S.mask("token: |\n  l1\n  l2\nkeep: 1")
+    assert_equal "cat <<EOF\napi_key=[redacted]\nEOF", S.mask("cat <<EOF\napi_key=abc def\nEOF")
+    assert_equal "[redacted]\nafter", S.mask("-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----\nafter")
+    assert_equal "[redacted]", S.mask("-----BEGIN PRIVATE KEY-----\ntruncated")
+  end
+
+  def test_mask_hides_nested_values_doubled_quotes_triple_quotes_and_tails
+    assert_equal "password: [redacted]", S.mask("password: 'it''s secret words'")
+    assert_equal "{\n \"password\":[redacted]\n[redacted]\n}", S.mask("{\n \"password\":\n \"hunter two\"\n}")
+    assert_equal "credentials:[redacted]\n[redacted]\nnext: 1", S.mask("credentials:\n  pw: b c\nnext: 1")
+    assert_equal "password = [redacted]\n[redacted]\n[redacted]\nok", S.mask("password = \"\"\"\nl1\n\"\"\"\nok")
+    assert_equal "password = [redacted]\n[redacted] tail", S.mask("password = \"a\nb \\\" c d\" tail")
+    assert_equal "password = [redacted]\n[redacted] x=1 token=[redacted]", S.mask("password = \"a\nb\" x=1 token=z")
+    assert_equal "[redacted]", S.mask("-----BEGIN PGP PRIVATE KEY BLOCK-----\nabc\n-----END PGP PRIVATE KEY BLOCK-----")
+    assert_equal "db: postgres://[redacted]@host/db", S.mask("db: postgres://u:p@w@host/db")
+  end
+
+  def test_mask_handles_escapes_lists_and_pathological_keys
+    assert_equal "password: [redacted]\\\n[redacted]", S.mask("password: \"abc\\\ndef\"")
+    assert_equal "password: [redacted]", S.mask("password: 'a\\'b secret'")
+    assert_equal "password:[redacted]\n[redacted]\n[redacted]\nnext: 1", S.mask("password:\n- a\n- b\nnext: 1")
+    assert_operator Benchmark.realtime { S.mask("#{'password' * 20_000}:") }, :<, 2
+  end
+
+  def test_mask_leaves_ordinary_words_alone
+    assert_equal "Cookie settings page", S.mask("Cookie settings page")
+    assert_equal "text=Basic plan", S.mask("text=Basic plan")
+  end
+
+  def test_mask_hides_url_userinfo_headers_and_env_values
+    assert_equal "db: postgres://[redacted]@host/db", S.mask("db: postgres://u:p%40ss@host/db")
+    assert_equal "[redacted]", S.mask("Authorization: Bearer abc")
+    assert_equal "a [redacted] b", S.mask("a hunter2hunter2 b", secrets: [ "hunter2hunter2" ])
+  end
+
+  def test_safe_masks_before_it_clips
+    refute_includes S.safe("password: \"#{'word ' * 30}\"", max: 20), "word"
   end
 
   def test_safe_survives_invalid_utf8

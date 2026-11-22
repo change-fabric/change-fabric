@@ -29,17 +29,65 @@ module ChangeSelectorSuggestions
   # relevance adjust it.
   STABILITY = { 'testid' => 0.9, 'id' => 0.8, 'label' => 0.7, 'text' => 0.5 }.freeze
 
+  CRED_NAME = 'token|secret|passw(?:or)?d|pwd|passphrase|api[_-]?key|access[_-]?key|private[_-]?key|credential|session[_-]?id|authorization|cookie|bearer'
+  # A credential key, its separator, then a value: triple-quoted, quoted
+  # (through the closing quote, escapes and doubled quotes honored, spaces
+  # kept) or bare to the end of the line.
+  CRED_PAIR = /(["']?\w{0,40}(?:#{CRED_NAME})\w{0,40}["']?\s*[:=]\s*)("{3}.*?(?:"{3}|\z)|'{3}.*?(?:'{3}|\z)|"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.|'')*'?|[^\n]*)/i
+  CRED_HEADER = /\b(?:set-)?cookie\s*[:=][^\n]*|\bauthorization\s*[:=][^\n]*|\b(?:bearer|basic)\s+[\w.~+\/=-]{8,}/i
+  UNCLOSED = /(?:#{CRED_NAME})\w{0,40}["']?\s*[:=]\s*("{3}|'{3}|"|')(?:(?!\1)[^\\]|\\.)*\\?\z/i
+  EMPTY_OR_BLOCK = /[:=]\s*(?:[|>][+-]?)?\s*\z/
+  URL_USERINFO = %r{(\b[a-z][a-z0-9+.-]*://)[^/\s]*@}i
+  PRIVATE_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\z)/m
+  INTERPOLATION = /\$\{[^}]*\}/
+
   Suggestion = Struct.new(:selector, :kind, :score, :matches, keyword_init: true)
 
   module_function
 
-  # One shared clip-and-redact for anything from the page, the env or the
-  # case. `secrets` are exact values to mask wherever they appear.
-  def safe(value, secrets: [], max: CLIP)
+  # Line-oriented masking, before any clipping. Keeps line breaks so a caller
+  # can mask a whole diff. A value is masked through its closing quote, so
+  # `"password": "a b c"` loses every word. A quote left open on a line masks
+  # the lines after it until it closes, a block scalar (`key: |`) masks its
+  # indented lines, and a private key block, a credential header, an auth
+  # scheme, URL userinfo and `${...}` are masked wherever they appear.
+  def mask(value, secrets: [])
     text = value.to_s.dup.scrub
     secrets.map(&:to_s).reject { |secret| secret.length < 3 }.sort_by { |secret| -secret.length }.each do |secret|
       text = text.gsub(secret, REDACTED)
     end
+    text = text.gsub(PRIVATE_KEY, REDACTED).gsub(URL_USERINFO) { "#{Regexp.last_match(1)}#{REDACTED}@" }
+    open_quote = nil
+    block_indent = nil
+    first = false
+    text.split("\n", -1).map do |line|
+      indent = line[/\A[ \t]*/].length
+      if block_indent && (line.strip.empty? || indent > block_indent || first || (indent == block_indent && line.lstrip.start_with?('- ')))
+        first &&= line.strip.empty?
+        REDACTED
+      elsif open_quote
+        quote = open_quote
+        closed = line.index(/(?<!\\)#{Regexp.escape(quote)}/)
+        open_quote = nil if closed
+        closed ? "#{REDACTED}#{mask_line(line[(closed + quote.length)..])}" : REDACTED
+      else
+        block_indent = nil
+        masked = mask_line(line)
+        open_quote = line[UNCLOSED, 1]
+        block_indent = indent if (first = masked != line && line.match?(EMPTY_OR_BLOCK))
+        masked
+      end
+    end.join("\n")
+  end
+
+  def mask_line(line)
+    line.gsub(CRED_HEADER, REDACTED).gsub(CRED_PAIR) { "#{Regexp.last_match(1)}#{REDACTED}" }.gsub(INTERPOLATION, REDACTED)
+  end
+
+  # One shared clip-and-redact for anything from the page, the env or the
+  # case. `secrets` are exact values to mask wherever they appear.
+  def safe(value, secrets: [], max: CLIP)
+    text = mask(value, secrets: secrets)
     text = text.gsub(/[[:cntrl:]]/, ' ').gsub(OPAQUE, REDACTED).gsub(ChangeFlakeTriage::SECRET, REDACTED)
     text = text.squeeze(' ').strip
     text.length > max ? "#{text[0, max]}..." : text
