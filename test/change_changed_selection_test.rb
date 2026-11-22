@@ -247,4 +247,23 @@ class ChangeChangedSelectionTest < Minitest::Test
       assert_equal [ "checkout/cart" ], pick(repo, base: "topic")
     end
   end
+
+  def test_globs_match_hidden_files_and_directories
+    with_repo do |repo|
+      set = ChangeSuiteSet.load([ "*.cf-testcases.yml" ], repo)
+      result = ChangeCaseSelection.select(set, [ "app/cart/.hidden/x.rb" ], repo: repo)
+      assert_equal [ "checkout/cart" ], result.cases.map(&:qualified_id)
+      other = ChangeCaseSelection.select(set, [ ".github/workflows/ci.yml" ], repo: repo)
+      assert_empty other.cases
+    end
+  end
+
+  def test_an_unmatched_gate_tag_is_left_for_the_lane_to_report
+    with_repo do |repo|
+      commit_file(repo, "docs/readme.txt")
+      runner, config = resolver(repo, %w[testcases --changed main],
+                                { "suites" => [ "*.cf-testcases.yml" ], "gate_tags" => [ "nope" ] })
+      capture_io { assert_nil runner.send(:resolve_changed, config, [ "testcases" ]) }
+    end
+  end
 end

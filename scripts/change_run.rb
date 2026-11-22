@@ -674,9 +674,10 @@ class ChangeRun
 
     lane = config.lane('testcases')
     set = ChangeSuiteSet.load(lane['suites'], lane.dir)
-    # A broken suite or a mistyped --suite must reach the lane, which reports it
+    # A broken suite, a mistyped --suite or an unmatched gate tag must reach the lane, which reports it
     # as a failure; a successful "no cases affected" would hide it.
-    return unless set.errors.empty? && set.unmatched_selectors(@args.suites).empty?
+    return unless set.errors.empty? && set.unmatched_selectors(@args.suites).empty? &&
+                  set.unmatched_gate_tags(Array(lane['gate_tags']).map(&:to_s)).empty?
 
     paths = ChangeCaseSelection.changed_paths(@args.changed, repo_root)
     result = ChangeCaseSelection.select(set, paths, repo: repo_root, strict: @args.strict)

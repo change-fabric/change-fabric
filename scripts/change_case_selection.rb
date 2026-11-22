@@ -25,7 +25,7 @@ module ChangeCaseSelection
   end
 
   CLIP = 80
-  GLOB_FLAGS = File::FNM_PATHNAME | File::FNM_EXTGLOB
+  GLOB_FLAGS = File::FNM_PATHNAME | File::FNM_EXTGLOB | File::FNM_DOTMATCH
 
   module_function
 
