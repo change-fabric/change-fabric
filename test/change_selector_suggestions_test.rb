@@ -94,6 +94,25 @@ class ChangeSelectorSuggestionsTest < Minitest::Test
     assert_equal [ "[data-testid=\"exact\"]" ], result["candidates"].map { |entry| entry["selector"] }
   end
 
+  def test_repeated_labels_and_text_are_counted_as_ambiguous
+    result = build([ item(label: "Buy"), item(label: "Buy"), item(tag: "a", text: "Docs"), item(tag: "a", text: "Docs"),
+                     item(testid: "solo", testidCount: 1) ])
+    counts = result["candidates"].to_h { |entry| [ entry["selector"], entry["matches"] ] }
+
+    assert_equal "[data-testid=\"solo\"]", result["candidates"].first["selector"]
+    assert_equal 2, counts["button[aria-label=\"Buy\"]"]
+    assert_equal 2, counts["a:has-text(\"Docs\")"]
+  end
+
+  def test_a_long_passphrase_in_text_is_masked_before_any_clipping
+    phrase = "correct horse battery staple " * 4
+    result = S.build(step_index: 0, selector: "h1", secrets: [ phrase.strip ],
+                     raw: { "items" => [ item(tag: "h1", text: "#{phrase.strip} tail") ] })
+
+    assert_empty result["candidates"]
+    refute_includes result.to_s, "correct horse"
+  end
+
   def test_secrets_and_tokens_in_page_text_never_reach_the_result
     token = "sk0123456789abcdefghijklmnopqrstuvwx"
     result = S.build(step_index: 0, selector: "a", secrets: [ "hunter2pw" ],

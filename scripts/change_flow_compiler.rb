@@ -199,6 +199,8 @@ class ChangeFlowCompiler
           const clip = (s) => String(s || "").replace(/\\s+/g, " ").trim().slice(0, 80);
           // Exact attribute values: a selector built from a clipped value would match nothing.
           const attr = (el, name) => { const v = el.getAttribute(name); return v && v.length <= 200 ? v : null; };
+          // Text is sent whole or not at all: a clipped copy could cut a secret in half past the host's masking.
+          const whole = (s) => { const t = String(s || "").replace(/\\s+/g, " ").trim(); return t && t.length <= 200 ? t : null; };
           const interesting = "a,button,input,select,textarea,summary,label,h1,h2,h3,h4,h5,h6,[role],[data-testid],[id]";
           const implicit = { a: "link", button: "button", select: "combobox", textarea: "textbox", summary: "button", h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading" };
           const found = { items: [], frames: 0, scanned: 0, truncated: false };
@@ -219,7 +221,7 @@ class ChangeFlowCompiler
                 id: id, testid: testid,
                 role: clip(el.getAttribute("role") || implicit[el.tagName.toLowerCase()] || (el.tagName === "INPUT" ? "textbox" : "")) || null,
                 label: attr(el, "aria-label"),
-                text: clip(el.innerText || el.textContent) || null,
+                text: whole(el.innerText || el.textContent),
                 idCount: id ? root.querySelectorAll("[id=" + JSON.stringify(id) + "]").length : 0,
                 testidCount: testid ? root.querySelectorAll("[data-testid=" + JSON.stringify(testid) + "]").length : 0,
               });

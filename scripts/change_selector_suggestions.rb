@@ -52,12 +52,19 @@ module ChangeSelectorSuggestions
     return nil unless raw.is_a?(Hash) && selector.is_a?(String) && !selector.strip.empty?
 
     items = Array(raw['items']).grep(Hash)
-    ranked = rank(items.select { |item| item['scope'] != 'frame' }, hints(selector))
+    candidates = items.select { |item| item['scope'] != 'frame' }.map { |item| scrub(item, secrets) }
+    ranked = rank(candidates, hints(selector))
     { 'step' => Integer(step_index), 'failed' => safe(selector, secrets: secrets, max: 120),
       'candidates' => ranked.filter_map { |entry| describe(entry, secrets) }.first(TOP),
       'note' => note(items, ranked, raw) }
   rescue ArgumentError, TypeError
     nil
+  end
+
+  # Masking happens on the whole value, before any clipping: a field the
+  # redaction would change (a secret, a token) is dropped from the candidate.
+  def scrub(item, secrets)
+    item.to_h { |key, value| [ key, value.is_a?(String) && safe(value, secrets: secrets, max: 200) != value ? nil : value ] }
   end
 
   def note(items, ranked, raw)
@@ -85,10 +92,12 @@ module ChangeSelectorSuggestions
   # same page always gives the same answer.
   def rank(items, hint)
     found = {}
+    seen = Hash.new(0)
     items.each do |item|
       forms(item).each do |selector, kind, count|
         entry = (found[selector] ||= Suggestion.new(selector: selector, kind: kind, score: 0.0, matches: 0))
-        entry.matches = [ entry.matches, count ].max
+        seen[selector] += 1
+        entry.matches = [ entry.matches, count, seen[selector] ].max
         entry.score = [ entry.score, score(item, kind, hint) ].max
       end
     end
@@ -105,7 +114,7 @@ module ChangeSelectorSuggestions
     out << [ "#{prefix}[data-testid=#{quote(item['testid'])}]", 'testid', item['testidCount'].to_i ] if exact?(item['testid'])
     out << [ "#{prefix}##{item['id']}", 'id', item['idCount'].to_i ] if usable_id?(item['id'])
     out << [ "#{prefix}#{tag}[aria-label=#{quote(item['label'])}]", 'label', 1 ] if exact?(item['label'])
-    out << [ "#{prefix}#{tag}:has-text(#{quote(item['text'])})", 'text', 1 ] if present?(item['text']) && prefix.empty? && tag != '*'
+    out << [ "#{prefix}#{tag}:has-text(#{quote(item['text'][0, CLIP])})", 'text', 1 ] if present?(item['text']) && prefix.empty? && tag != '*'
     out.select { |selector, _, _| valid?(selector) }
   end
 
