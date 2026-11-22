@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.31.0'
+  VERSION = '0.32.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -165,6 +165,15 @@ module ChangeSchema
     # as lanes.<lane>.wait_for above, overriding the lane-wide one field by
     # field. Also shipped ahead of this registry.
     'change_config.lanes.browserless.routes[].wait_for',
+    # routes[].states[] (0.32.0): named UI states of a route, each reached from
+    # a fresh load, whose layout stability the lane grades.
+    'change_config.lanes.browserless.routes[].states',
+    'change_config.lanes.browserless.routes[].states[].name',
+    'change_config.lanes.browserless.routes[].states[].click',
+    'change_config.lanes.browserless.routes[].states[].ready',
+    'change_config.lanes.browserless.routes[].states[].watch',
+    'change_config.lanes.browserless.routes[].states[].tolerance_px',
+    'change_config.lanes.browserless.routes[].states[].timeout_ms',
     # cell_isolation / locale (0.10.0), likewise already live: each
     # viewport-by-route cell gets its own browser context unless a stateful
     # flow opts out, and the pinned locale keeps a rendering from depending on

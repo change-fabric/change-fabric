@@ -18,6 +18,20 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.32.0] - 2026-11-22
+
+Route states for the browserless lane. Additive for CHANGE.md: every new field
+is optional.
+
+### Added
+
+- `change_config.lanes.browserless.routes[].states[]` with `name`, `click`,
+  `ready`, `watch`, `tolerance_px` and `timeout_ms`. Each state is reached from
+  a fresh load; the lane fails a watched element that moved or resized, a state
+  that cannot be reached, and horizontal overflow in the state.
+- `scripts/change_route_states.rb`: config normalization, the in-page reader and
+  the host-side grading.
+
 ## [0.31.0] - 2026-11-20
 
 Maintenance windows and the lease reconciler. Additive for CHANGE.md: the new

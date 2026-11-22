@@ -1,6 +1,6 @@
 export default async function ({ page }) {
   const baseUrl = "https://app.example.org";
-  const routeEntries = [{"path":"/","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000}},{"path":"/about","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000}}];
+  const routeEntries = [{"path":"/","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000},"states":[]},{"path":"/about","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000},"states":[]}];
   const viewports = [{"name":"mobile","width":390,"height":844},{"name":"tablet","width":768,"height":1024},{"name":"desktop","width":1440,"height":900}];
   const auth = null;
   const figmaRefs = {};
@@ -126,6 +126,158 @@ async function finishRecording(state, vp) {
   const sampled = state.sampler.result();
   if (!sampled.frames.length) return { viewport: vp.name, error: state.error || "no screencast frames captured" };
   return { viewport: vp.name, frames: sampled.frames, ticks: sampled.ticks, dropped: sampled.dropped };
+}
+
+  const STATE_BUDGET_MS = 40000;
+const STATE_RELOAD_MS = 20000;
+const STATE_LIMIT_MS = 30000;
+const FUNCTION_LIMIT_MS = 115000;
+const STATE_RESERVE_MS = 15000;
+const CELL_RESERVE_MS = 4000;
+const MIN_STEP_MS = 250;
+const INNER_MARGIN_MS = 200;
+
+// One absolute deadline per route: the route budget, but never later than
+// the browserless function timeout less a reserve for this cell's cleanup
+// and for every cell still to run after it.
+// `cellCostMs` is what a cell costs without its states (the slowest seen
+// so far, or this cell's own time before its states), floored at
+// CELL_RESERVE_MS, so slow-loading routes reserve what they really need.
+function routeDeadline(scanStarted, cellsLeft, cellCostMs) {
+  const reserve = STATE_RESERVE_MS + cellsLeft * Math.max(CELL_RESERVE_MS, cellCostMs);
+  return Math.min(Date.now() + STATE_BUDGET_MS, scanStarted + FUNCTION_LIMIT_MS - reserve);
+}
+
+// The time an await may take: its own limit, or what is left before the
+// deadline if that is less. Nothing left fails the state instead of
+// starting a wait that could outlive the route. Too little left to do the
+// step is the same failure, not a misleading "took over 1ms".
+function capMs(limitMs, deadline, what) {
+  const left = deadline - Date.now();
+  if (left < MIN_STEP_MS) throw new Error("state budget used up before " + what);
+  return Math.min(limitMs, left);
+}
+
+// The limit handed to a call that has its own timeout (waitForSelector,
+// goto), a little under the outer cap so the call's own timeout error wins
+// and only a call that ignores its timeout is reported as hung.
+function innerMs(limitMs, deadline) {
+  return Math.max(1, Math.min(limitMs, deadline - Date.now()) - INNER_MARGIN_MS);
+}
+
+// Runs `start()` only once the cap is known, so a spent budget never
+// dispatches work (a click, a read) whose late failure nobody handles.
+// A timeout marks the error `hung`: the work behind it may still be running.
+function bounded(start, limitMs, deadline, what) {
+  const ms = capMs(limitMs, deadline, what);
+  let timer;
+  const expiry = new Promise((_, reject) => {
+    timer = setTimeout(() => { const err = new Error(what + " took over " + ms + "ms"); err.hung = true; reject(err); }, ms);
+  });
+  return Promise.race([Promise.resolve().then(start), expiry]).finally(() => clearTimeout(timer));
+}
+
+// A zero-size box (display none) reads as absent: it has no layout to hold still.
+// The page width is read with the rects, so a state with nothing to watch
+// still waits for its layout to stop moving before the width is graded.
+async function readRects(statePage, selectors) {
+  return statePage.evaluate((list) => ({
+    pageWidth: document.documentElement.scrollWidth,
+    rects: list.map((selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return null;
+      return { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
+    })
+  }), selectors);
+}
+
+async function readRectsBy(statePage, selectors, deadline) {
+  return JSON.stringify(await bounded(() => readRects(statePage, selectors), STATE_LIMIT_MS, deadline, "rect read"));
+}
+
+// Fonts ready, two frames painted, then the rects polled until two reads
+// in a row agree, so a transition is not sampled mid-flight. At least one
+// pair of reads is compared even when the limit is short.
+async function settledRects(statePage, selectors, limitMs, deadline) {
+  await bounded(() => statePage.evaluate(async () => {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  }), limitMs, deadline, "fonts and paint");
+  const until = Math.min(Date.now() + limitMs, deadline);
+  let last = await readRectsBy(statePage, selectors, deadline);
+  for (;;) {
+    await new Promise((done) => setTimeout(done, 50));
+    const next = await readRectsBy(statePage, selectors, deadline);
+    if (next === last) return JSON.parse(last).rects;
+    last = next;
+    if (Date.now() >= until) throw new Error("layout did not settle in " + limitMs + "ms");
+  }
+}
+
+async function runOneState(statePage, st, reload, routeEnd) {
+  const result = { name: st.name };
+  const deadline = Math.min(routeEnd, Date.now() + STATE_LIMIT_MS);
+  const waitFor = (selector, what) => bounded(
+    () => statePage.waitForSelector(selector, { visible: true, timeout: innerMs(st.timeoutMs, deadline) }),
+    st.timeoutMs, deadline, what);
+  try {
+    await bounded(() => reload(innerMs(STATE_RELOAD_MS, deadline)), STATE_RELOAD_MS, deadline, "reload");
+    if (st.click) {
+      await waitFor(st.click, "click target");
+      // Click scrolls the target into view; do it first so a fixed or sticky
+      // watched element is not measured before the scroll and after it.
+      await bounded(() => statePage.evaluate((selector) => {
+        const target = document.querySelector(selector);
+        if (target) target.scrollIntoView({ block: "center", inline: "center" });
+      }, st.click), st.timeoutMs, deadline, "scroll into view");
+    }
+    const before = await settledRects(statePage, st.watch, st.timeoutMs, deadline);
+    if (st.click) await bounded(() => statePage.click(st.click), st.timeoutMs, deadline, "click");
+    if (st.ready) await waitFor(st.ready, "ready element");
+    result.after = await settledRects(statePage, st.watch, st.timeoutMs, deadline);
+    result.before = before;
+    result.scrollWidth = await bounded(() => statePage.evaluate(() => document.documentElement.scrollWidth), st.timeoutMs, deadline, "width read");
+  } catch (err) {
+    result.error = String(err);
+    result.hung = err && err.hung === true;
+  }
+  return result;
+}
+
+async function runStates(statePage, states, reload, routeEnd) {
+  // A beforeunload prompt is accepted so the next reload can leave the
+  // page; every other dialog is dismissed.
+  const onDialog = (dialog) => {
+    const settle = dialog.type() === "beforeunload" ? dialog.accept() : dialog.dismiss();
+    Promise.resolve(settle).catch(() => {});
+  };
+  statePage.on("dialog", onDialog);
+  const results = [];
+  let hung = false;
+  try {
+    for (const st of states) {
+      if (Date.now() >= routeEnd) {
+        results.push({ name: st.name, error: "state budget was used up" });
+        continue;
+      }
+      // A timed-out step may still be running in the page (a click, a
+      // navigation). The next state would reload on top of it, so the
+      // rest of the route stops here instead.
+      if (hung) {
+        results.push({ name: st.name, error: "skipped: an earlier state hung and may still be running" });
+        continue;
+      }
+      const result = await runOneState(statePage, st, reload, routeEnd);
+      hung = result.hung === true;
+      delete result.hung;
+      results.push(result);
+    }
+  } finally {
+    try { statePage.off("dialog", onDialog); } catch (err) { void err; }
+  }
+  return results;
 }
 
 
@@ -314,6 +466,10 @@ async function runAuthStep(session, step) {
 
 
   const out = [];
+  const scanStarted = Date.now();
+  const totalCells = viewports.length * routeEntries.length;
+  let cellsDone = 0;
+  let baseCellMs = 0;
   const videos = [];
   // Non-null only when continuity was opted into: one session carried
   // across the whole matrix, exactly as the lane behaved before cells
@@ -322,7 +478,7 @@ async function runAuthStep(session, step) {
   for (const vp of viewports) {
     const recorder = await startRecording(vp);
     for (const entry of routeEntries) {
-      const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path };
+      const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path, routeIndex: routeEntries.indexOf(entry) };
       const waitFor = entry.waitFor;
       let session = null;
       let consoleErrors = 0;
@@ -332,6 +488,8 @@ async function runAuthStep(session, step) {
       // decision to raise FUNCTION_TIMEOUT_MS or split the scan per
       // viewport can be made from real numbers instead of a guess.
       const cellStart = Date.now();
+      let statesStart = 0;
+      let statesMs = 0;
       try {
         if (isolateCells) {
           session = await openSession();
@@ -393,6 +551,20 @@ async function runAuthStep(session, step) {
         // covers the whole cell rather than whatever had arrived by the
         // time the old code happened to read it.
         cell.consoleErrors = consoleErrors;
+        // After every other read, so a state's clicks cannot change what
+        // the cell above was graded on. A failure stays inside the state.
+        if (entry.states.length && !cell.authBlocked) {
+          const reload = async (capMs) => {
+            const bounded = Object.assign({}, waitFor, { timeoutMs: Math.min(waitFor.timeoutMs, capMs) });
+            // Through about:blank, so a hash-only route is a fresh document load, never a same-document hash change.
+            await session.page.goto("about:blank", { timeout: bounded.timeoutMs });
+            await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: bounded.timeoutMs });
+            await awaitReadiness(session.page, bounded);
+          };
+          statesStart = Date.now();
+          cell.states = await runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1, Math.max(baseCellMs, Date.now() - cellStart)));
+          statesMs = Date.now() - statesStart;
+        }
       } catch (err) {
         cell.error = String(err);
         cell.consoleErrors = consoleErrors;
@@ -404,6 +576,8 @@ async function runAuthStep(session, step) {
         }
       }
       cell.totalMs = Date.now() - cellStart;
+      if (!cell.error) baseCellMs = Math.max(baseCellMs, cell.totalMs - statesMs);
+      cellsDone += 1;
       out.push(cell);
     }
     const video = await finishRecording(recorder, vp);

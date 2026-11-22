@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.31.0
+Schema version: 0.32.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -171,6 +171,13 @@ up and confirm it is ready; `lanes` describes what to audit.
 | `change_config.lanes.browserless.routes[].figma.node_id` | string | yes, to enable the visual check on this route | The Figma node id of the reference frame, fetched via the real `GET /v1/images/:file_key?ids=:node_id` REST API. |
 | `change_config.lanes.browserless.routes[].figma.viewport` | string | no (default the first configured viewport) | Which viewport's screenshot this reference is diffed against (a Figma frame is normally authored for one breakpoint). |
 | `change_config.lanes.browserless.routes[].wait_for` | string or mapping | no (default the lane's own `wait_for`) | (0.10.0) This route's own readiness contract, same shape as `lanes.<lane>.wait_for` above (a bare string is the selector), overriding the lane-wide one field by field. A route that means something specific by "ready" states it here rather than lengthening every other route's wait. |
+| `change_config.lanes.browserless.routes[].states` | list of mapping | no | (0.32.0) Named UI states of this route whose layout stability is graded, at most 8. Each state is reached from a fresh load of the route, so states never depend on one another. Empty or absent means none. A malformed state is a failing `route states config` finding and the other states still run. |
+| `change_config.lanes.browserless.routes[].states[].name` | string | yes | (0.32.0) The state's name: letters, digits, `_` and `-`, up to 48 characters, unique within the route. A duplicate is a config finding. |
+| `change_config.lanes.browserless.routes[].states[].click` | plain CSS selector | one of click, ready | (0.32.0) Clicked to reach the state, once it is visible. |
+| `change_config.lanes.browserless.routes[].states[].ready` | plain CSS selector | one of click, ready | (0.32.0) Waited for after the click; the state is settled once it is visible, fonts are ready and two frames have painted. |
+| `change_config.lanes.browserless.routes[].states[].watch` | list of plain CSS selector | no | (0.32.0) At most 8 elements whose rect is read before and after the state. One that moved or resized past `tolerance_px`, or is missing, hidden (zero size) or outside the main document (iframe, shadow DOM) either time, fails. Rects are read once fonts are ready and two reads in a row agree. The page being wider than the viewport in the state also fails. |
+| `change_config.lanes.browserless.routes[].states[].tolerance_px` | number | no (default 0) | (0.32.0) The largest change of any edge a watched element may have, 0 to 10000. |
+| `change_config.lanes.browserless.routes[].states[].timeout_ms` | integer | no (default 5000, at most 15000) | (0.32.0) How long the click and ready selectors, and the font wait, may take. A state that times out fails as unreachable. All states of a route share a 40 second budget; later states fail once it is used up. Dialogs are dismissed. Storage and cookies are not cleared between states. |
 | `change_config.lanes.browserless.cell_isolation` | boolean | no (default true) | (0.10.0) Whether each viewport-by-route cell gets its own browser context. Isolation is the default because a cell's verdict should depend on the cell, not on whichever cell ran before it and left a cookie, a scroll position, or a dismissed-banner flag behind. Set false only for a matrix whose routes are steps of one stateful flow, where carrying the session forward is the point; that restores the old shared-page behavior, including a single login for the whole run. |
 | `change_config.lanes.browserless.locale` | string | no (default `en-US`) | (0.10.0) The locale pinned for every cell, as both the `Accept-Language` request header and what the page's own JS reads back from `navigator.language`. Pinned rather than inherited so a rendering does not depend on whichever machine ran the sweep. |
 | `change_config.lanes.browserless.viewports[].name` | string | no | Viewport label (e.g. `mobile`). |
@@ -2027,3 +2034,8 @@ root `RELEASING.md`.
   op whose hard budget (enter, verify twice, op, op verify and exit timeouts) does
   not fit what is left of it, writes a durable lease, and always runs exit.
   `maintenance.verify` is now read as exit 0 while maintenance is on.
+- 0.32.0: additive. `change_config.lanes.browserless.routes[].states[]` (`name`,
+  `click`, `ready`, `watch`, `tolerance_px`, `timeout_ms`): the browserless lane
+  reaches each named state from a fresh load and fails a watched element that
+  moved or resized, a state that cannot be reached, or horizontal overflow in
+  the state.
