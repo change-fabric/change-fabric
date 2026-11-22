@@ -236,6 +236,20 @@ so the debt is visible rather than buried.
 Prefer fixing the case. `gate_tags` is for staged adoption of a whole new
 suite; quarantine is for one known-flaky case with a date on it.
 
+### Accepting a flake proposal
+
+When a case flips between pass and fail at least twice in its last 10 runs with
+the same definition, the run writes `flake-proposals.md` and
+`flake-proposals.json` beside `report.html` and the report links them. Each
+proposal names the flip count, the last step the failing run reached, and a
+`quarantined`, `quarantine_reason` and `quarantine_until` patch seven days out.
+Nothing edits a suite: to accept one, paste the three keys under the case in its
+suite file and review the diff like any other change. To decline, do nothing.
+The same report is available alone with
+`ruby scripts/change_flake_triage.rb --ledger <history.jsonl> --out <dir>`,
+which takes `--runs` and `--threshold`. A case already under a live quarantine
+is listed, not proposed.
+
 ## Graded acceptance
 
 Each case gets a second finding: its `acceptance` prose graded against what the

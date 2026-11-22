@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'digest'
+require 'json'
 require 'yaml'
 require 'date'
 require_relative 'change_suite_schema'
@@ -73,6 +75,14 @@ class ChangeSuite
 
     # A case's report-facing name, unique across every loaded suite.
     def qualified_id = "#{suite}/#{id}"
+
+    # A short digest of what the case does: its steps and the settings that
+    # change how they run. Tags and quarantine are left out, so quarantining a
+    # case does not make it a new case in the history.
+    def content_hash
+      parts = [ steps, acceptance, persona, retries, timeout_ms, safe_rerun, safe_retry, expects_logout ]
+      Digest::SHA256.hexdigest(parts.to_json)[0, 16]
+    end
 
     # Whether this case is selected by a `tags:` filter. An empty filter
     # selects everything, so a lane with no filter runs the whole suite.
