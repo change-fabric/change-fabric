@@ -1,6 +1,6 @@
 export default async function ({ page }) {
   const baseUrl = "https://app.example.org";
-  const routeEntries = [{"path":"/","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000}},{"path":"/about","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000}}];
+  const routeEntries = [{"path":"/","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000},"states":[]},{"path":"/about","auth":false,"figmaViewport":null,"waitFor":{"loadState":"domcontentloaded","selector":"body","urlContains":null,"urlMatches":null,"timeoutMs":30000},"states":[]}];
   const viewports = [{"name":"mobile","width":390,"height":844},{"name":"tablet","width":768,"height":1024},{"name":"desktop","width":1440,"height":900}];
   const auth = null;
   const figmaRefs = {};
@@ -126,6 +126,43 @@ async function finishRecording(state, vp) {
   const sampled = state.sampler.result();
   if (!sampled.frames.length) return { viewport: vp.name, error: state.error || "no screencast frames captured" };
   return { viewport: vp.name, frames: sampled.frames, ticks: sampled.ticks, dropped: sampled.dropped };
+}
+
+  async function readRects(statePage, selectors) {
+  return statePage.evaluate((list) => list.map((selector) => {
+    const el = document.querySelector(selector);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
+  }), selectors);
+}
+
+async function runStates(statePage, states, reload) {
+  const results = [];
+  for (let i = 0; i < states.length; i++) {
+    const st = states[i];
+    const result = { name: st.name };
+    try {
+      if (i > 0) await reload();
+      const before = await readRects(statePage, st.watch);
+      if (st.click) {
+        await statePage.waitForSelector(st.click, { timeout: st.timeoutMs });
+        await statePage.click(st.click);
+      }
+      if (st.ready) await statePage.waitForSelector(st.ready, { timeout: st.timeoutMs });
+      await statePage.evaluate(async () => {
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      });
+      result.before = before;
+      result.after = await readRects(statePage, st.watch);
+      result.scrollWidth = await statePage.evaluate(() => document.documentElement.scrollWidth);
+    } catch (err) {
+      result.error = String(err);
+    }
+    results.push(result);
+  }
+  return results;
 }
 
 
@@ -322,7 +359,7 @@ async function runAuthStep(session, step) {
   for (const vp of viewports) {
     const recorder = await startRecording(vp);
     for (const entry of routeEntries) {
-      const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path };
+      const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path, routeIndex: routeEntries.indexOf(entry) };
       const waitFor = entry.waitFor;
       let session = null;
       let consoleErrors = 0;
@@ -393,6 +430,15 @@ async function runAuthStep(session, step) {
         // covers the whole cell rather than whatever had arrived by the
         // time the old code happened to read it.
         cell.consoleErrors = consoleErrors;
+        // After every other read, so a state's clicks cannot change what
+        // the cell above was graded on. A failure stays inside the state.
+        if (entry.states.length && !cell.authBlocked) {
+          const reload = async () => {
+            await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: waitFor.timeoutMs });
+            await awaitReadiness(session.page, waitFor);
+          };
+          cell.states = await runStates(session.page, entry.states, reload);
+        }
       } catch (err) {
         cell.error = String(err);
         cell.consoleErrors = consoleErrors;

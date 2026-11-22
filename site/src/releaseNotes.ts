@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.32.0": {
+    version: "0.32.0",
+    date: "2026-11-22",
+    headline: "Route states: the browserless lane grades layout stability of a route's UI states.",
+    highlights: [
+      {
+        title: "Named states per route",
+        body:
+          "A route lists states, each reached from a fresh load by a click and a ready selector. Watched elements may not move or resize past a tolerance, and the page may not overflow in the state.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. Nothing changes until a route declares states.",
+  },
   "0.31.0": {
     version: "0.31.0",
     date: "2026-11-20",

@@ -7,6 +7,7 @@ require_relative 'browserless_js'
 require_relative 'change_findings'
 require_relative 'change_figma'
 require_relative 'change_flow_compiler'
+require_relative 'change_route_states'
 
 # The browserless UX/responsive lane. Loads each route at each configured
 # viewport in the shared browserless Chromium container and asserts the baseline
@@ -184,11 +185,13 @@ class ChangeLaneBrowserless < ChangeLane
 
     figma_refs, figma_findings = resolve_figma_refs(usable)
     findings.concat(figma_findings)
+    entries.each { |entry| findings.concat(ChangeRouteStates.config_findings(entry, target: base_url)) }
 
     result = scan_per_viewport(session, findings) { |group| scan_module(usable, auth_ready ? auth : nil, figma_refs, group) }
     cells(result).each do |check|
       findings << check_finding(check)
       findings << figma_diff_finding(check) if check['figmaDiff']
+      findings.concat(state_findings(check, usable))
     end
     @timed_cells = cells(result)
     findings.concat(capture_media(result))
@@ -240,6 +243,14 @@ class ChangeLaneBrowserless < ChangeLane
 
   def viewports = (@config['viewports'] || DEFAULT_VIEWPORTS)
 
+  # A cell's route-state findings, from the states its route declared. A route
+  # with none declared yields nothing, so a plain route is unchanged.
+  def state_findings(check, usable)
+    entry = check['routeIndex'].is_a?(Integer) ? usable[check['routeIndex']] : usable.find { |e| e[:path] == check['route'] }
+    declared = entry&.dig(:states)
+    declared.nil? || declared.empty? ? [] : ChangeRouteStates.findings(check, declared, target: base_url)
+  end
+
   def locale = @config.fetch('locale', DEFAULT_LOCALE).to_s
 
   # Whether each viewport-by-route cell gets its own browser context. The whole
@@ -267,17 +278,18 @@ class ChangeLaneBrowserless < ChangeLane
     list = Array(@config['routes']).map { |item| normalize_route(item) }.reject { |e| e[:path].empty? }
     return list unless list.empty?
 
-    self.class::DEFAULT_ROUTES.map { |path| { path: path, auth: false, figma: nil, wait_for: lane_wait_for } }
+    self.class::DEFAULT_ROUTES.map { |path| { path: path, auth: false, figma: nil, wait_for: lane_wait_for, states: [] } }
   end
 
   def routes = route_entries.map { |e| e[:path] }
 
   def normalize_route(item)
     if item.is_a?(Hash)
+      states, state_errors = ChangeRouteStates.normalize(item['states'])
       { path: item['path'].to_s, auth: item['auth'] == true, figma: normalize_figma(item['figma']),
-        wait_for: wait_for(item['wait_for'], lane_wait_for) }
+        wait_for: wait_for(item['wait_for'], lane_wait_for), states: states, state_errors: state_errors }
     else
-      { path: item.to_s, auth: false, figma: nil, wait_for: lane_wait_for }
+      { path: item.to_s, auth: false, figma: nil, wait_for: lane_wait_for, states: [] }
     end
   end
 
@@ -596,6 +608,7 @@ class ChangeLaneBrowserless < ChangeLane
 
         #{ChangeLane.wait_for_js}
         #{recorder_js}
+        #{ChangeRouteStates.runtime_js}
 
         // A cell's own browser context, or the one shared session when
         // continuity was opted into. Puppeteer renamed this call
@@ -687,7 +700,7 @@ class ChangeLaneBrowserless < ChangeLane
         for (const vp of viewports) {
           const recorder = await startRecording(vp);
           for (const entry of routeEntries) {
-            const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path };
+            const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path, routeIndex: routeEntries.indexOf(entry) };
             const waitFor = entry.waitFor;
             let session = null;
             let consoleErrors = 0;
@@ -758,6 +771,15 @@ class ChangeLaneBrowserless < ChangeLane
               // covers the whole cell rather than whatever had arrived by the
               // time the old code happened to read it.
               cell.consoleErrors = consoleErrors;
+              // After every other read, so a state's clicks cannot change what
+              // the cell above was graded on. A failure stays inside the state.
+              if (entry.states.length && !cell.authBlocked) {
+                const reload = async () => {
+                  await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: waitFor.timeoutMs });
+                  await awaitReadiness(session.page, waitFor);
+                };
+                cell.states = await runStates(session.page, entry.states, reload);
+              }
             } catch (err) {
               cell.error = String(err);
               cell.consoleErrors = consoleErrors;
@@ -843,7 +865,8 @@ class ChangeLaneBrowserless < ChangeLane
   def js_route_entries(entries, figma_refs)
     entries.map do |e|
       figma_viewport = e[:figma] && figma_refs.key?(e[:path]) ? (e[:figma][:viewport] || viewports.first['name']) : nil
-      { path: e[:path], auth: e[:auth], figmaViewport: figma_viewport, waitFor: e[:wait_for] }
+      { path: e[:path], auth: e[:auth], figmaViewport: figma_viewport, waitFor: e[:wait_for],
+        states: e[:states].map(&:to_js) }
     end
   end
 
