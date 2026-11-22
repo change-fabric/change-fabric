@@ -1,0 +1,12 @@
+# Class 3 upgraded for suite v6: the bar's bottom edge may not be below the
+# first row's top edge (a gap between them is fine).
+suite: measured-relation-sticky
+suite_version: 8
+cases:
+  - id: sticky-not-covering
+    acceptance: The first order row starts at or below the sticky bar.
+    steps:
+      - goto: /orders
+      - capture: { var: bar_bottom, selector: ".bar", kind: rect.bottom }
+      - capture: { var: row_top, selector: "main .row:first-child", kind: rect.y }
+      - expect_relation: { relation: le, reads: { a: bar_bottom, b: row_top } }

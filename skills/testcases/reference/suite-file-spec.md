@@ -1,6 +1,6 @@
 # Test-case suite file specification
 
-Suite version: 7
+Suite version: 8
 
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
@@ -47,6 +47,7 @@ only adds optional fields, so an older file always loads on a newer install.
 | 5 | Measured reads `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom`, `scroll_y`; the step verb `expect_stable`; the step options `label`, `budget_ms`, `budget_from`; and `tolerance` on `expect_equal`. |
 | 6 | `cases[].covers`. |
 | 7 | The step verb `expect_visual` and its options `max_diff_ratio` and `mask`. |
+| 8 | The step verb `expect_relation`; the read kind `list`; and `cases[].preconditions`. Adds the case statuses `warn` and `blocked_precondition`. |
 
 The loader is strict. An unknown top-level or case key is refused by name, and
 a key newer than the file's declared `suite_version` is refused with the version
@@ -81,6 +82,7 @@ The Since column is the `suite_version` that added the field.
 | `cases[].quarantined` | boolean | no (default false) | Time-boxes this case out of the gate. It still runs and still reports; its failure just cannot fail the gate, and only until `quarantine_until`. Requires both companions below. | 1 |
 | `cases[].quarantine_reason` | string | yes when quarantined | Why this case is quarantined, in plain English. Required, because without it nobody can tell a known flake from a real defect somebody muted. | 1 |
 | `cases[].quarantine_until` | date (`YYYY-MM-DD`) | yes when quarantined | The day the quarantine ends. Quarantine is never permanent. The shield has already lapsed on this date, and the case gates again from then on with no second action from anybody. | 1 |
+| `cases[].preconditions` | list of mapping | no | Steps run before the case's own, in the same page, with the same vocabulary. A failing precondition (a login check, a record that must exist) stops the case as `blocked_precondition`: not verified, which is neither a pass nor a failure. The case's steps do not run, and a precondition is never retried. In a suite_version 8 file a persona login that fails is a precondition failure too; older files keep failing the gate on a lost login. | 8 |
 | `cases[].steps` | list of mapping | yes | The ordered steps. Each entry is a mapping naming exactly one verb below, plus an optional `timeout_ms`. The walk stops at the first failing step, because everything after it runs against a page that is no longer in the state the case described. | 1 |
 
 ## Step verbs
@@ -130,7 +132,7 @@ quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 | action | press | Presses a key, optionally after focusing a selector. |
 | action | wait_for | Waits for a selector, a url fragment, or a navigation load state. |
 | action | screenshot | Captures a named screenshot at this point in the flow. `full_page: true` captures the whole scrollable page; `viewport: { width, height }` resizes for this capture only. |
-| action | capture | Reads a selector into a named variable: `{ selector, as: name, kind: text, number, or count }` (default `text`; `number` is the first number in the text, commas ignored). (suite_version 5) `kind` also takes `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom` (the element's `getBoundingClientRect()`, as numbers) and `scroll_y` (`window.scrollY`; with a `selector`, that element's `scrollTop`; the selector is optional only for `scroll_y`). `var` is accepted for `as`. |
+| action | capture | Reads a selector into a named variable: `{ selector, as: name, kind: text, number, or count }` (default `text`; `number` is the first number in the text, commas ignored). (suite_version 5) `kind` also takes `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom` (the element's `getBoundingClientRect()`, as numbers) and `scroll_y` (`window.scrollY`; with a `selector`, that element's `scrollTop`; the selector is optional only for `scroll_y`). (suite_version 8) `kind: list` reads the trimmed text of every element matching the selector, in document order, as a list for `expect_relation` `subset`. Each capture records its provenance: the page url at read time, the selector, the kind and `read_at`. `var` is accepted for `as`. |
 | state wait | wait_for_url | (suite_version 4) Polls until the current url matches a glob (`wait_for_url: "/checkout/*"`, or `{ glob: }`) or a JavaScript regex (`{ regex: }`, checked when the step runs). In a glob `*` stays within a path segment, `**` crosses them and `?` is one character; a pattern starting with `/` matches the path and query, anything else the full url. |
 | state wait | wait_for_text | (suite_version 4) Polls until the page text, or a `selector`'s text, contains `text` (`wait_for_text: Saved`, or `{ text:, selector: }`). |
 | state wait | wait_until_hidden | (suite_version 4) Waits until the selector is absent or hidden, such as a spinner going away. |
@@ -143,6 +145,7 @@ quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 | assertion | expect_status | The last navigation's HTTP status must equal the expected code, so a route that answers 500 with a rendered body is still a failure. |
 | assertion | expect_count | The number of elements matching the selector must equal the expected count. |
 | assertion | expect_equal | A captured `var` must equal a live read of `selector` (with `kind`) or a second captured `equals_var`. Compared as strings, so a captured number matches a count. A var no earlier step captures is refused at compile time. (suite_version 5) `tolerance: N` compares numerically within N instead; `kind: scroll_y` needs no selector. |
+| assertion | expect_relation | (suite_version 8) `{ relation, reads, tolerance, settle }`: a relation between named reads. `equal` (`reads: { a, b }`, `abs(a - b) <= tolerance`), `le` (`a <= b + tolerance`), `sum` (`reads: { total, parts: [...] }`, the total equals the sum of the parts within `tolerance`) and `subset` (`reads: { a, b }`, every item of list `a` appears in list `b`, compared as trimmed text; an empty `a` fails, since a selector that matches nothing proves nothing). A read is a captured variable name or a number; `tolerance` defaults to 0. `subset` takes only `list` reads and a `list` read belongs only to `subset`, both refused at compile time. Every `capture` records its provenance (the page url at read time, the selector, the kind, and `read_at`), and the relation's reads carry it into the result. `settle: { reread: 1, freshness_selector }` re-reads each named read on a mismatch, in the order they were read: a page read goes back to its recorded url (skipped when already there), waits up to 2 s for the freshness selector's text to change, and reads its selector again with its kind; literals are not re-read. A relation that matches on the re-read passes as a `warn` with `drift: true` and both value sets; one that still mismatches fails with both. Without `settle` a mismatch fails at once. |
 | assertion | expect_stable | (suite_version 5) `{ var, selector, kind, tolerance_px, max_cls, wait }`: a figure must not move between first paint and the page settling. An init script installed before the first navigation records the selector's rect on the first animation frame it exists, samples it every frame it changes, and buffers layout-shift entries. The step waits for `document.fonts.ready` (`wait: fonts`, the default and only value) and for the network to be idle for 500 ms, counting requests already in flight (it fails if idle is never reached, and fails when nothing was recorded), then judges the whole window: the largest deviation of any sample from the first value must be within `tolerance_px` (default 0; `kind` default `rect.y`, and only `rect.*` kinds; the `selector` must be plain CSS, since the recorder resolves it in the page), so a header that moves 20 px during load and returns still fails. The layout-shift score attributed to the element (entries whose sources touched it, excluding those right after input) must be within `max_cls` (default 0). Both values ride on the step result with the entries. `var` keeps the final value. |
 | assertion | expect_visual | (suite_version 7) `{ name, selector, viewport, max_diff_ratio, mask }`: the page (or the `selector` element) must match the committed PNG at `.cf/visual/<suite>/<case>/<name>-<width>x<height>.png` within `max_diff_ratio` (a fraction of pixels from 0 to 1, default 0.001; 0 is exact; a percent such as 100 is refused). The browser hides every `mask` selector (plain CSS, each must match something), turns animations, transitions and the caret off, and waits for fonts before the capture; the diff runs in the pinned browserless container and the verdict comes after the call, so later steps still ran. No baseline, an unreadable or symlinked one, or no diff container is `blocked_precondition`: the case fails, the candidate is kept as evidence with a promote command in the report, and nothing is accepted automatically. A size mismatch fails. A pixel differs when a channel is off by more than 2. Commit baselines by hand. |
 | escape hatch | eval | Raw JS, run as-is in the page. Marked as raw in the compiled step and labeled as such in the report, so a reader can see exactly where the declarative contract was abandoned. Reach for it last. |
@@ -230,6 +233,12 @@ and is not one. `doctor` warns once the expiry is within a week and errors once
 it has passed. Nothing has to be un-quarantined by hand: on the date the shield
 lapses on its own and the case gates again.
 
+## Statuses and the gate
+
+A case ends `pass`, `warn`, `blocked_precondition` or `fail` (and `skipped`, `auth_interrupted`, `partial_evidence`, the last two counting as failures). Severity is worst-of with the order pass, warn, blocked_precondition, fail; a run's status is its worst case. A `warn` passed every check but only after a re-read agreed with itself (drift); a `blocked_precondition` could not be verified, so it counts as neither passed nor failed and is listed under "Not verified" at the top of the report. Both pass the gate by default. `--fail-on-warn` makes a `warn` fail the gate and `--fail-on-blocked` does the same for a block; both are flags of the testcases lane (and so of `cf:qa --suite`), with no CHANGE.md key. In JUnit a warn case is a passing testcase carrying `cf.verdict=warn` and `cf.drift=true` properties, and a blocked case is `<skipped message="blocked_precondition: ...">`.
+
+The report adds a "Not verified" section (first, when it has anything), a "Warnings" section listing each drift with its first and re-read values and times, a table of the captured figures (var, value, url, read time, freshness text, source: page or reference), and, per case, the reads and relations its verdict rests on. The case result carries the figures as `vars`, the relation checks as `relations`, and the history ledger stores both.
+
 ## What the lane rejects
 
 `ruby ~/.claude/cf/bin/change_config.rb doctor` reports each of these, and the
@@ -247,6 +256,8 @@ less than its author believes:
 - a `persona` naming no persona in `lanes.testcases.personas`
 - a step naming an unknown verb, no verb, or more than one verb
 - a case with no `acceptance`
+- an `expect_relation` naming a variable no earlier step captured, a `list` read outside `subset`, or a non-list read in `subset`
+- a `preconditions` key that is not a non-empty list of steps
 - a quarantined case missing its `quarantine_reason` or its `quarantine_until`
 - a `quarantine_reason` or `quarantine_until` without `quarantined: true`
 - a `quarantine_until` that is not an ISO-8601 date

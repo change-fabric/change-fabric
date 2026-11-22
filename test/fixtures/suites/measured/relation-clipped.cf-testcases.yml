@@ -1,0 +1,12 @@
+# Class 4 upgraded for suite v6: after the panel opens the filter button must
+# still be a usable touch target, 44 px wide at least, whatever it measured
+# while closed.
+suite: measured-relation-clipped
+suite_version: 8
+cases:
+  - id: filter-button-usable
+    acceptance: The filter button is at least 44 px wide.
+    steps:
+      - goto: /search
+      - capture: { var: filter_w, selector: "button.filter", kind: rect.width }
+      - expect_relation: { relation: le, reads: { a: 44, b: filter_w } }

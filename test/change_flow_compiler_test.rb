@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "json"
+require "tmpdir"
 require_relative "../scripts/change_config"
 require_relative "../scripts/change_flow_compiler"
 require_relative "../scripts/change_lane_browserless"
@@ -799,5 +800,110 @@ class ChangeFlowCompilerTest < Minitest::Test
   def test_expect_stable_bounds_the_font_wait_by_the_step_timeout
     js = ChangeFlowCompiler.new([ { "expect_stable" => { "var" => "h", "selector" => "h1" } } ], base_url: "https://app.example.org").function_module
     assert_includes js, "document.fonts.ready was not settled within"
+  end
+
+  # --- suite_version 6: relations and lists -------------------------
+
+  CAPTURES = [ { "capture" => { "var" => "a", "selector" => ".a", "kind" => "number" } },
+               { "capture" => { "var" => "b", "selector" => ".b", "kind" => "number" } } ].freeze
+
+  def relation(spec, captures = CAPTURES) = compile(captures + [ { "expect_relation" => spec } ]).last
+
+  def test_an_equal_relation_compiles_its_reads_tolerance_and_settle
+    step = relation("relation" => "equal", "reads" => { "a" => "a", "b" => "b" }, "tolerance" => 2,
+                    "settle" => { "reread" => 1, "freshness_selector" => ".updated" })
+    assert_equal "expectRelation", step[:verb]
+    assert_equal "equal", step[:relation]
+    assert_equal({ a: { var: "a" }, b: { var: "b" } }, step[:reads])
+    assert_equal 2, step[:tolerance]
+    assert_equal({ reread: 1, freshnessSelector: ".updated" }, step[:settle])
+  end
+
+  def test_a_relation_without_settle_carries_none_and_defaults_tolerance_to_zero
+    step = relation("relation" => "le", "reads" => { "a" => 44, "b" => "b" })
+    assert_nil step[:settle]
+    assert_equal 0, step[:tolerance]
+    assert_equal({ a: { literal: 44 }, b: { var: "b" } }, step[:reads])
+  end
+
+  def test_a_sum_relation_takes_a_total_and_parts
+    step = relation("relation" => "sum", "reads" => { "total" => "a", "parts" => [ "b", 3 ] })
+    assert_equal({ total: { var: "a" }, parts: [ { var: "b" }, { literal: 3 } ] }, step[:reads])
+  end
+
+  def test_relations_refuse_unknown_kinds_shapes_and_variables
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "near", "reads" => { "a" => "a", "b" => "b" }) }
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "equal", "reads" => { "a" => "a" }) }
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "equal", "reads" => { "a" => "a", "b" => "b", "c" => "a" }) }
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "equal", "reads" => { "a" => "a", "b" => "never" }) }
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "equal", "reads" => { "a" => "a", "b" => "b" }, "tolerance" => -1) }
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "sum", "reads" => { "total" => "a", "parts" => [] }) }
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "equal", "reads" => { "a" => "a", "b" => "b" }, "settle" => { "reread" => 9 }) }
+    assert_raises(ChangeFlowCompiler::Error) { relation("relation" => "equal", "reads" => { "a" => "a", "b" => "b" }, "settle" => { "wait" => 1 }) }
+  end
+
+  LISTS = [ { "capture" => { "var" => "x", "selector" => "li.x", "kind" => "list" } },
+            { "capture" => { "var" => "y", "selector" => "li.y", "kind" => "list" } } ].freeze
+
+  def test_subset_takes_only_list_reads_and_a_list_belongs_only_to_subset
+    step = relation({ "relation" => "subset", "reads" => { "a" => "x", "b" => "y" } }, LISTS)
+    assert_equal "subset", step[:relation]
+    assert_raises(ChangeFlowCompiler::Error) { relation({ "relation" => "subset", "reads" => { "a" => "a", "b" => "b" } }) }
+    assert_raises(ChangeFlowCompiler::Error) { relation({ "relation" => "subset", "reads" => { "a" => "x", "b" => 3 } }, LISTS) }
+    assert_raises(ChangeFlowCompiler::Error) { relation({ "relation" => "equal", "reads" => { "a" => "x", "b" => "y" } }, LISTS) }
+    assert_raises(ChangeFlowCompiler::Error) { relation({ "relation" => "sum", "reads" => { "total" => "x", "parts" => [ "y" ] } }, LISTS) }
+  end
+
+  def test_expect_equal_refuses_a_list
+    assert_raises(ChangeFlowCompiler::Error) { compile(LISTS + [ { "expect_equal" => { "var" => "x", "equals_var" => "y" } } ]) }
+    assert_raises(ChangeFlowCompiler::Error) { compile(CAPTURES + [ { "expect_equal" => { "var" => "a", "selector" => "li", "kind" => "list" } } ]) }
+  end
+
+  def test_a_list_capture_compiles_as_before_with_its_kind
+    step = one("capture" => { "var" => "x", "selector" => "li.x", "kind" => "list" })
+    assert_equal "list", step[:kind]
+    assert_equal "x", step[:as]
+  end
+
+  # The runtime is shared, so its JS must still parse as a module and carry the
+  # new verbs; the browser behavior is covered in the docker shapes test.
+  def test_the_runtime_carries_the_v6_verbs_and_stays_one_module
+    js = ChangeFlowCompiler.new(CAPTURES, base_url: "https://app.example.org").function_module
+    %w[expectRelation cfJudge cfReread].each { |token| assert_includes js, token }
+  end
+
+  def test_the_runtime_with_every_v6_step_parses_as_a_module
+    node = `which node 2>/dev/null`.strip
+    skip "node not available" if node.empty?
+    steps = LISTS + CAPTURES + [
+      { "expect_relation" => { "relation" => "subset", "reads" => { "a" => "x", "b" => "y" } } },
+      { "expect_relation" => { "relation" => "equal", "reads" => { "a" => "a", "b" => "a" },
+                               "settle" => { "freshness_selector" => ".updated" } } }
+    ]
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "flow.mjs")
+      File.write(path, ChangeFlowCompiler.new(steps, base_url: "https://app.example.org").function_module)
+      out = `#{node} --check #{path} 2>&1`
+      assert $?.success?, out
+    end
+  end
+
+  # Provenance rides the capture record: where, how and when each read was made.
+  def test_the_capture_record_carries_provenance
+    js = ChangeFlowCompiler.flow_runtime_js
+    assert_includes js, "url: read.url"
+    assert_includes js, "readAt: read.readAt"
+  end
+
+  def test_variables_captured_by_the_steps_before_are_in_scope
+    before = compile([ { "capture" => { "var" => "a", "selector" => ".a", "kind" => "number" } } ])
+    steps = [ { "expect_relation" => { "relation" => "le", "reads" => { "a" => "a", "b" => 5 } } } ]
+    assert_raises(ChangeFlowCompiler::Error) { compile(steps) }
+    compiled = ChangeFlowCompiler.new(steps, base_url: "https://app.example.org", before: before).compile
+    assert_equal "expectRelation", compiled.first[:verb]
+  end
+
+  def test_an_expect_stable_read_records_provenance_for_relations
+    assert_match(/cfRecordRead\(page, state, step\.var/, ChangeFlowCompiler.flow_runtime_js)
   end
 end

@@ -256,16 +256,28 @@ class ChangeConfig
   end
 
   def self.compile_quietly(item)
-    ChangeFlowCompiler.new(item.steps, base_url: 'http://doctor.invalid', env: {}).compile
+    before = ChangeFlowCompiler.new(item.preconditions, base_url: 'http://doctor.invalid', env: {}).compile
+    before + ChangeFlowCompiler.new(item.steps, base_url: 'http://doctor.invalid', env: {}, before: before).compile
   rescue ChangeFlowCompiler::Error
     nil
   end
 
   def self.unread_capture_lines(item, steps)
-    read = steps.flat_map { |step| [ step[:var], step[:equalsVar] ] if step[:verb] == 'expectEqual' }.compact
-    steps.filter_map { |step| step[:as] if step[:verb] == 'capture' }.uniq.reject { |name| read.include?(name) }.map do |name|
+    read = steps.flat_map { |step| compared_vars(step) }.compact
+    steps.filter_map { |step| step[:as] if step[:verb] == 'capture' }
+         .uniq.reject { |name| read.include?(name) }.map do |name|
       "warning: testcases captured figure #{name} in #{item.qualified_id} is never compared " \
-        '(no expect_equal reads it)'
+        '(no expect_equal or expect_relation reads it)'
+    end
+  end
+
+  # The variables a comparing step reads: expect_equal's, and (suite_version 8)
+  # every named read of an expect_relation.
+  def self.compared_vars(step)
+    case step[:verb]
+    when 'expectEqual' then [ step[:var], step[:equalsVar] ]
+    when 'expectRelation' then step[:reads].values.flatten.filter_map { |operand| operand[:var] }
+    else []
     end
   end
 

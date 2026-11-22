@@ -69,9 +69,17 @@ class ChangeSuite
   # the step vocabulary.
   TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :quarantine, :steps,
                         :timeout_ms, :safe_rerun, :persona, :safe_retry, :expects_logout, :covers,
-                        keyword_init: true) do
+                        :preconditions, :version, keyword_init: true) do
     # The persona the case runs as; `default` when the case names none.
     def persona_name = persona || 'default'
+
+    # (suite_version 8) Steps that must hold before the case's own run.
+    def preconditions = self[:preconditions] || []
+
+    # Whether the file declared a version that has blocked_precondition. A
+    # persona login that fails is a failure in older files, so v4 and v5
+    # suites keep gating on a lost login exactly as they did.
+    def blocks_on_login? = (version || ChangeSuiteSchema::DEFAULT_SUITE_VERSION) >= 8
 
     # A case's report-facing name, unique across every loaded suite.
     def qualified_id = "#{suite}/#{id}"
@@ -210,7 +218,8 @@ class ChangeSuite
                  safe_retry: boolean(raw_case['safe_retry'], 'safe_retry', where),
                  expects_logout: boolean(raw_case['expects_logout'], 'expects_logout', where),
                  covers: covers(raw_case['covers'], where),
-                 quarantine: quarantine(raw_case, name, id, path),
+                 quarantine: quarantine(raw_case, name, id, path), version: version,
+                 preconditions: preconditions(raw_case['preconditions'], name, id, path, version),
                  steps: steps(raw_case['steps'], name, id, path, version))
   end
 
@@ -297,6 +306,17 @@ class ChangeSuite
       check_measured_versions(raw_step, index, where, version)
     end
     raw_steps
+  end
+
+  # (v6) The same step vocabulary as `steps`, run before them. Optional, but a
+  # key present with nothing in it is a mistake, not an empty list.
+  def self.preconditions(raw, name, id, path, version)
+    return [] if raw.nil?
+
+    where = "suite '#{name}' case '#{id}' (#{path})"
+    raise Error, "#{where} has `preconditions` that is not a non-empty list of steps" unless raw.is_a?(Array) && !raw.empty?
+
+    steps(raw, name, id, path, version)
   end
 
   def self.check_verb_version(raw_step, index, where, version)

@@ -66,6 +66,14 @@ class ChangeLaneTestcases < ChangeLane
   # timeouts plus this much per navigation, never below the default
   # browserless call limit, the same floor a walkthrough live capture uses.
   NAVIGATION_OVERHEAD_MS = 5_000
+  # How long any one text may be once it reaches a finding or a record.
+  VALUE_CLIP = 300
+  # Cut a list at this many items on its way into a record.
+  MAX_LIST_ITEMS = 200
+  OBSERVATION_CLIP = 20_000
+  # Keys whose values are binary or paths, not page text: images, the frame
+  # recording and the evidence location pass through untouched.
+  RAW_KEYS = %w[screenshot diff video evidenceDir].freeze
   CASE_BUDGET_FLOOR_MS = ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS
   DEFAULT_PARALLEL = 1
   # Seconds to wait before each retry of a call the container's queue
@@ -123,7 +131,9 @@ class ChangeLaneTestcases < ChangeLane
         acceptance_verdict: result[:verdict]&.verdict, step_durations: step_durations(result[:record]),
         quarantined: item.quarantined?(today), quarantine_reason: item.quarantined?(today) ? item.quarantine.reason : nil,
         case_hash: item.content_hash, selector_suggestions: Array(result[:record]&.dig('selectorSuggestions')),
-        visual_results: Array(result[:record]&.dig('visualResults'))
+        visual_results: Array(result[:record]&.dig('visualResults')),
+        vars: figures(item, result[:record]), relations: relation_results(item, result[:record]),
+        blocked_reason: blocked_reason(item, result[:record])
       )
     end
   end
@@ -141,11 +151,117 @@ class ChangeLaneTestcases < ChangeLane
 
   # A case whose steps passed is a pass only when its acceptance criterion was
   # graded `pass`. A `fail` or `unclear` verdict, or no grading at all, is not
-  # a pass: the record says what happened, whatever the gate made of it.
+  # a pass: the record says what happened, whatever the gate made of it. A case
+  # that needed a re-read to agree with itself (drift) is a `warn` on the same
+  # terms: its criterion must still be graded `pass`.
   def record_status(result)
-    return 'fail' if result[:outcome] == 'warn' || (result[:outcome] == 'pass' && !result[:verdict]&.pass?)
+    outcome = result[:outcome]
+    return 'fail' if outcome == 'warn'
+    return result[:verdict]&.pass? ? 'warn' : 'fail' if outcome == 'drift'
+    return 'fail' if outcome == 'pass' && !result[:verdict]&.pass?
 
-    result[:outcome]
+    outcome
+  end
+
+  # (suite_version 8) The figures a case read, one entry per read in step
+  # order, with where and when each was read, and what each said (a value an
+  # env var supplied never travels: it is masked here like in the grader).
+  def figures(item, record)
+    secrets = secrets_for(item)
+    walked_steps(record).filter_map do |step|
+      next unless step['captured']
+
+      { 'var' => step['captured'], 'value' => scrub_value(step['found'], secrets), 'kind' => step['kind'],
+        'url' => scrub_value(step['url'], secrets), 'selector' => scrub_value(step['selector'], secrets),
+        'read_at' => step['readAt'], 'freshness' => freshness_text(step['freshness'], secrets),
+        'source' => step['source'] || 'page', 'pair' => step['pair'] }.compact
+    end
+  end
+
+  def freshness_text(map, secrets)
+    return nil unless map.is_a?(Hash)
+
+    map.values.compact.map { |text| flatten(scrub_value(text.to_s, secrets)) }.reject(&:empty?).join(' | ').then { |text| text.empty? ? nil : text }
+  end
+
+  # Every string that reaches a finding, report, log or checkpoint goes through
+  # the shared `ChangeSelectorSuggestions.safe`: the case's secret values
+  # masked first, then credential shapes, then clipped. A number that is a
+  # secret is masked too, and a list is cut at MAX_LIST_ITEMS. Comparison
+  # happens in the page and on raw values; this is display only.
+  def scrub_value(value, secrets, max: VALUE_CLIP, keep: [])
+    case value
+    when String then ChangeSelectorSuggestions.safe(value, secrets: secrets, max: max)
+    when Numeric then secrets.any? { |secret| secret.to_s == value.to_s } ? ChangeSelectorSuggestions::REDACTED : value
+    when Array then scrub_list(value, secrets, max, keep)
+    when Hash then value.to_h { |key, entry| [ key, keep.include?(key) ? entry : scrub_value(entry, secrets, max: max, keep: keep) ] }
+    else value
+    end
+  end
+
+  def scrub_list(list, secrets, max, keep)
+    shown = list.first(MAX_LIST_ITEMS).map { |entry| scrub_value(entry, secrets, max: max, keep: keep) }
+    list.size > MAX_LIST_ITEMS ? shown + [ "... #{list.size - MAX_LIST_ITEMS} more" ] : shown
+  end
+
+  # The same rule for one text of an item's finding detail.
+  def mask(text, item, max: VALUE_CLIP) = scrub_value(text.to_s, secrets_for(item), max: max)
+
+  # The case's secret values, plus each one's JSON-escaped form, which is how
+  # a runtime error message quotes a value.
+  def secrets_for(item)
+    @secrets_for ||= {}.compare_by_identity
+    @secrets_for[item] ||= secret_values(item).then { |plain| (plain + plain.map { |secret| JSON.generate(secret.to_s)[1..-2] }).uniq }
+  end
+
+  # Cleans a finished attempt's record before it is stored or reported, so
+  # result.json, the ledger and the findings all start from masked values.
+  def sanitize_record(item, record)
+    return record unless record.is_a?(Hash)
+
+    secrets = secrets_for(item)
+    clean = scrub_value(record.except('observation'), secrets, keep: RAW_KEYS)
+    # The page text the grader reads keeps its length: masked, not clipped to a finding's size.
+    clean['observation'] = scrub_value(record['observation'], secrets, max: OBSERVATION_CLIP) if record.key?('observation')
+    clean
+  end
+
+  # The in-container checkpoint files (`step-*.json`) hold the same raw
+  # records, and a killed call is rebuilt from them, so they are rewritten
+  # masked before the attempt is closed. A file that cannot be rewritten is
+  # removed rather than left raw.
+  def sanitize_checkpoints(item, dir)
+    return unless dir
+
+    secrets = secrets_for(item)
+    Dir.glob(File.join(dir.host_dir, 'step-*.json')).each do |path|
+      File.write(path, JSON.generate(scrub_value(JSON.parse(File.read(path)), secrets, keep: RAW_KEYS)))
+    rescue JSON::ParserError, SystemCallError
+      FileUtils.rm_f(path)
+    end
+  end
+
+  # Each relation check the case made: what it compared, how it came out, and
+  # for a drift or a failure, the first reads beside the re-reads.
+  def relation_results(item, record)
+    secrets = secrets_for(item)
+    walked_steps(record).filter_map do |step|
+      next unless step['verb'] == 'expectRelation'
+
+      { 'label' => step['label'], 'relation' => step['relation'],
+        'status' => step['ok'] ? step['status'] || 'pass' : 'fail', 'drift' => step['drift'] == true,
+        'reads' => relation_reads(step['reads'], secrets), 'first_reads' => relation_reads(step['firstReads'], secrets),
+        'message' => scrub_value(step['error'] || step['firstMessage'], secrets) }.compact
+    end
+  end
+
+  def relation_reads(reads, secrets)
+    return nil unless reads.is_a?(Array)
+
+    reads.map do |read|
+      { 'var' => read['var'], 'value' => scrub_value(read['value'], secrets), 'url' => scrub_value(read['url'], secrets), 'read_at' => read['readAt'],
+        'freshness' => freshness_text(read['freshness'], secrets), 'source' => read['source'] }.compact
+    end
   end
 
   # The call budget for one case, in ms. An explicit `cases[].timeout_ms`
@@ -154,8 +270,8 @@ class ChangeLaneTestcases < ChangeLane
   def case_budget_ms(item)
     return item.timeout_ms if item.timeout_ms
 
-    derived = item.steps.sum do |step|
-      step_timeout(step) + (step.key?('goto') ? NAVIGATION_OVERHEAD_MS : 0)
+    derived = (item.preconditions + item.steps).sum do |step|
+      step_timeout(step) + (step.key?('goto') ? NAVIGATION_OVERHEAD_MS : 0) + reread_allowance(step)
     end
     [ derived, CASE_BUDGET_FLOOR_MS ].max
   end
@@ -173,9 +289,9 @@ class ChangeLaneTestcases < ChangeLane
     findings
   rescue ChangeFlowCompiler::Error => e
     [ finding(check: 'step compile', status: 'fail', severity: 'high',
-              detail: "a case's steps could not be compiled: #{e.message}") ]
+              detail: "a case's steps could not be compiled: #{ChangeSelectorSuggestions.safe(e.message, max: VALUE_CLIP)}") ]
   rescue StandardError => e
-    [ finding(check: 'testcases run', status: 'fail', severity: 'high', detail: "run error: #{e.message}") ]
+    [ finding(check: 'testcases run', status: 'fail', severity: 'high', detail: "run error: #{ChangeSelectorSuggestions.safe(e.message, max: VALUE_CLIP)}") ]
   end
 
   # A Markdown table of each case's acceptance criterion beside BOTH verdicts:
@@ -296,6 +412,14 @@ class ChangeLaneTestcases < ChangeLane
     Array(@context.case_select).map(&:to_s).reject(&:empty?)
   end
 
+  # `--fail-on-warn` and `--fail-on-blocked` ride the run context like
+  # `--suite`: a property of this invocation. By default a drift warning and a
+  # blocked precondition pass the gate (they are reported, not hidden); each
+  # flag makes its status fail it.
+  def fail_on_warn? = @context.respond_to?(:fail_on_warn) && @context.fail_on_warn == true
+
+  def fail_on_blocked? = @context.respond_to?(:fail_on_blocked) && @context.fail_on_blocked == true
+
   # The tags whose cases may fail the gate. Empty (the default) means every
   # case gates, which is what a test case is for; naming tags here is the
   # staged-adoption valve for a suite still being trusted, and it is deliberately
@@ -320,6 +444,18 @@ class ChangeLaneTestcases < ChangeLane
 
   # A step's own timeout, beside the verb or inside its mapping, else the
   # lane's, mirroring how the compiler resolves it.
+  # An expect_relation with `settle` may go back to every page it read, and
+  # wait up to 2 s for each freshness text, once per re-read round.
+  def reread_allowance(step)
+    spec = step['expect_relation']
+    return 0 unless spec.is_a?(Hash) && spec['settle'].is_a?(Hash)
+
+    reads = spec['reads'].is_a?(Hash) ? spec['reads'].values.flatten.size : 2
+    Integer(spec['settle'].fetch('reread', 1)) * reads * (NAVIGATION_OVERHEAD_MS + 2_000)
+  rescue ArgumentError, TypeError
+    0
+  end
+
   def step_timeout(step)
     inner = step.values.find { |value| value.is_a?(Hash) && value.key?('timeout_ms') }
     Integer(step['timeout_ms'] || inner&.fetch('timeout_ms') || timeout_ms)
@@ -536,7 +672,7 @@ class ChangeLaneTestcases < ChangeLane
 
       attempts << { number: number + 1, outcome: attempt_outcome(record),
                     duration_ms: elapsed_ms(attempt_started), evidence_dir: record['evidenceDir'] }
-      break if record['ok']
+      break if record['ok'] || record['blocked']
 
       # A rerun follows; this attempt's frames will not be encoded, so they
       # give their disk back before the next attempt records.
@@ -546,7 +682,9 @@ class ChangeLaneTestcases < ChangeLane
       started_at: started_at, duration_ms: elapsed_ms(started) }
   end
 
-  def attempt_outcome(record) = special_outcome(record) || (record['ok'] ? 'pass' : 'fail')
+  def attempt_outcome(record)
+    special_outcome(record) || (record['blocked'] ? 'blocked_precondition' : (record['ok'] ? 'pass' : 'fail'))
+  end
 
   def special_outcome(record)
     return 'partial_evidence' if record&.dig('partialEvidence')
@@ -573,9 +711,11 @@ class ChangeLaneTestcases < ChangeLane
     end
     record = suggest_selectors(item, record)
     record = check_visuals(session, item, compiled, record, dir)
+    record = sanitize_record(item, record)
+    sanitize_checkpoints(item, dir)
     dir ? evidence.close_attempt(dir, record) : record
   rescue PersonaCache::LoginError => e
-    { 'ok' => false, 'notAttempted' => true, 'steps' => [],
+    { 'ok' => false, 'notAttempted' => true, 'loginFailed' => true, 'steps' => [],
       'authError' => "persona '#{item.persona_name}' could not log in: #{e.message}" }
   end
 
@@ -661,7 +801,7 @@ class ChangeLaneTestcases < ChangeLane
       return record.merge('ok' => false, 'authInterrupted' => true)
     end
 
-    resume = { startAt: restart, vars: record['vars'] || {} }
+    resume = { startAt: restart, vars: record['vars'] || {}, reads: record['reads'] || {} }
     second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume,
                                                                                            evidence: dir&.js,
                                                                                            video: dir && video_js(item, record.dig('video', 'bytes').to_i)),
@@ -696,6 +836,7 @@ class ChangeLaneTestcases < ChangeLane
 
     earlier = Array(first['steps']).select { |step| step['index'].to_i < start_at }
     merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true,
+                          'preconditions' => Array(first['preconditions']),
                           'video' => merged_video(first['video'], second['video']))
     return merged unless second['authExpired']
 
@@ -768,7 +909,7 @@ class ChangeLaneTestcases < ChangeLane
     reason = @grader.unavailable_reason
     return [ grading_unavailable(reason) ] if reason
 
-    gradable = @results.select { |result| result[:status] == 'pass' }
+    gradable = @results.select { |result| %w[pass drift].include?(result[:status]) }
     return [] if gradable.empty?
 
     verdicts = @grader.grade(gradable.map { |result| observation(result) })
@@ -795,7 +936,8 @@ class ChangeLaneTestcases < ChangeLane
     observed = record['observation'] || {}
     { id: result[:case].qualified_id, acceptance: result[:case].acceptance, ok: true,
       steps: Array(record['steps']), url: observed['url'], title: observed['title'], text: observed['text'],
-      captured: captured_values(record), secrets: secret_values(result[:case]) }
+      captured: captured_values(record), relations: relation_results(result[:case], record),
+      secrets: secret_values(result[:case]) }
   end
 
   # The figures a case's `capture` steps read, in step order, each with the
@@ -805,15 +947,17 @@ class ChangeLaneTestcases < ChangeLane
     Array(record['steps']).filter_map do |step|
       next unless step['captured']
 
-      { var: step['captured'], value: step['found'], kind: step['kind'], read_at: step['readAt'] }
+      { var: step['captured'], value: step['found'], kind: step['kind'], read_at: step['readAt'], url: step['url'],
+        source: step['source'] }.compact
     end
   end
 
   # The values the case read from env vars: the lane's redaction rule says
   # they travel to the container only, so the grader's payload masks them.
   def secret_values(item)
-    ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms).compile
-                      .filter_map { |step| step[:value] if step[:secret] }
+    before = ChangeFlowCompiler.new(item.preconditions, base_url: base_url, timeout_ms: timeout_ms).compile
+    after = ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms, before: before).compile
+    (before + after).filter_map { |step| step[:value] if step[:secret] }
   end
 
   # The verdict-to-status mapping, and the one place the "can fail the gate"
@@ -856,27 +1000,61 @@ class ChangeLaneTestcases < ChangeLane
     "criterion: #{flatten(item.acceptance)} | verdict: #{verdict&.verdict || 'unclear'} | #{rationale}#{note}"
   end
 
+  # `drift` and `blocked_precondition` are the suite_version 8 outcomes: a case
+  # that passed after a re-read, and a case that could not be verified. Neither
+  # is a failure, so neither takes the gated-or-not branch below.
   def status_for(item, record)
-    return 'pass' if record && record['ok']
+    return 'blocked_precondition' if blocked_reason(item, record)
+    return (drift?(record) ? 'drift' : 'pass') if record && record['ok']
 
     gated?(item) ? 'fail' : 'warn'
   end
 
+  # Every step record the call returned: the preconditions' and the case's own.
+  def walked_steps(record) = Array(record&.dig('preconditions')) + Array(record&.dig('steps'))
+
+  def drift?(record) = walked_steps(record).any? { |step| step['ok'] && step['status'] == 'warn' }
+
+  # Why a case could not be verified, or nil. A failing precondition always
+  # blocks; a persona that could not
+  # log in blocks only in a suite_version 8 file, so a v4 or v5 suite keeps
+  # failing the gate on a lost login exactly as it did.
+  def blocked_reason(item, record)
+    return nil unless record.is_a?(Hash)
+
+    blocked = record['blocked']
+    return "#{mask(blocked['kind'], item)}: #{mask(blocked['label'], item)}: #{mask(blocked['error'], item)}" if blocked.is_a?(Hash)
+    "login: #{mask(record['authError'], item)}" if record['loginFailed'] && item.blocks_on_login?
+  end
+
   def case_finding(graded)
     item = graded[:case]
-    Finding.new(lane: LANE, check: item.qualified_id, status: graded[:status],
-                severity: graded[:status] == 'pass' ? 'info' : 'high',
+    status = finding_status(item, graded[:status])
+    Finding.new(lane: LANE, check: item.qualified_id, status: status,
+                severity: status == 'pass' ? 'info' : 'high',
                 target: base_url, location: failure_location(graded),
                 detail: detail_for(graded),
                 attempts: graded[:attempts], flaky: graded[:status] == 'pass' && graded[:attempts] > 1)
   end
 
+  # The gate signal for a case: warn and blocked pass the gate unless the run
+  # asked otherwise with --fail-on-warn or --fail-on-blocked. A case the gate
+  # does not cover (gate_tags, a quarantine) stays a warn either way.
+  def finding_status(item, status)
+    case status
+    when 'drift' then fail_on_warn? && gated?(item) ? 'fail' : 'warn'
+    when 'blocked_precondition' then fail_on_blocked? && gated?(item) ? 'fail' : 'warn'
+    else status
+    end
+  end
+
   def failure_location(graded)
     record = graded[:record]
-    return '' if record.nil? || record['ok']
+    return '' if record.nil? || (record['ok'] && graded[:status] != 'blocked_precondition')
 
     step = Array(record['steps']).find { |entry| entry['ok'] == false }
-    return "step #{step['index'].to_i + 1}: #{step['label']}" if step
+    return "step #{step['index'].to_i + 1}: #{mask(step['label'], graded[:case])}" if step
+    return "precondition #{record['blocked']['index'].to_i + 1}: #{mask(record['blocked']['label'], graded[:case])}" if record['blocked'].is_a?(Hash) && record['blocked']['kind'] == 'precondition'
 
     record['callError'] ? 'browserless call' : 'login'
   end
@@ -884,20 +1062,27 @@ class ChangeLaneTestcases < ChangeLane
   def detail_for(graded)
     record = graded[:record]
     return "case did not run: #{graded[:case].qualified_id} produced no result" if record.nil?
+    return "blocked_precondition: #{blocked_reason(graded[:case], record)} (not verified; not counted as a pass or a failure)" if graded[:status] == 'blocked_precondition'
+    return "drift: #{drift_detail(graded[:case], record)} (passed on re-read; reported as a warning)" if graded[:status] == 'drift'
     return "#{graded[:case].acceptance}#{quarantine_note(graded[:case])}" if record['ok']
 
-    "#{failure_reason(record)}#{expiry_hint(graded[:case], record)}#{ungated_note(graded)}"
+    "#{failure_reason(graded[:case], record)}#{expiry_hint(graded[:case], record)}#{ungated_note(graded)}"
   end
 
-  def failure_reason(record)
-    return partial_evidence_reason(record) if record['partialEvidence']
+  def drift_detail(item, record)
+    walked_steps(record).select { |step| step['ok'] && step['status'] == 'warn' }
+                        .map { |step| "#{mask(step['label'], item)}: first #{mask(step['firstMessage'], item)}" }.join('; ')
+  end
+
+  def failure_reason(item, record)
+    return partial_evidence_reason(item, record) if record['partialEvidence']
     return auth_interrupted_reason(record) if record['authInterrupted']
-    return "login failed before the case ran: #{record['authError']}" if record['notAttempted']
-    return "auth: #{record['authError']}" if record['authError']
-    return "the case's browserless call failed: #{record['callError']}" if record['callError']
+    return "login failed before the case ran: #{mask(record['authError'], item)}" if record['notAttempted']
+    return "auth: #{mask(record['authError'], item)}" if record['authError']
+    return "the case's browserless call failed: #{mask(record['callError'], item)}" if record['callError']
 
     step = Array(record['steps']).find { |entry| entry['ok'] == false }
-    step ? step['error'].to_s : 'case failed with no step-level error recorded'
+    step ? mask(step['error'], item) : 'case failed with no step-level error recorded'
   end
 
   # A step failure in a login persona that declares no `expired_when` may be
@@ -911,10 +1096,10 @@ class ChangeLaneTestcases < ChangeLane
       'logs in again and resumes)'
   end
 
-  def partial_evidence_reason(record)
+  def partial_evidence_reason(item, record)
     steps = Array(record['steps'])
-    last = steps.last ? ", the last was step #{steps.last['index'].to_i + 1}: #{steps.last['label']}" : ''
-    "partial_evidence: the call ended before the case returned (#{record['callError']}); " \
+    last = steps.last ? ", the last was step #{steps.last['index'].to_i + 1}: #{mask(steps.last['label'], item)}" : ''
+    "partial_evidence: the call ended before the case returned (#{mask(record['callError'], item)}); " \
       "#{steps.size} step(s) were checkpointed#{last}; evidence in #{record['evidenceDir']}"
   end
 
@@ -963,8 +1148,9 @@ class ChangeLaneTestcases < ChangeLane
   # acceptance prose and step labels, never this.
   def js_cases(selected)
     selected.each_with_index.map do |item, index|
-      compiler = ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms)
-      { index: index, id: item.qualified_id, steps: compiler.compile }
+      preconditions = ChangeFlowCompiler.new(item.preconditions, base_url: base_url, timeout_ms: timeout_ms).compile
+      compiler = ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms, before: preconditions)
+      { index: index, id: item.qualified_id, steps: compiler.compile, preconditions: preconditions }
     end
   end
 
@@ -1339,19 +1525,33 @@ class ChangeLaneTestcases < ChangeLane
             const recorder = await cfRecorder(page, writer, session.page, video);
             // A seeded case starts where its persona's login landed, as it
             // did when every case logged in on its own page, unless its first
-            // step navigates anyway.
-            const first = testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
+            // step navigates anyway. Preconditions, which run before the
+            // case's own steps (and not again on a resumed call), come first.
+            const preconditions = resume ? [] : (testCase.preconditions || []);
+            const first = preconditions[0] || testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
             if (persona && persona.seed && persona.seed.landing && first && first.verb !== "goto") {
               await cfInstallMeasure(session.page, testCase.steps);
               await session.page.goto(persona.seed.landing, { waitUntil: "domcontentloaded" });
+            }
+            let blocked = null;
+            let pre = [];
+            if (preconditions.length > 0) {
+              // The recorder must be on the page before the precondition's own
+              // navigation, or the steps' expect_stable has no first paint.
+              await cfInstallMeasure(session.page, testCase.steps);
+              pre = await cfRunFlow(session.page, preconditions);
+              const unmet = pre.find((step) => !step.ok);
+              if (unmet) blocked = { kind: "precondition", index: unmet.index, label: unmet.label, error: unmet.error };
+              if (unmet) await writer.screenshot(session.page, "failure.png");
             }
             let expired = null;
             // Captions mark each step as it starts: the first here, the rest
             // from the step before it, since cfRunFlow has no pre-step hook.
             if (first) recorder.mark(first.label);
-            const steps = await cfRunFlow(session.page, testCase.steps, {
+            const steps = blocked ? [] : await cfRunFlow(session.page, testCase.steps, {
               startAt: resume ? resume.startAt : 0,
-              vars: resume ? resume.vars : {},
+              vars: resume ? resume.vars : (pre.vars || {}),
+              reads: resume ? resume.reads : (pre.reads || {}),
               afterStep: async (step, record) => {
                 await writer.step(record, log.take());
                 if (!record.ok) await writer.screenshot(session.page, "failure.png");
@@ -1365,10 +1565,11 @@ class ChangeLaneTestcases < ChangeLane
                 return true;
               },
             });
-            const ok = !expired && steps.every((step) => step.ok);
+            const ok = !blocked && !expired && steps.every((step) => step.ok);
             const recording = await recorder.stop();
             await writer.screenshot(session.page, "final.png");
-            return { ok: ok, steps: steps, vars: steps.vars, authExpired: expired, video: recording,
+            return { ok: ok, steps: steps, vars: steps.vars || pre.vars, reads: steps.reads || pre.reads, authExpired: expired,
+                     video: recording, blocked: blocked, preconditions: pre,
                      observation: ok ? await observe(session.page) : null };
           } finally {
             await closeSession(session);
@@ -1379,8 +1580,8 @@ class ChangeLaneTestcases < ChangeLane
         const result = await runOnce(testCase);
         return {
           data: { index: testCase.index, id: testCase.id, attempt: attempt, ok: result.ok, authError: null,
-                  authExpired: result.authExpired, vars: result.vars, steps: cfExpose(result.steps), video: result.video,
-                  observation: result.observation },
+                  authExpired: result.authExpired, vars: result.vars, reads: result.reads, steps: cfExpose(result.steps), video: result.video,
+                  blocked: result.blocked, preconditions: result.preconditions, observation: result.observation },
           type: "application/json",
         };
       }

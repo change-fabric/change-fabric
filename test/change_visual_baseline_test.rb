@@ -48,11 +48,11 @@ class ChangeVisualBaselineTest < Minitest::Test
 
   def note(rec) = rec["visualResults"].first["note"]
 
-  def test_the_step_compiles_with_defaults_and_the_suite_needs_version_7
+  def test_the_step_compiles_with_defaults_and_is_gated_at_version_7
     step = compile("name" => "hero", "selector" => ".hero", "mask" => [ ".clock" ], "viewport" => { "width" => 800, "height" => 600 })
 
     assert_equal [ "expectVisual", 0.001, [ ".clock" ], { width: 800, height: 600 } ], step.values_at(:verb, :maxDiffRatio, :mask, :viewport)
-    assert_equal [ 7, 7 ], [ ChangeSuiteSchema.verb_version("expect_visual"), ChangeSuiteSchema::SUITE_VERSION ]
+    assert_equal [ 7, 8 ], [ ChangeSuiteSchema.verb_version("expect_visual"), ChangeSuiteSchema::SUITE_VERSION ]
   end
 
   def test_a_ratio_of_zero_is_exact_and_anything_outside_zero_to_one_is_refused
