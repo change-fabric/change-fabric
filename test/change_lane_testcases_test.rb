@@ -1519,4 +1519,35 @@ class ChangeLaneTestcasesTest < Minitest::Test
     lane.instance_variable_set(:@context, ctx)
     assert_equal "abc123", lane.send(:commit)
   end
+  def candidate_step(raw)
+    { "index" => 1, "verb" => "click", "label" => "click #pay", "ok" => false, "error" => "TimeoutError: Waiting failed",
+      "selector" => "#pay", "candidates" => raw }
+  end
+
+  def test_a_failed_selector_records_suggestions_and_the_case_still_fails
+    raw = { "items" => [ { "tag" => "button", "scope" => "page", "testid" => "pay-now", "testidCount" => 1,
+                           "idCount" => 0, "text" => "Pay" } ], "frames" => 0 }
+    with_suite do |dir|
+      result = [ failed_result(0, [ candidate_step(raw) ]) ] + ok_result(2).drop(1).map { |item| item.merge("index" => 1) }
+      runner = lane(dir, {}, session: FakeSession.new(result))
+      runner.run
+      failed = runner.case_records.find { |record| record.id == "happy-path" }
+
+      assert_equal "fail", failed.status
+      assert_equal "[data-testid=\"pay-now\"]", failed.selector_suggestions.first["candidates"].first["selector"]
+      stripped = runner.send(:suggest_selectors, runner.instance_variable_get(:@results).first[:case], failed_result(0, [ candidate_step(raw) ]))
+      refute stripped["steps"].first.key?("candidates"), "raw page facts must not reach the evidence record"
+    end
+  end
+
+  def test_a_step_without_candidates_leaves_the_record_alone
+    with_suite do |dir|
+      runner = lane(dir, {}, session: FakeSession.new(ok_result(2)))
+      record = failed_result(0, [ { "index" => 0, "ok" => false } ])
+      item = runner.send(:suite_set).cases.first
+
+      assert_equal record, runner.send(:suggest_selectors, item, record.dup)
+      assert_nil runner.send(:suggest_selectors, item, nil)
+    end
+  end
 end

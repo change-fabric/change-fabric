@@ -139,4 +139,30 @@ class ChangeTestcasesReportTest < Minitest::Test
       assert_empty REXML::XPath.match(doc, "//testcase[@name='browse']/properties")
     end
   end
+  def test_selector_suggestions_render_escaped_and_the_case_still_fails
+    with_run do |run_dir, ledger|
+      entry = { "step" => 1, "failed" => "#pay", "note" => "1 iframe(s) not searched",
+                "candidates" => [ { "selector" => "[data-testid=\"<b>pay</b>\"]", "by" => "testid", "matches" => 1 } ] }
+      failing = ChangeCaseResult.new(key: "checkout/pay", suite: "checkout", id: "pay", status: "fail", run_id: "r3",
+                                     selector_suggestions: [ entry, "junk" ])
+      other = record("browse", "fail", "r3")
+      ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: [ failing, other ]).write
+      html = File.read(File.join(run_dir, "report.html"))
+
+      assert_includes html, "Selector suggestions"
+      assert_includes html, "&lt;b&gt;pay&lt;/b&gt;"
+      refute_includes html, "<b>pay</b>"
+      assert_includes html, "step 2"
+      assert_includes html, "not searched"
+      assert_equal 2, html.scan('class="fail"').size
+    end
+  end
+
+  def test_no_suggestions_means_no_section
+    with_run do |run_dir, ledger|
+      ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: [ record("pay", "fail", "r3") ]).write
+
+      refute_includes File.read(File.join(run_dir, "report.html")), "Selector suggestions"
+    end
+  end
 end

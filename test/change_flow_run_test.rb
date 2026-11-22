@@ -222,4 +222,12 @@ class ChangeFlowRunTest < Minitest::Test
       assert_equal "admin", YAML.safe_load(out)["cases"].first["persona"]
     end
   end
+
+  # The standalone flow runner prints what the browser returns, with no host
+  # redaction pass, so raw candidate facts must stay out of its payload.
+  def test_the_standalone_module_does_not_expose_selector_candidates
+    code = ChangeFlowCompiler.new([ { "goto" => "/" } ], base_url: "https://x.test").function_module
+
+    refute_includes code, "cfExpose(results)"
+  end
 end
