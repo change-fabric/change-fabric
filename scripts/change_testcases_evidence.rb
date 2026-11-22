@@ -81,8 +81,8 @@ class ChangeTestcasesEvidence
 
   # The per-step checkpoints the case module wrote, in step order. A resumed
   # call rewrites the steps it replayed; the later file wins.
-  def checkpointed_steps(dir)
-    Dir.glob(File.join(dir, 'step-*.json')).sort.each_with_object({}) do |path, steps|
+  def checkpointed_steps(dir, phase = 'step')
+    Dir.glob(File.join(dir, "#{phase}-*.json")).sort.each_with_object({}) do |path, steps|
       entry = JSON.parse(File.read(path))
       steps[entry.dig('record', 'index').to_i] = entry['record']
     rescue JSON::ParserError
@@ -138,7 +138,8 @@ class ChangeTestcasesEvidence
 
   def partial(attempt, record)
     steps = checkpointed_steps(attempt.host_dir)
-    record.merge('ok' => false, 'partialEvidence' => true, 'steps' => steps)
+    preconditions = checkpointed_steps(attempt.host_dir, 'precondition')
+    record.merge('ok' => false, 'partialEvidence' => true, 'steps' => steps, 'preconditions' => preconditions)
   end
 
   # A `screenshot` step's image comes back in its step record; it is kept as

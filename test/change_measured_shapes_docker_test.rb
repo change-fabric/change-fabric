@@ -246,6 +246,23 @@ class ChangeMeasuredShapesDockerTest < Minitest::Test
     assert_match(/recent to list items to find in everyone, but it is empty/, bad["error"])
   end
 
+  def test_a_status_assertion_sees_the_navigation_a_precondition_made
+    before = ChangeFlowCompiler.new([ { "goto" => "/admin" } ], base_url: "https://fixture.test").compile
+    main = ChangeFlowCompiler.new([ { "expect_status" => 200 } ], base_url: "https://fixture.test", before: before).compile
+    code = <<~JS
+      #{ChangeFlowCompiler.flow_runtime_js}
+      export default async ({ page }) => {
+        await page.setRequestInterception(true);
+        page.on("request", (request) => request.respond({ status: 200, contentType: "text/html", body: "<title>x</title>" }));
+        const pre = await cfRunFlow(page, #{JSON.generate(before)});
+        const steps = await cfRunFlow(page, #{JSON.generate(main)}, { lastResponse: pre.lastResponse });
+        return { data: { steps: steps }, type: "application/json" };
+      };
+    JS
+    steps = ChangeDocker.with_browserless(network: nil) { |session| session.run_function(code)["steps"] }
+    assert(steps.all? { |step| step["ok"] }, steps.inspect)
+  end
+
   def test_a_blank_text_figure_is_not_read_as_zero
     bad = count_run("blank-badge-is-not-zero", { "/admin" => [ "<!doctype html><title>Admin</title><span class='members-badge'> </span>" ] })["steps"].last
     refute bad["ok"]

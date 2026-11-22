@@ -1372,6 +1372,29 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  # Plays the container writing a precondition checkpoint before it is killed.
+  class PreconditionSession < EvidenceSession
+    def run_function(code, launch_args: [], timeout_ms: nil)
+      dir = code[%r{const evidence = \{"dir":"/cf-run/([^"]+)"\}}, 1]
+      File.write(File.join(@root, dir, "precondition-0001-a.json"), JSON.generate("record" => { "index" => 0, "label" => "goto /admin", "ok" => true })) if dir
+      super
+    end
+  end
+
+  def test_a_killed_call_keeps_the_preconditions_it_completed
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        records = ok_result(2)
+        records[0] = [ RuntimeError.new("browserless /function failed: 408 timed out") ]
+        evidence_lane(dir, root, PreconditionSession.new(records, root, checkpoints: 0)).run
+        termination = JSON.parse(File.read(File.join(attempt_dir(root, "happy-path", 1), "termination.json")))
+        assert_equal [ "goto /admin" ], termination["preconditions"].map { |step| step["label"] }
+        assert_empty termination["steps"]
+      end
+    end
+  end
+
   def test_a_fail_then_pass_retry_keeps_both_attempts_and_is_flaky
     with_suite do |dir|
       Dir.mktmpdir do |out|
@@ -1770,10 +1793,12 @@ class ChangeLaneTestcasesTest < Minitest::Test
       lane6(dir, session).run
       code = session.codes.find { |entry| entry.include?('"id":"members/needs-login"') }
       assert_includes code, "const everyStep = (testCase.preconditions || []).concat(testCase.steps);"
-      assert_includes code, "cfRunFlow(session.page, preconditions, { freshnessSteps: everyStep })"
       assert_includes code, "freshnessSteps: everyStep,"
       assert_includes code, 'filter((step) => step.verb === "goto").pop()'
       assert_includes code, "await session.page.goto(landing,"
+      assert_includes code, "await cfInstallMeasure(session.page, everyStep);"
+      assert_includes code, "lastResponse: resume ? null : (pre.lastResponse || null),"
+      assert_includes code, 'writer.step(record, log.take(), "precondition")'
     end
   end
 
@@ -1878,12 +1903,14 @@ class ChangeLaneTestcasesTest < Minitest::Test
       FileUtils.mkdir_p(attempt)
       File.write(File.join(attempt, "step-0001.json"), JSON.generate({ "record" => { "index" => 1, "found" => 4242, "error" => "saw \"4242\"" } }))
       File.write(File.join(attempt, "step-0002.json"), "not json")
+      File.write(File.join(attempt, "precondition-0001-a.json"), JSON.generate({ "record" => { "found" => 4242 } }))
       lane = lane6(dir, FakeSession.new([]))
       item = lane.send(:suite_set).selected([], selectors: [], case_ids: []).first
       lane.send(:sanitize_checkpoints, item, Struct.new(:host_dir).new(attempt))
       saved = File.read(File.join(attempt, "step-0001.json"))
       refute_includes saved, "4242"
       assert_includes saved, "[redacted]"
+      refute_includes File.read(File.join(attempt, "precondition-0001-a.json")), "4242"
       refute File.exist?(File.join(attempt, "step-0002.json")), "an unreadable checkpoint is removed, not left raw"
     ensure
       ENV.delete("LEAK_PW")
@@ -1942,7 +1969,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
       session = FakeSession.new(ok_result(2))
       lane6(dir, session).run
       code = session.codes.find { |entry| entry.include?('"id":"members/needs-login"') }
-      assert_operator code.index("await cfInstallMeasure(session.page, testCase.steps);"), :<, code.index("pre = await cfRunFlow")
+      assert_operator code.index("await cfInstallMeasure(session.page, everyStep);"), :<, code.index("pre = await cfRunFlow")
     end
     first = { "ok" => false, "steps" => [ { "index" => 0, "ok" => true } ], "preconditions" => [ { "index" => 0, "ok" => true } ] }
     merged = ChangeLaneTestcases.allocate.send(:merge_resumed, first, { "ok" => true, "steps" => [] }, 0)

@@ -202,5 +202,9 @@ class ChangeFlakeTriageTest < Minitest::Test
     assert_equal one.content_hash, ChangeSuite::TestCase.new(**base, tags: [ "y" ]).content_hash
     refute_equal one.content_hash, ChangeSuite::TestCase.new(**base, steps: [ { "goto" => "/b" } ]).content_hash
     assert_equal 16, one.content_hash.size
+    with_pre = ChangeSuite::TestCase.new(**base, preconditions: [ { "goto" => "/a" } ])
+    refute_equal one.content_hash, with_pre.content_hash
+    refute_equal with_pre.content_hash, ChangeSuite::TestCase.new(**base, preconditions: [ { "goto" => "/b" } ]).content_hash
+    assert_equal one.content_hash, ChangeSuite::TestCase.new(**base, preconditions: []).content_hash
   end
 end

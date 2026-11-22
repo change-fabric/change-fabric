@@ -89,6 +89,8 @@ class ChangeSuite
     # case does not make it a new case in the history.
     def content_hash
       parts = [ steps, acceptance, persona, retries, timeout_ms, safe_rerun, safe_retry, expects_logout ]
+      # Only when present, so a case without preconditions keeps the hash it had.
+      parts << preconditions unless preconditions.empty?
       Digest::SHA256.hexdigest(parts.to_json)[0, 16]
     end
 

@@ -235,7 +235,7 @@ class ChangeLaneTestcases < ChangeLane
     return unless dir
 
     secrets = secrets_for(item)
-    Dir.glob(File.join(dir.host_dir, 'step-*.json')).each do |path|
+    Dir.glob(File.join(dir.host_dir, '{step,precondition}-*.json')).each do |path|
       File.write(path, JSON.generate(scrub_value(JSON.parse(File.read(path)), secrets, keep: RAW_KEYS)))
     rescue JSON::ParserError
       FileUtils.rm_f(path)
@@ -1207,14 +1207,14 @@ class ChangeLaneTestcases < ChangeLane
       return {
         tag: tag,
         write: write,
-        step: (record, log) => {
-          const name = `step-${String(record.index + 1).padStart(4, "0")}-${tag}.json`;
+        step: (record, log, phase) => {
+          const name = `${phase || "step"}-${String(record.index + 1).padStart(4, "0")}-${tag}.json`;
           const entry = Object.assign({}, record);
           delete entry.screenshot;
           // A screenshot step's image is checkpointed too, so a call that
           // dies later still leaves it.
           if (record.screenshot) {
-            const shot = String(record.name || "screenshot").replace(/[^A-Za-z0-9._-]/g, "_");
+            const shot = (phase ? phase + "-" : "") + String(record.name || "screenshot").replace(/[^A-Za-z0-9._-]/g, "_");
             write(`shot-${String(record.index + 1).padStart(4, "0")}-${shot}.png`, record.screenshot, true);
           }
           return write(name, JSON.stringify(mask({ record: entry, console: log.console, failedRequests: log.failedRequests })));
@@ -1550,7 +1550,7 @@ class ChangeLaneTestcases < ChangeLane
             const landing = entry ? entry.url : (persona && persona.seed && persona.seed.landing);
             const first = preconditions[0] || testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
             if (persona && landing && first && first.verb !== "goto") {
-              await cfInstallMeasure(session.page, testCase.steps);
+              await cfInstallMeasure(session.page, everyStep);
               await session.page.goto(landing, { waitUntil: "domcontentloaded" });
             }
             let blocked = null;
@@ -1558,8 +1558,16 @@ class ChangeLaneTestcases < ChangeLane
             if (preconditions.length > 0) {
               // The recorder must be on the page before the precondition's own
               // navigation, or the steps' expect_stable has no first paint.
-              await cfInstallMeasure(session.page, testCase.steps);
-              pre = await cfRunFlow(session.page, preconditions, { freshnessSteps: everyStep });
+              await cfInstallMeasure(session.page, everyStep);
+              pre = await cfRunFlow(session.page, preconditions, {
+                freshnessSteps: everyStep,
+                // Checkpointed under their own name, so a killed call keeps
+                // them without colliding with the main steps' indexes.
+                afterStep: async (step, record) => {
+                  await writer.step(record, log.take(), "precondition");
+                  return false;
+                },
+              });
               const unmet = pre.find((step) => !step.ok);
               if (unmet) blocked = { kind: "precondition", index: unmet.index, label: unmet.label, error: unmet.error };
               if (unmet) await writer.screenshot(session.page, "failure.png");
@@ -1571,6 +1579,7 @@ class ChangeLaneTestcases < ChangeLane
             const steps = blocked ? [] : await cfRunFlow(session.page, testCase.steps, {
               startAt: resume ? resume.startAt : 0,
               freshnessSteps: everyStep,
+              lastResponse: resume ? null : (pre.lastResponse || null),
               vars: resume ? resume.vars : (pre.vars || {}),
               reads: resume ? resume.reads : (pre.reads || {}),
               afterStep: async (step, record) => {

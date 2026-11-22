@@ -839,7 +839,7 @@ class ChangeFlowCompiler
     // captured vars it had) and stop it after a step (afterStep returns
     // true), which is how the testcases lane resumes a case after a re-login.
     async function cfRunFlow(page, steps, options = {}) {
-      const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), reads: Object.assign({}, options.reads || {}),
+      const state = { lastResponse: options.lastResponse || null, vars: Object.assign({}, options.vars || {}), reads: Object.assign({}, options.reads || {}),
                       armed: null,
                       freshnessSelectors: Array.from(new Set((options.freshnessSteps || steps).filter((step) => step.settle && step.settle.freshnessSelector).map((step) => step.settle.freshnessSelector))) };
       const results = [];
@@ -904,6 +904,7 @@ class ChangeFlowCompiler
       if (watching) for (const [event, fn] of Object.entries(track)) page.off(event, fn);
       results.vars = state.vars;
       results.reads = state.reads;
+      results.lastResponse = state.lastResponse;
       return results;
     }
   JS
