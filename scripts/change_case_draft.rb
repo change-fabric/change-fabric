@@ -274,9 +274,16 @@ class ChangeCaseDraft
   end
 
   def resolve(path)
-    pathname = Pathname.new(File.expand_path(path))
-    pathname = pathname.dirname until pathname.exist?
-    suffix = Pathname.new(File.expand_path(path)).relative_path_from(pathname)
+    raise Error, "#{self.class.clip(path)} contains '..'" if path.to_s.split('/').include?('..')
+
+    expanded = Pathname.new(File.expand_path(path))
+    pathname = expanded
+    until pathname.exist?
+      raise Error, "#{self.class.clip(path)} passes through a dangling symlink" if pathname.symlink?
+
+      pathname = pathname.dirname
+    end
+    suffix = expanded.relative_path_from(pathname)
     File.expand_path(suffix.to_s, pathname.realpath.to_s)
   end
 end

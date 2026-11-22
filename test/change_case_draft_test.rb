@@ -158,6 +158,24 @@ class ChangeCaseDraftTest < Minitest::Test
     assert_empty Dir.children(File.join(@root, "qa"))
   end
 
+  def test_a_dangling_draft_symlink_into_the_repo_is_refused
+    FileUtils.mkdir_p([ File.join(@root, "qa"), File.join(@out, "drafts") ])
+    leaked = File.join(@root, "qa", "leaked.cf-testcases.yml")
+    File.symlink(leaked, File.join(@out, "drafts", "pr-7.cf-testcases.yml"))
+
+    assert_raises(ChangeCaseDraft::Error) { draft }
+    refute_path_exists leaked
+  end
+
+  def test_an_output_path_with_dotdot_after_a_symlink_is_refused
+    FileUtils.mkdir_p(File.join(@root, "sub"))
+    File.symlink(File.join(@root, "sub"), File.join(@out, "link"))
+    sneaky = File.join(@out, "link", "..", "drafts")
+
+    assert_raises(ChangeCaseDraft::Error) { draft(DIFF, out: sneaky) }
+    refute_path_exists File.join(@root, "drafts")
+  end
+
   def test_authorization_schemes_are_redacted_with_their_credential
     [ "Authorization: Bearer abc123456789", '{"Authorization": "Bearer abc123456789"}', "Authorization: Basic dXNlcjpwYXNz", "bearer abc123456789" ].each do |line|
       masked = ChangeCaseDraft.redact(line, env: {})
