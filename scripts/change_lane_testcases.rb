@@ -119,7 +119,8 @@ class ChangeLaneTestcases < ChangeLane
         duration_ms: result[:duration_ms], started_at: result[:started_at], commit: commit,
         run_id: run_id, evidence_dir: result[:record]&.dig('evidenceDir'),
         acceptance_verdict: result[:verdict]&.verdict, step_durations: step_durations(result[:record]),
-        quarantined: item.quarantined?(today), quarantine_reason: item.quarantined?(today) ? item.quarantine.reason : nil
+        quarantined: item.quarantined?(today), quarantine_reason: item.quarantined?(today) ? item.quarantine.reason : nil,
+        case_hash: item.content_hash
       )
     end
   end

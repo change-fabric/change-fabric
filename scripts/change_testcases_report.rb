@@ -9,6 +9,7 @@ require 'rexml/document'
 require_relative 'change_case_result'
 require_relative 'change_testcases_evidence'
 require_relative 'change_report'
+require_relative 'change_flake_triage'
 
 # The testcases lane's own report, written into its run dir: report.html for a
 # person and junit.xml for CI, both rendered from the run's case-result records
@@ -53,17 +54,32 @@ class ChangeTestcasesReport
   # Renders both files from the history as it stood before this run, then
   # appends this run to the ledger. Returns the paths written.
   def write
+    flake = write_flake_proposals
     html = write_html
     junit = File.join(@run_dir, 'junit.xml')
     File.write(junit, render_junit)
     append_ledger
-    { html: html, junit: junit, ledger: @ledger }
+    { html: html, junit: junit, ledger: @ledger, flake_proposals: flake }
   end
 
   # report.html alone, from the history as read before this run was
   # appended, so a later export can refresh it without a second ledger entry.
   def write_html
     File.join(@run_dir, 'report.html').tap { |path| File.write(path, render_html) }
+  end
+
+  # flake-proposals.md and .json in the run dir, from the history plus this
+  # run, only when some case is flipping. Proposals never change a suite or a
+  # verdict, so a failure here is dropped rather than blocking the ledger.
+  def write_flake_proposals
+    triage = ChangeFlakeTriage.new(@history + @records)
+    return triage.write(@run_dir)[:markdown] if triage.proposals.any?
+
+    # A rerun into the same dir must not leave an earlier run's proposals behind.
+    [ ChangeFlakeTriage::MARKDOWN_FILE, ChangeFlakeTriage::JSON_FILE ].each { |name| FileUtils.rm_f(File.join(@run_dir, name)) }
+    nil
+  rescue StandardError
+    nil
   end
 
   def render_junit
@@ -88,6 +104,7 @@ class ChangeTestcasesReport
       <h1>Test cases</h1>
       <p class="meta">Run #{h(run_id)}#{commit ? " at #{h(commit[0, 12])}" : ''}. #{summary}</p>
       #{attention_section}
+      #{flake_section}
       <h2>Cases</h2>
       <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Quarantine</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th><th>Video</th></tr></thead>
       <tbody>
@@ -153,6 +170,13 @@ class ChangeTestcasesReport
     items = newly.map { |record| "<li><span class=\"fail\">Newly failing</span> #{h(record.key)}</li>" } +
             flaky.map { |record| "<li><span class=\"tag\">Flaky</span> #{h(record.key)} (#{record.attempts.size} attempts)</li>" }
     "<h2>Needs attention</h2><ul>#{items.join}</ul>"
+  end
+
+  def flake_section
+    return '' unless File.exist?(File.join(@run_dir, ChangeFlakeTriage::MARKDOWN_FILE))
+
+    "<h2>Flake proposals</h2><p>Quarantine proposals for flipping cases: <a href=\"#{ChangeFlakeTriage::MARKDOWN_FILE}\">" \
+      "#{ChangeFlakeTriage::MARKDOWN_FILE}</a> (<a href=\"#{ChangeFlakeTriage::JSON_FILE}\">json</a>). No suite was edited.</p>"
   end
 
   def case_row(record)

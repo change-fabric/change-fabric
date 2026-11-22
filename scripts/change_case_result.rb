@@ -15,7 +15,7 @@ class ChangeCaseResult
   FAILURE_STATUSES = %w[fail auth_interrupted partial_evidence].freeze
 
   FIELDS = %i[key suite id persona status attempts duration_ms started_at commit run_id evidence_dir
-              acceptance_verdict step_durations quarantined quarantine_reason].freeze
+              acceptance_verdict step_durations quarantined quarantine_reason case_hash].freeze
 
   attr_reader(*FIELDS)
 
@@ -30,6 +30,7 @@ class ChangeCaseResult
     @step_durations = Array(@step_durations)
     @quarantined = @quarantined == true
     @quarantine_reason = @quarantine_reason.to_s unless @quarantine_reason.nil?
+    @case_hash = @case_hash.to_s unless @case_hash.nil?
   end
 
   def self.from_h(hash)
