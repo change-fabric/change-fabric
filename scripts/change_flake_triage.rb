@@ -15,9 +15,9 @@ require_relative 'change_case_result'
 #
 # A flip is two neighbouring executed runs with different outcomes. Only runs
 # at the case's newest `case_hash` count, so a case that was edited is judged
-# on the edited definition alone. A skipped run is a gap, not evidence. Records
-# written before `case_hash` existed share the empty hash, so they compare with
-# each other and never with a hashed run.
+# on the edited definition alone. A skipped or blocked run is a gap, not
+# evidence. Records written before `case_hash` existed share the empty hash, so
+# they compare with each other and never with a hashed run.
 #
 # Every value that reaches a proposal (a key, a step label) is stripped of
 # control characters, redacted when it looks like a credential, and truncated.
@@ -116,7 +116,7 @@ class ChangeFlakeTriage
       found = []
       shielded = []
       @records.group_by(&:key).each do |key, history|
-        executed = history.reject(&:skipped?)
+        executed = history.reject { |record| record.skipped? || record.blocked? }
         next if executed.empty?
 
         proposal = assess(key, executed, history.last)

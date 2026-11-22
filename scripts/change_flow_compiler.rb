@@ -620,7 +620,9 @@ class ChangeFlowCompiler
 
     function cfNumber(value, name) {
       if (Array.isArray(value)) cfFail(`${name} is a list; this relation compares numbers`);
-      const number = typeof value === "number" ? value : Number(String(value).replace(/,/g, "").trim());
+      const text = typeof value === "number" ? "" : String(value).replace(/,/g, "").trim();
+      if (typeof value !== "number" && text === "") cfFail(`${name} is empty; the figure was not rendered, so it is not zero`);
+      const number = typeof value === "number" ? value : Number(text);
       if (!Number.isFinite(number)) cfFail(`${name} = ${JSON.stringify(value)} is not a number; capture it with kind: number`);
       return number;
     }
@@ -815,7 +817,7 @@ class ChangeFlowCompiler
           const actual = step.equalsVar !== null ? cfVar(state, step.equalsVar) : await cfRead(page, step, timeout);
           const source = step.equalsVar !== null ? step.equalsVar : step.selector;
           if (step.tolerance !== undefined) {
-            const gap = Math.abs(Number(actual) - Number(expected));
+            const gap = Math.abs(cfNumber(actual, source) - cfNumber(expected, step.var));
             if (!(gap <= step.tolerance)) cfFail(`expected ${source} = ${JSON.stringify(actual)} to be within ${step.tolerance} of ${step.var} = ${JSON.stringify(expected)}`);
             return { found: actual, expected: expected };
           }

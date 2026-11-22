@@ -316,6 +316,9 @@ class ChangeSuite
     where = "suite '#{name}' case '#{id}' (#{path})"
     raise Error, "#{where} has `preconditions` that is not a non-empty list of steps" unless raw.is_a?(Array) && !raw.empty?
 
+    visual = raw.find { |step| step.is_a?(Hash) && step.key?('expect_visual') }
+    raise Error, "#{where} has `expect_visual` in `preconditions`, which are not judged against a baseline; put it in `steps`" if visual
+
     steps(raw, name, id, path, version)
   end
 

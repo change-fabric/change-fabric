@@ -228,16 +228,19 @@ class ChangeLaneTestcases < ChangeLane
 
   # The in-container checkpoint files (`step-*.json`) hold the same raw
   # records, and a killed call is rebuilt from them, so they are rewritten
-  # masked before the attempt is closed. A file that cannot be rewritten is
-  # removed rather than left raw.
+  # masked before the attempt is closed. The module already masks what it
+  # writes (see cfEvidenceWriter), so this is a second pass: a file the host
+  # cannot rewrite (owned by the container's user) is left as written.
   def sanitize_checkpoints(item, dir)
     return unless dir
 
     secrets = secrets_for(item)
     Dir.glob(File.join(dir.host_dir, 'step-*.json')).each do |path|
       File.write(path, JSON.generate(scrub_value(JSON.parse(File.read(path)), secrets, keep: RAW_KEYS)))
-    rescue JSON::ParserError, SystemCallError
+    rescue JSON::ParserError
       FileUtils.rm_f(path)
+    rescue SystemCallError
+      next
     end
   end
 
@@ -704,7 +707,7 @@ class ChangeLaneTestcases < ChangeLane
     state, generation = persona ? @personas.fetch(persona) : [ nil, 0 ]
     dir = evidence&.open_attempt(item, number, start_record(item, number, persona))
     record = call_function(session, case_module(compiled, number, persona_js(item, state), evidence: dir&.js,
-                                                                                         video: dir && video_js(item)),
+                                                                                         video: dir && video_js(item), secrets: secrets_for(item)),
                            case_budget_ms(item))
     if persona && record.is_a?(Hash) && record['authExpired']
       record = resume_after_expiry(session, item, compiled, number, persona, generation, record, dir)
@@ -804,7 +807,8 @@ class ChangeLaneTestcases < ChangeLane
     resume = { startAt: restart, vars: record['vars'] || {}, reads: record['reads'] || {} }
     second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume,
                                                                                            evidence: dir&.js,
-                                                                                           video: dir && video_js(item, record.dig('video', 'bytes').to_i)),
+                                                                                           video: dir && video_js(item, record.dig('video', 'bytes').to_i),
+                                                                                           secrets: secrets_for(item)),
                            case_budget_ms(item))
     merge_resumed(record, second, resume[:startAt])
   end
@@ -1159,7 +1163,7 @@ class ChangeLaneTestcases < ChangeLane
   # a download path on the mount, which Chrome writes as it goes. A file is on
   # disk once its download completes, whatever happens to the call after.
   EVIDENCE_JS = <<~JS
-    async function cfEvidenceWriter(page, evidence, tag) {
+    async function cfEvidenceWriter(page, evidence, tag, secrets) {
       const none = { tag: tag, write: async () => {}, step: async () => {}, screenshot: async () => {}, flush: async () => {} };
       if (!evidence) return none;
       let issued = 0;
@@ -1205,7 +1209,11 @@ class ChangeLaneTestcases < ChangeLane
             const shot = String(record.name || "screenshot").replace(/[^A-Za-z0-9._-]/g, "_");
             write(`shot-${String(record.index + 1).padStart(4, "0")}-${shot}.png`, record.screenshot, true);
           }
-          return write(name, JSON.stringify({ record: entry, console: log.console, failedRequests: log.failedRequests }));
+          // The case's secret values never reach a checkpoint file: masked
+          // here, as written and as JSON-escaped.
+          let text = JSON.stringify({ record: entry, console: log.console, failedRequests: log.failedRequests });
+          for (const secret of secrets) text = text.split(secret).join("[redacted]");
+          return write(name, text);
         },
         screenshot: async (casePage, name) => {
           try { await write(`${tag === "r" ? "resumed-" : ""}${name}`, await casePage.screenshot({ encoding: "base64" }), true); } catch (err) { void err; }
@@ -1427,7 +1435,7 @@ class ChangeLaneTestcases < ChangeLane
   # after the persona logged in again.
   # `evidence` names the attempt's dir in the container; the module
   # checkpoints into it as it goes.
-  def case_module(compiled, attempt, persona = nil, resume: nil, evidence: nil, video: nil)
+  def case_module(compiled, attempt, persona = nil, resume: nil, evidence: nil, video: nil, secrets: [])
     <<~JS
       export default async function ({ page }) {
         const testCase = #{JSON.generate(compiled)};
@@ -1435,6 +1443,7 @@ class ChangeLaneTestcases < ChangeLane
         const persona = #{JSON.generate(persona)};
         const resume = #{JSON.generate(resume)};
         const evidence = #{JSON.generate(evidence)};
+        const secrets = #{JSON.generate(secrets.map(&:to_s).select { |secret| secret.length >= 3 })};
         const video = #{JSON.generate(video)};
         #{session_js}
         #{ChangeFlowCompiler.flow_runtime_js}
@@ -1517,7 +1526,7 @@ class ChangeLaneTestcases < ChangeLane
         }
 
         async function runOnce(testCase) {
-          const writer = await cfEvidenceWriter(page, evidence, resume ? "r" : "a");
+          const writer = await cfEvidenceWriter(page, evidence, resume ? "r" : "a", secrets);
           const session = await openSession(page);
           try {
             if (persona) await seedStorage(session.page, persona.seed);

@@ -29,6 +29,19 @@ class ChangeTestcasesEvidenceDockerTest < Minitest::Test
           - expect_visible: "#missing"
   YAML
 
+  LEAK_SUITE = <<~YAML
+    suite: leak
+    suite_version: 8
+    cases:
+      - id: page
+        acceptance: No secret reaches the evidence dir.
+        steps:
+          - eval: "document.body.innerHTML = '<input id=pw><h1>token hunter2</h1>'"
+          - fill: { selector: "#pw", env: LEAK_PW }
+          - capture: { var: heading, selector: h1, kind: text }
+          - expect_text: { selector: h1, contains: "never there hunter2" }
+  YAML
+
   def setup
     skip "docker not available" unless ChangeDocker.available?
   end
@@ -52,6 +65,27 @@ class ChangeTestcasesEvidenceDockerTest < Minitest::Test
       assert_includes files, "final.png"
       third = JSON.parse(File.read(File.join(attempt, "step-0003-a.json")))
       refute third.dig("record", "ok")
+    end
+  end
+
+  def test_a_secret_never_reaches_a_checkpoint_or_the_result
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "leak.cf-testcases.yml"), LEAK_SUITE)
+      root = ChangeTestcasesEvidence.prepare(dir, "run-1")
+      config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ], "timeout_ms" => 2000 }, dir)
+      ENV["LEAK_PW"] = "hunter2"
+      ChangeDocker.with_browserless(network: nil, mounts: { root => ChangeTestcasesEvidence::MOUNT }) do |session|
+        ChangeLaneTestcases.new(config, Ctx.new(nil, "https://app.example.org", session, [], false, root, "run-1"),
+                                grader: Grader.new("no grader in this test")).run
+      end
+      attempt = File.join(root, "cases", "leak", "page", "attempt-1")
+      checkpoints = Dir.glob(File.join(attempt, "step-*.json"))
+      assert_operator checkpoints.size, :>=, 3
+      text = (checkpoints + [ File.join(attempt, "result.json") ]).map { |path| File.read(path) }.join
+      refute_includes text, "hunter2"
+      assert_includes text, "[redacted]"
+    ensure
+      ENV.delete("LEAK_PW")
     end
   end
 end

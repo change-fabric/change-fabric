@@ -66,6 +66,13 @@ class ChangeFlakeTriageTest < Minitest::Test
     assert_empty triage(legacy + [ record("pay", "pass", "r9") ]).proposals
   end
 
+  def test_blocked_runs_are_gaps_not_flips
+    records = [ record("pay", "fail", "r0"), record("pay", "blocked_precondition", "r1"), record("pay", "fail", "r2"),
+                record("pay", "blocked_precondition", "r3"), record("pay", "fail", "r4") ]
+
+    assert_empty triage(records).proposals
+  end
+
   def test_skipped_runs_are_gaps_not_flips
     records = [ record("pay", "pass", "r0"), record("pay", "skipped", "r1"), record("pay", "pass", "r2"), record("pay", "skipped", "r3") ]
 

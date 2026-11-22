@@ -246,6 +246,12 @@ class ChangeMeasuredShapesDockerTest < Minitest::Test
     assert_match(/recent to list items to find in everyone, but it is empty/, bad["error"])
   end
 
+  def test_a_blank_text_figure_is_not_read_as_zero
+    bad = count_run("blank-badge-is-not-zero", { "/admin" => [ "<!doctype html><title>Admin</title><span class='members-badge'> </span>" ] })["steps"].last
+    refute bad["ok"]
+    assert_match(/badge is empty; the figure was not rendered/, bad["error"])
+  end
+
   def test_parts_that_sum_to_the_total_pass_and_parts_that_do_not_fail
     assert(count_run("parts-sum-to-total", { "/admin" => [ admin_page(70, admins: 3, guests: 67) ] })["steps"].all? { |step| step["ok"] })
     bad = count_run("parts-sum-to-total", { "/admin" => [ admin_page(70, admins: 3, guests: 60) ] })["steps"].last

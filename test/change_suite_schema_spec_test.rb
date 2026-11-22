@@ -129,6 +129,12 @@ class ChangeSuiteSchemaSpecTest < Minitest::Test
     assert_equal 1, ChangeSuite.parse_case(raw, "s", "p", 0, 8).preconditions.size
   end
 
+  def test_a_visual_assertion_is_refused_in_preconditions
+    raw = { "id" => "c", "acceptance" => "a", "preconditions" => [ { "expect_visual" => "hero" } ], "steps" => [ { "goto" => "/" } ] }
+    error = assert_raises(ChangeSuite::Error) { ChangeSuite.parse_case(raw, "s", "p", 0, 8) }
+    assert_includes error.message, "`expect_visual` in `preconditions`"
+  end
+
   def test_preconditions_must_be_a_non_empty_list_of_valid_steps
     base = { "id" => "c", "acceptance" => "a", "steps" => [ { "goto" => "/" } ] }
     [ [], "goto", [ { "nope" => 1 } ] ].each do |bad|

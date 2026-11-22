@@ -38,3 +38,9 @@ cases:
       - capture: { var: admins, selector: ".role-admin", kind: number }
       - capture: { var: guests, selector: ".role-guest", kind: number }
       - expect_relation: { relation: sum, reads: { total: total, parts: [ admins, guests ] } }
+  - id: blank-badge-is-not-zero
+    acceptance: A badge that has not rendered a figure does not agree with zero.
+    steps:
+      - goto: /admin
+      - capture: { var: badge, selector: ".members-badge", kind: text }
+      - expect_relation: { relation: equal, reads: { a: badge, b: 0 } }
