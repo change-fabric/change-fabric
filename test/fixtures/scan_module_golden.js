@@ -139,8 +139,11 @@ const MIN_STEP_MS = 250;
 // One absolute deadline per route: the route budget, but never later than
 // the browserless function timeout less a reserve for this cell's cleanup
 // and for every cell still to run after it.
-function routeDeadline(scanStarted, cellsLeft) {
-  const reserve = STATE_RESERVE_MS + cellsLeft * CELL_RESERVE_MS;
+// `cellCostMs` is what a cell costs without its states (the slowest seen
+// so far, or this cell's own time before its states), floored at
+// CELL_RESERVE_MS, so slow-loading routes reserve what they really need.
+function routeDeadline(scanStarted, cellsLeft, cellCostMs) {
+  const reserve = STATE_RESERVE_MS + cellsLeft * Math.max(CELL_RESERVE_MS, cellCostMs);
   return Math.min(Date.now() + STATE_BUDGET_MS, scanStarted + FUNCTION_LIMIT_MS - reserve);
 }
 
@@ -445,6 +448,7 @@ async function runAuthStep(session, step) {
   const scanStarted = Date.now();
   const totalCells = viewports.length * routeEntries.length;
   let cellsDone = 0;
+  let baseCellMs = 0;
   const videos = [];
   // Non-null only when continuity was opted into: one session carried
   // across the whole matrix, exactly as the lane behaved before cells
@@ -463,6 +467,8 @@ async function runAuthStep(session, step) {
       // decision to raise FUNCTION_TIMEOUT_MS or split the scan per
       // viewport can be made from real numbers instead of a guess.
       const cellStart = Date.now();
+      let statesStart = 0;
+      let statesMs = 0;
       try {
         if (isolateCells) {
           session = await openSession();
@@ -532,7 +538,9 @@ async function runAuthStep(session, step) {
             await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: bounded.timeoutMs });
             await awaitReadiness(session.page, bounded);
           };
-          cell.states = await runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1));
+          statesStart = Date.now();
+          cell.states = await runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1, Math.max(baseCellMs, Date.now() - cellStart)));
+          statesMs = Date.now() - statesStart;;
         }
       } catch (err) {
         cell.error = String(err);
@@ -545,6 +553,7 @@ async function runAuthStep(session, step) {
         }
       }
       cell.totalMs = Date.now() - cellStart;
+      baseCellMs = Math.max(baseCellMs, cell.totalMs - statesMs);
       cellsDone += 1;
       out.push(cell);
     }

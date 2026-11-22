@@ -201,10 +201,11 @@ class ChangeRouteStatesTest < Minitest::Test
   end
 
   def test_the_route_deadline_never_passes_the_function_timeout_and_reserves_later_cells
-    out = node("const s = Date.now() - 100000; console.log(JSON.stringify([routeDeadline(s, 0) - s, routeDeadline(s, 3) - s]));")
+    out = node("const s = Date.now() - 100000; console.log(JSON.stringify([routeDeadline(s, 0, 0) - s, routeDeadline(s, 3, 0) - s, routeDeadline(s, 3, 10000) - s]));")
     limit = ChangeRouteStates::FUNCTION_TIMEOUT_MS - ChangeRouteStates::RESERVE_MS
     assert_operator out[0], :<=, limit
     assert_operator out[1], :<=, limit - (3 * ChangeRouteStates::CELL_RESERVE_MS)
+    assert_operator out[2], :<=, limit - 30_000, "slow cells reserve their observed cost"
   end
 
   def test_a_spent_budget_starts_no_work
@@ -310,7 +311,7 @@ class ChangeRouteStatesTest < Minitest::Test
     session = Session.new({})
     lane_findings([ { "path" => "/", "states" => [ state ] } ], {}, session)
     assert_includes session.code, "const scanStarted = Date.now();"
-    assert_includes session.code, "runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1))"
+    assert_includes session.code, "routeDeadline(scanStarted, totalCells - cellsDone - 1, Math.max(baseCellMs, Date.now() - cellStart))"
     assert_includes session.code, "Math.min(waitFor.timeoutMs, capMs)"
   end
 

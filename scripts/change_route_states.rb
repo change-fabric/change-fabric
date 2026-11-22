@@ -141,8 +141,11 @@ module ChangeRouteStates
       // One absolute deadline per route: the route budget, but never later than
       // the browserless function timeout less a reserve for this cell's cleanup
       // and for every cell still to run after it.
-      function routeDeadline(scanStarted, cellsLeft) {
-        const reserve = STATE_RESERVE_MS + cellsLeft * CELL_RESERVE_MS;
+      // `cellCostMs` is what a cell costs without its states (the slowest seen
+      // so far, or this cell's own time before its states), floored at
+      // CELL_RESERVE_MS, so slow-loading routes reserve what they really need.
+      function routeDeadline(scanStarted, cellsLeft, cellCostMs) {
+        const reserve = STATE_RESERVE_MS + cellsLeft * Math.max(CELL_RESERVE_MS, cellCostMs);
         return Math.min(Date.now() + STATE_BUDGET_MS, scanStarted + FUNCTION_LIMIT_MS - reserve);
       }
 

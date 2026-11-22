@@ -695,6 +695,7 @@ class ChangeLaneBrowserless < ChangeLane
         const scanStarted = Date.now();
         const totalCells = viewports.length * routeEntries.length;
         let cellsDone = 0;
+        let baseCellMs = 0;
         const videos = [];
         // Non-null only when continuity was opted into: one session carried
         // across the whole matrix, exactly as the lane behaved before cells
@@ -713,6 +714,8 @@ class ChangeLaneBrowserless < ChangeLane
             // decision to raise FUNCTION_TIMEOUT_MS or split the scan per
             // viewport can be made from real numbers instead of a guess.
             const cellStart = Date.now();
+            let statesStart = 0;
+            let statesMs = 0;
             try {
               if (isolateCells) {
                 session = await openSession();
@@ -782,7 +785,9 @@ class ChangeLaneBrowserless < ChangeLane
                   await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: bounded.timeoutMs });
                   await awaitReadiness(session.page, bounded);
                 };
-                cell.states = await runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1));
+                statesStart = Date.now();
+                cell.states = await runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1, Math.max(baseCellMs, Date.now() - cellStart)));
+                statesMs = Date.now() - statesStart;;
               }
             } catch (err) {
               cell.error = String(err);
@@ -795,6 +800,7 @@ class ChangeLaneBrowserless < ChangeLane
               }
             }
             cell.totalMs = Date.now() - cellStart;
+            baseCellMs = Math.max(baseCellMs, cell.totalMs - statesMs);
             cellsDone += 1;
             out.push(cell);
           }
