@@ -227,7 +227,15 @@ module ChangeRouteStates
           st.timeoutMs, deadline, what);
         try {
           await bounded(() => reload(innerMs(STATE_RELOAD_MS, deadline)), STATE_RELOAD_MS, deadline, "reload");
-          if (st.click) await waitFor(st.click, "click target");
+          if (st.click) {
+            await waitFor(st.click, "click target");
+            // Click scrolls the target into view; do it first so a fixed or sticky
+            // watched element is not measured before the scroll and after it.
+            await bounded(() => statePage.evaluate((selector) => {
+              const target = document.querySelector(selector);
+              if (target) target.scrollIntoView({ block: "center", inline: "center" });
+            }, st.click), st.timeoutMs, deadline, "scroll into view");
+          }
           const before = await settledRects(statePage, st.watch, st.timeoutMs, deadline);
           if (st.click) await bounded(() => statePage.click(st.click), st.timeoutMs, deadline, "click");
           if (st.ready) await waitFor(st.ready, "ready element");

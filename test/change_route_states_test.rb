@@ -269,6 +269,14 @@ class ChangeRouteStatesTest < Minitest::Test
     assert(out.all? { |r| r["error"].include?("Waiting for selector") }, out.inspect)
   end
 
+  def test_the_click_target_is_scrolled_into_view_before_the_baseline
+    js = ChangeRouteStates.runtime_js
+    scroll = js.index("target.scrollIntoView(")
+    assert scroll, "no scroll before the click"
+    assert_operator scroll, :<, js.index("const before = await settledRects")
+    assert_operator scroll, :>, js.index("waitFor(st.click")
+  end
+
   def test_a_beforeunload_prompt_is_accepted_and_other_dialogs_dismissed
     out = node(<<~JS)
       const handlers = {};
