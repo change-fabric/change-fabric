@@ -40,6 +40,7 @@ class ChangeCaseDraft
   CLIP = 100
   MAX_DIFF_BYTES = 2_000_000
   MAX_PROMPT_CHARS = 8_000
+  MAX_LINE_CHARS = 2_000
   MAX_REPLY_BYTES = 200_000
   MAX_PATHS = 50
   MAX_CASES = 5
@@ -295,7 +296,7 @@ class ChangeCaseDraft
     return nil unless @model && source.added.values.any? { |lines| !lines.empty? }
 
     command = model_command
-    return nil if command.nil? && @runner.nil?
+    return skip(notes, 'no model on PATH, so the skeleton was used') if command.nil? && @runner.nil?
 
     prompt = prompt_text
     reply = @runner ? @runner.call(prompt) : run_command(command, prompt)
@@ -367,10 +368,14 @@ class ChangeCaseDraft
 
   def prompt_text
     files = source.paths.first(MAX_PATHS).map do |path|
-      lines = source.added[path].first(40).map { |line| line[0, 300] }.join("\n")
-      "FILE #{safe_text(path, 200)}\n#{self.class.redact(lines, env: @env)}"
+      # A line too long to be hand-written (a bundle) is dropped whole, never
+      # clipped, so a secret cannot straddle the clip and escape the masker.
+      kept = source.added[path].reject { |line| line.length > MAX_LINE_CHARS }
+      masked = self.class.redact(kept.join("\n"), env: @env)
+      "FILE #{safe_text(path, 200)}\n#{masked.lines.first(40).map(&:chomp).join("\n")}"
     end
-    body = files.join("\n\n")[0, MAX_PROMPT_CHARS].gsub(FENCE, '')
+    body = files.join("\n\n")[0, MAX_PROMPT_CHARS]
+    body = body.gsub(FENCE, '') while body.include?(FENCE)
     <<~PROMPT
       You draft browser test cases for a pull request. Answer with JSON only: an array of
       at most #{MAX_CASES} objects with "id", "acceptance" (one sentence a person would use
