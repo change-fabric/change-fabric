@@ -804,7 +804,7 @@ class ChangeFlowCompiler
         const viewport = #{JSON.generate(@viewport)};
         if (viewport) await page.setViewport(viewport);
         const results = await cfRunFlow(page, steps);
-        return { data: { steps: cfExpose(results) }, type: "application/json" };
+        return { data: { steps: results }, type: "application/json" };
       };
     JS
   end
