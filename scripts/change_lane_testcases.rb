@@ -806,9 +806,8 @@ class ChangeLaneTestcases < ChangeLane
 
     resume = { startAt: restart, vars: record['vars'] || {}, reads: record['reads'] || {} }
     second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume,
-                                                                                           evidence: dir&.js,
-                                                                                           video: dir && video_js(item, record.dig('video', 'bytes').to_i),
-                                                                                           secrets: secrets_for(item)),
+                                                                                           evidence: dir&.js, secrets: secrets_for(item),
+                                                                                           video: dir && video_js(item, record.dig('video', 'bytes').to_i)),
                            case_budget_ms(item))
     merge_resumed(record, second, resume[:startAt])
   end
