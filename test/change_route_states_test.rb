@@ -315,6 +315,12 @@ class ChangeRouteStatesTest < Minitest::Test
     assert_includes session.code, "Math.min(waitFor.timeoutMs, capMs)"
   end
 
+  def test_a_reload_leaves_the_page_before_loading_the_route_so_hash_routes_reload
+    session = Session.new({})
+    lane_findings([ { "path" => "/#/settings", "states" => [ state ] } ], {}, session)
+    assert_match(/goto\("about:blank"[^\n]*\n[^\n]*goto\(baseUrl \+ entry\.path/, session.code)
+  end
+
   def test_a_route_without_states_adds_no_state_findings
     findings = lane_findings([ "/", { "path" => "/a", "states" => [] } ])
     assert_equal [ "mobile 390x844" ] * 2, findings.map(&:check)

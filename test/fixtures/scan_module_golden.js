@@ -535,12 +535,14 @@ async function runAuthStep(session, step) {
         if (entry.states.length && !cell.authBlocked) {
           const reload = async (capMs) => {
             const bounded = Object.assign({}, waitFor, { timeoutMs: Math.min(waitFor.timeoutMs, capMs) });
+            // Through about:blank, so a hash-only route is a fresh document load, never a same-document hash change.
+            await session.page.goto("about:blank", { timeout: bounded.timeoutMs });
             await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: bounded.timeoutMs });
             await awaitReadiness(session.page, bounded);
           };
           statesStart = Date.now();
           cell.states = await runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1, Math.max(baseCellMs, Date.now() - cellStart)));
-          statesMs = Date.now() - statesStart;;
+          statesMs = Date.now() - statesStart;
         }
       } catch (err) {
         cell.error = String(err);
