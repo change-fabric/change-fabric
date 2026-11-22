@@ -135,6 +135,7 @@ const FUNCTION_LIMIT_MS = 115000;
 const STATE_RESERVE_MS = 15000;
 const CELL_RESERVE_MS = 4000;
 const MIN_STEP_MS = 250;
+const INNER_MARGIN_MS = 200;
 
 // One absolute deadline per route: the route budget, but never later than
 // the browserless function timeout less a reserve for this cell's cleanup
@@ -157,6 +158,13 @@ function capMs(limitMs, deadline, what) {
   return Math.min(limitMs, left);
 }
 
+// The limit handed to a call that has its own timeout (waitForSelector,
+// goto), a little under the outer cap so the call's own timeout error wins
+// and only a call that ignores its timeout is reported as hung.
+function innerMs(limitMs, deadline) {
+  return Math.max(1, Math.min(limitMs, deadline - Date.now()) - INNER_MARGIN_MS);
+}
+
 // Runs `start()` only once the cap is known, so a spent budget never
 // dispatches work (a click, a read) whose late failure nobody handles.
 // A timeout marks the error `hung`: the work behind it may still be running.
@@ -166,17 +174,22 @@ function bounded(start, limitMs, deadline, what) {
   const expiry = new Promise((_, reject) => {
     timer = setTimeout(() => { const err = new Error(what + " took over " + ms + "ms"); err.hung = true; reject(err); }, ms);
   });
-  return Promise.race([start(), expiry]).finally(() => clearTimeout(timer));
+  return Promise.race([Promise.resolve().then(start), expiry]).finally(() => clearTimeout(timer));
 }
 
 // A zero-size box (display none) reads as absent: it has no layout to hold still.
+// The page width is read with the rects, so a state with nothing to watch
+// still waits for its layout to stop moving before the width is graded.
 async function readRects(statePage, selectors) {
-  return statePage.evaluate((list) => list.map((selector) => {
-    const el = document.querySelector(selector);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 && r.height === 0) return null;
-    return { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
+  return statePage.evaluate((list) => ({
+    pageWidth: document.documentElement.scrollWidth,
+    rects: list.map((selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return null;
+      return { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
+    })
   }), selectors);
 }
 
@@ -197,7 +210,7 @@ async function settledRects(statePage, selectors, limitMs, deadline) {
   for (;;) {
     await new Promise((done) => setTimeout(done, 50));
     const next = await readRectsBy(statePage, selectors, deadline);
-    if (next === last) return JSON.parse(last);
+    if (next === last) return JSON.parse(last).rects;
     last = next;
     if (Date.now() >= until) throw new Error("layout did not settle in " + limitMs + "ms");
   }
@@ -207,10 +220,10 @@ async function runOneState(statePage, st, reload, routeEnd) {
   const result = { name: st.name };
   const deadline = Math.min(routeEnd, Date.now() + STATE_LIMIT_MS);
   const waitFor = (selector, what) => bounded(
-    () => statePage.waitForSelector(selector, { visible: true, timeout: Math.max(1, Math.min(st.timeoutMs, deadline - Date.now())) }),
+    () => statePage.waitForSelector(selector, { visible: true, timeout: innerMs(st.timeoutMs, deadline) }),
     st.timeoutMs, deadline, what);
   try {
-    await bounded(() => reload(Math.max(1, Math.min(STATE_RELOAD_MS, deadline - Date.now()))), STATE_RELOAD_MS, deadline, "reload");
+    await bounded(() => reload(innerMs(STATE_RELOAD_MS, deadline)), STATE_RELOAD_MS, deadline, "reload");
     if (st.click) await waitFor(st.click, "click target");
     const before = await settledRects(statePage, st.watch, st.timeoutMs, deadline);
     if (st.click) await bounded(() => statePage.click(st.click), st.timeoutMs, deadline, "click");
@@ -555,7 +568,7 @@ async function runAuthStep(session, step) {
         }
       }
       cell.totalMs = Date.now() - cellStart;
-      baseCellMs = Math.max(baseCellMs, cell.totalMs - statesMs);
+      if (!cell.error) baseCellMs = Math.max(baseCellMs, cell.totalMs - statesMs);
       cellsDone += 1;
       out.push(cell);
     }

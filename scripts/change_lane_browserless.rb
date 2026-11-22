@@ -802,7 +802,7 @@ class ChangeLaneBrowserless < ChangeLane
               }
             }
             cell.totalMs = Date.now() - cellStart;
-            baseCellMs = Math.max(baseCellMs, cell.totalMs - statesMs);
+            if (!cell.error) baseCellMs = Math.max(baseCellMs, cell.totalMs - statesMs);
             cellsDone += 1;
             out.push(cell);
           }

@@ -239,6 +239,36 @@ class ChangeRouteStatesTest < Minitest::Test
     refute(out["results"].any? { |r| r.key?("hung") })
   end
 
+  def test_a_state_with_nothing_to_watch_still_waits_for_the_page_width_to_settle
+    out = node(<<~JS)
+      const widths = [300, 380, 390, 390];
+      const page = { evaluate: async (fn, arg) => (arg ? { pageWidth: widths.shift() || 390, rects: [] } : undefined) };
+      (async () => {
+        const rects = await settledRects(page, [], 5000, Date.now() + 10000);
+        console.log(JSON.stringify({ rects, left: widths.length }));
+      })();
+    JS
+    assert_equal [], out["rects"]
+    assert_equal 0, out["left"]
+  end
+
+  def test_a_selector_that_never_appears_is_not_a_hang_and_later_states_still_run
+    out = node(<<~JS)
+      const page = {
+        on() {}, off() {},
+        waitForSelector: (sel, opts) => new Promise((_, reject) => setTimeout(() => reject(new Error("Waiting for selector " + sel + " failed")), opts.timeout)),
+        click: async () => {}, evaluate: async () => ({ pageWidth: 390, rects: [] })
+      };
+      (async () => {
+        const states = [ { name: "a", click: "#missing", watch: [], timeoutMs: 400 }, { name: "b", click: "#missing", watch: [], timeoutMs: 400 } ];
+        const results = await runStates(page, states, async () => {}, Date.now() + 30000);
+        console.log(JSON.stringify(results));
+      })();
+    JS
+    assert_equal %w[a b], out.map { |r| r["name"] }
+    assert(out.all? { |r| r["error"].include?("Waiting for selector") }, out.inspect)
+  end
+
   def test_a_beforeunload_prompt_is_accepted_and_other_dialogs_dismissed
     out = node(<<~JS)
       const handlers = {};
