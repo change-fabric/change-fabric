@@ -1167,6 +1167,15 @@ class ChangeLaneTestcases < ChangeLane
       if (!evidence) return none;
       let issued = 0;
       let finished = 0;
+      // The case's secret values never reach a checkpoint file. Masked value
+      // by value, before serializing, so a numeric or null secret cannot
+      // break the JSON.
+      const mask = (value) => {
+        if (typeof value === "string") return secrets.reduce((text, secret) => text.split(secret).join("[redacted]"), value);
+        if (Array.isArray(value)) return value.map(mask);
+        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, inner]) => [ mask(key), mask(inner) ]));
+        return typeof value === "number" && secrets.indexOf(String(value)) !== -1 ? "[redacted]" : value;
+      };
       try {
         const client = await page.target().createCDPSession();
         client.on("Browser.downloadProgress", (event) => { if (event.state !== "inProgress") finished += 1; });
@@ -1208,11 +1217,7 @@ class ChangeLaneTestcases < ChangeLane
             const shot = String(record.name || "screenshot").replace(/[^A-Za-z0-9._-]/g, "_");
             write(`shot-${String(record.index + 1).padStart(4, "0")}-${shot}.png`, record.screenshot, true);
           }
-          // The case's secret values never reach a checkpoint file: masked
-          // here, as written and as JSON-escaped.
-          let text = JSON.stringify({ record: entry, console: log.console, failedRequests: log.failedRequests });
-          for (const secret of secrets) text = text.split(secret).join("[redacted]");
-          return write(name, text);
+          return write(name, JSON.stringify(mask({ record: entry, console: log.console, failedRequests: log.failedRequests })));
         },
         screenshot: async (casePage, name) => {
           try { await write(`${tag === "r" ? "resumed-" : ""}${name}`, await casePage.screenshot({ encoding: "base64" }), true); } catch (err) { void err; }
@@ -1536,10 +1541,17 @@ class ChangeLaneTestcases < ChangeLane
             // step navigates anyway. Preconditions, which run before the
             // case's own steps (and not again on a resumed call), come first.
             const preconditions = resume ? [] : (testCase.preconditions || []);
+            // A relation in the case's steps may settle on a freshness text
+            // that a precondition's capture needs to have recorded.
+            const everyStep = (testCase.preconditions || []).concat(testCase.steps);
+            // After a re-login the case resumes on the page its preconditions
+            // last navigated to, not on the persona's landing page.
+            const entry = resume ? (testCase.preconditions || []).filter((step) => step.verb === "goto").pop() : null;
+            const landing = entry ? entry.url : (persona && persona.seed && persona.seed.landing);
             const first = preconditions[0] || testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
-            if (persona && persona.seed && persona.seed.landing && first && first.verb !== "goto") {
+            if (persona && landing && first && first.verb !== "goto") {
               await cfInstallMeasure(session.page, testCase.steps);
-              await session.page.goto(persona.seed.landing, { waitUntil: "domcontentloaded" });
+              await session.page.goto(landing, { waitUntil: "domcontentloaded" });
             }
             let blocked = null;
             let pre = [];
@@ -1547,7 +1559,7 @@ class ChangeLaneTestcases < ChangeLane
               // The recorder must be on the page before the precondition's own
               // navigation, or the steps' expect_stable has no first paint.
               await cfInstallMeasure(session.page, testCase.steps);
-              pre = await cfRunFlow(session.page, preconditions);
+              pre = await cfRunFlow(session.page, preconditions, { freshnessSteps: everyStep });
               const unmet = pre.find((step) => !step.ok);
               if (unmet) blocked = { kind: "precondition", index: unmet.index, label: unmet.label, error: unmet.error };
               if (unmet) await writer.screenshot(session.page, "failure.png");
@@ -1558,6 +1570,7 @@ class ChangeLaneTestcases < ChangeLane
             if (first) recorder.mark(first.label);
             const steps = blocked ? [] : await cfRunFlow(session.page, testCase.steps, {
               startAt: resume ? resume.startAt : 0,
+              freshnessSteps: everyStep,
               vars: resume ? resume.vars : (pre.vars || {}),
               reads: resume ? resume.reads : (pre.reads || {}),
               afterStep: async (step, record) => {

@@ -841,7 +841,7 @@ class ChangeFlowCompiler
     async function cfRunFlow(page, steps, options = {}) {
       const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), reads: Object.assign({}, options.reads || {}),
                       armed: null,
-                      freshnessSelectors: Array.from(new Set(steps.filter((step) => step.settle && step.settle.freshnessSelector).map((step) => step.settle.freshnessSelector))) };
+                      freshnessSelectors: Array.from(new Set((options.freshnessSteps || steps).filter((step) => step.settle && step.settle.freshnessSelector).map((step) => step.settle.freshnessSelector))) };
       const results = [];
       const pending = steps.filter((step) => step.index >= (options.startAt || 0));
       await cfInstallMeasure(page, steps);

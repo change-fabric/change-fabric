@@ -1764,6 +1764,19 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  def test_preconditions_share_freshness_selectors_and_a_resume_returns_to_their_last_page
+    with_suite(V6_SUITE) do |dir|
+      session = FakeSession.new(ok_result(2))
+      lane6(dir, session).run
+      code = session.codes.find { |entry| entry.include?('"id":"members/needs-login"') }
+      assert_includes code, "const everyStep = (testCase.preconditions || []).concat(testCase.steps);"
+      assert_includes code, "cfRunFlow(session.page, preconditions, { freshnessSteps: everyStep })"
+      assert_includes code, "freshnessSteps: everyStep,"
+      assert_includes code, 'filter((step) => step.verb === "goto").pop()'
+      assert_includes code, "await session.page.goto(landing,"
+    end
+  end
+
   def test_the_case_module_carries_preconditions_and_the_new_record_fields
     with_suite(V6_SUITE) do |dir|
       session = FakeSession.new(ok_result(2))

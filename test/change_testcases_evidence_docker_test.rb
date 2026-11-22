@@ -42,6 +42,19 @@ class ChangeTestcasesEvidenceDockerTest < Minitest::Test
           - expect_text: { selector: h1, contains: "never there hunter2" }
   YAML
 
+  NUMBER_SUITE = <<~YAML
+    suite: number
+    suite_version: 8
+    cases:
+      - id: page
+        acceptance: A numeric secret does not break the checkpoint JSON.
+        steps:
+          - eval: "document.body.innerHTML = '<input id=pw><h1>4242</h1>'"
+          - fill: { selector: "#pw", env: LEAK_PW }
+          - capture: { var: count, selector: h1, kind: number }
+          - expect_visible: "#missing"
+  YAML
+
   def setup
     skip "docker not available" unless ChangeDocker.available?
   end
@@ -65,6 +78,24 @@ class ChangeTestcasesEvidenceDockerTest < Minitest::Test
       assert_includes files, "final.png"
       third = JSON.parse(File.read(File.join(attempt, "step-0003-a.json")))
       refute third.dig("record", "ok")
+    end
+  end
+
+  def test_a_numeric_secret_leaves_checkpoints_that_still_parse
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "number.cf-testcases.yml"), NUMBER_SUITE)
+      root = ChangeTestcasesEvidence.prepare(dir, "run-1")
+      config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ], "timeout_ms" => 2000 }, dir)
+      ENV["LEAK_PW"] = "4242"
+      ChangeDocker.with_browserless(network: nil, mounts: { root => ChangeTestcasesEvidence::MOUNT }) do |session|
+        ChangeLaneTestcases.new(config, Ctx.new(nil, "https://app.example.org", session, [], false, root, "run-1"),
+                                grader: Grader.new("no grader in this test")).run
+      end
+      attempt = File.join(root, "cases", "number", "page", "attempt-1")
+      third = JSON.parse(File.read(File.join(attempt, "step-0003-a.json")))
+      assert_equal "[redacted]", third.dig("record", "found")
+    ensure
+      ENV.delete("LEAK_PW")
     end
   end
 
