@@ -13,6 +13,7 @@ class ChangeSelectorSuggestionsDockerTest < Minitest::Test
   RENAMED = <<~HTML
     <!doctype html><html><body>
     <button data-testid="add-to-basket">Add to basket</button>
+    <button data-testid="LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL">Long</button>
     <input type="password" id="pw" value="hunter2pw"><input type="hidden" id="tok" value="x">
     <iframe srcdoc="<button id='inner'>In frame</button>"></iframe>
     <div id="host"></div>
@@ -32,10 +33,13 @@ class ChangeSelectorSuggestionsDockerTest < Minitest::Test
         await page.setRequestInterception(true);
         page.on("request", (request) => request.respond({ status: 200, contentType: "text/html", body: #{JSON.generate(html)} }));
         const steps = await cfRunFlow(page, #{JSON.generate(compiled)});
-        return { data: { steps }, type: "application/json" };
+        const leaked = steps.some((record) => JSON.stringify(record).indexOf("candidates") !== -1);
+        return { data: { steps: cfExpose(steps), leaked }, type: "application/json" };
       };
     JS
-    ChangeDocker.with_browserless(network: nil) { |session| session.run_function(code) }["steps"]
+    result = ChangeDocker.with_browserless(network: nil) { |session| session.run_function(code) }
+    refute result["leaked"], "a serialized step record must not carry raw candidates"
+    result["steps"]
   end
 
   def test_a_renamed_selector_fails_and_lists_the_new_testid_first
@@ -49,6 +53,7 @@ class ChangeSelectorSuggestionsDockerTest < Minitest::Test
     assert_equal "[data-testid=\"add-to-basket\"]", selectors.first
     assert_operator entry["candidates"].size, :<=, 3
     assert_match(/1 iframe/, entry["note"])
+    refute(selectors.any? { |selector| selector.include?("LLLL") && !selector.include?("L" * 90) })
     refute_includes entry.to_s, "hunter2pw"
     refute_includes entry.to_s, "In frame"
   end

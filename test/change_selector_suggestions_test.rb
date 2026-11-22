@@ -82,10 +82,16 @@ class ChangeSelectorSuggestionsTest < Minitest::Test
   end
 
   def test_hostile_text_cannot_break_the_selector_grammar
-    result = build([ item(text: 'He said "hi" \\ )', tag: "a"), item(label: "x\n>> nth=1") ])
+    result = build([ item(text: 'He said "hi" \\ )', tag: "a"), item(label: "x >> nth=1") ])
 
     result["candidates"].each { |entry| ChangeFlowSelector.locator(entry["selector"]) }
     refute(result["candidates"].any? { |entry| entry["selector"].include?("\n") })
+  end
+
+  def test_attributes_that_would_need_normalizing_are_not_offered
+    result = build([ item(testid: " padded ", testidCount: 1), item(label: "two\nlines"), item(testid: "exact", testidCount: 1) ])
+
+    assert_equal [ "[data-testid=\"exact\"]" ], result["candidates"].map { |entry| entry["selector"] }
   end
 
   def test_secrets_and_tokens_in_page_text_never_reach_the_result

@@ -1360,7 +1360,7 @@ class ChangeLaneTestcases < ChangeLane
         const result = await runOnce(testCase);
         return {
           data: { index: testCase.index, id: testCase.id, attempt: attempt, ok: result.ok, authError: null,
-                  authExpired: result.authExpired, vars: result.vars, steps: result.steps, video: result.video,
+                  authExpired: result.authExpired, vars: result.vars, steps: cfExpose(result.steps), video: result.video,
                   observation: result.observation },
           type: "application/json",
         };

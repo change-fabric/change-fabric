@@ -181,6 +181,15 @@ class ChangeFlowCompiler
     // score (ChangeSelectorSuggestions). Suggest-only: the step still fails.
     // Walks the page and open shadow roots; an iframe is counted, never
     // entered. Never reads a field's value, and skips password inputs.
+    // The candidates ride on the record as a non-enumerable property, so a
+    // checkpoint that serializes the record (afterStep, evidence files) never
+    // writes raw page text. cfExpose makes them visible once, at the return
+    // to the host, which redacts them before anything is stored.
+    function cfExpose(steps) {
+      const out = steps.map((record) => (Object.getOwnPropertyDescriptor(record, "candidates") ? Object.assign({}, record, { candidates: record.candidates }) : record));
+      out.vars = steps.vars;
+      return out;
+    }
     const CF_CANDIDATE_LIMIT = 60;
     const CF_CANDIDATE_SCAN = 3000;
     async function cfCandidates(page, step) {
@@ -188,6 +197,8 @@ class ChangeFlowCompiler
         if ((await cfCount(page, step)) > 0) return null;
         return await page.evaluate((limit, scanMax) => {
           const clip = (s) => String(s || "").replace(/\\s+/g, " ").trim().slice(0, 80);
+          // Exact attribute values: a selector built from a clipped value would match nothing.
+          const attr = (el, name) => { const v = el.getAttribute(name); return v && v.length <= 200 ? v : null; };
           const interesting = "a,button,input,select,textarea,summary,label,h1,h2,h3,h4,h5,h6,[role],[data-testid],[id]";
           const implicit = { a: "link", button: "button", select: "combobox", textarea: "textbox", summary: "button", h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading" };
           const found = { items: [], frames: 0, scanned: 0, truncated: false };
@@ -201,13 +212,13 @@ class ChangeFlowCompiler
               const type = (el.getAttribute("type") || "").toLowerCase();
               if (el.tagName === "INPUT" && (type === "password" || type === "hidden")) continue;
               if (found.items.length >= limit) { found.truncated = true; return; }
-              const id = el.getAttribute("id");
-              const testid = el.getAttribute("data-testid");
+              const id = attr(el, "id");
+              const testid = attr(el, "data-testid");
               found.items.push({
                 tag: el.tagName.toLowerCase(), scope,
-                id: id ? clip(id) : null, testid: testid ? clip(testid) : null,
+                id: id, testid: testid,
                 role: clip(el.getAttribute("role") || implicit[el.tagName.toLowerCase()] || (el.tagName === "INPUT" ? "textbox" : "")) || null,
-                label: clip(el.getAttribute("aria-label")) || null,
+                label: attr(el, "aria-label"),
                 text: clip(el.innerText || el.textContent) || null,
                 idCount: id ? root.querySelectorAll("[id=" + JSON.stringify(id) + "]").length : 0,
                 testidCount: testid ? root.querySelectorAll("[data-testid=" + JSON.stringify(testid) + "]").length : 0,
@@ -649,7 +660,7 @@ class ChangeFlowCompiler
           record.ok = false;
           record.error = String(err);
           const waited = (err && err.name === "TimeoutError") || /Waiting (for selector|failed)/.test(String(err && err.message));
-          if (waited && step.selector) { record.selector = step.selector; record.candidates = await cfCandidates(page, step); }
+          if (waited && step.selector) { record.selector = step.selector; Object.defineProperty(record, "candidates", { value: await cfCandidates(page, step), enumerable: false }); }
         }
         const endedAt = Date.now();
         record.durationMs = endedAt - startedAt;
@@ -791,7 +802,7 @@ class ChangeFlowCompiler
         const viewport = #{JSON.generate(@viewport)};
         if (viewport) await page.setViewport(viewport);
         const results = await cfRunFlow(page, steps);
-        return { data: { steps: results }, type: "application/json" };
+        return { data: { steps: cfExpose(results) }, type: "application/json" };
       };
     JS
   end

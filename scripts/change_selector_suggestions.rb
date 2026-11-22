@@ -102,18 +102,22 @@ module ChangeSelectorSuggestions
     prefix = item['scope'] == 'shadow' ? PIERCE : ''
     tag = item['tag'].to_s[/\A[a-z][a-z0-9-]*\z/] || '*'
     out = []
-    out << [ "#{prefix}[data-testid=#{quote(item['testid'])}]", 'testid', item['testidCount'].to_i ] if present?(item['testid'])
+    out << [ "#{prefix}[data-testid=#{quote(item['testid'])}]", 'testid', item['testidCount'].to_i ] if exact?(item['testid'])
     out << [ "#{prefix}##{item['id']}", 'id', item['idCount'].to_i ] if usable_id?(item['id'])
-    out << [ "#{prefix}#{tag}[aria-label=#{quote(item['label'])}]", 'label', 1 ] if present?(item['label'])
+    out << [ "#{prefix}#{tag}[aria-label=#{quote(item['label'])}]", 'label', 1 ] if exact?(item['label'])
     out << [ "#{prefix}#{tag}:has-text(#{quote(item['text'])})", 'text', 1 ] if present?(item['text']) && prefix.empty? && tag != '*'
     out.select { |selector, _, _| valid?(selector) }
   end
 
   def present?(value) = value.is_a?(String) && !value.strip.empty?
 
+  # An attribute value that is safe to match exactly: no edge whitespace or
+  # control characters to normalize away.
+  def exact?(value) = present?(value) && value == value.strip && !value.match?(/[[:cntrl:]]/)
+
   def usable_id?(id) = present?(id) && id.match?(/\A[A-Za-z_][\w-]*\z/) && !id.match?(GENERATED_ID)
 
-  def quote(value) = "\"#{value.to_s.gsub(/[\\"]/) { |char| "\\#{char}" }.gsub(/\s+/, ' ').strip}\""
+  def quote(value) = "\"#{value.to_s.gsub(/[\\"]/) { |char| "\\#{char}" }}\""
 
   def valid?(selector)
     ChangeFlowSelector.locator(selector)
