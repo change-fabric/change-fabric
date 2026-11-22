@@ -26,6 +26,9 @@ module ChangeRouteStates
   MAX_WATCH = 8
   DEFAULT_TIMEOUT_MS = 5_000
   MAX_TIMEOUT_MS = 15_000
+  MAX_TOLERANCE_PX = 10_000
+  STATE_BUDGET_MS = 40_000
+  RELOAD_LIMIT_MS = 20_000
   SELECTOR_MAX = 200
   RECT_KEYS = %w[x y width height].freeze
 
@@ -85,7 +88,9 @@ module ChangeRouteStates
     return problem if problem
 
     tolerance = item.fetch('tolerance_px', 0)
-    return 'tolerance_px must be a number of 0 or more' unless tolerance.is_a?(Numeric) && tolerance >= 0
+    unless tolerance.is_a?(Numeric) && (0..MAX_TOLERANCE_PX).cover?(tolerance)
+      return "tolerance_px must be a number from 0 to #{MAX_TOLERANCE_PX}"
+    end
 
     timeout = item.fetch('timeout_ms', DEFAULT_TIMEOUT_MS)
     unless timeout.is_a?(Integer) && timeout.positive? && timeout <= MAX_TIMEOUT_MS
@@ -110,43 +115,83 @@ module ChangeRouteStates
   # The in-page runner, spliced into the scan module. `reload` brings the
   # route back to a clean load before every state, the first included: the
   # checks that ran earlier in the cell (a Figma diff injects style overrides)
-  # must not change what a state measures, and no state may depend on another.
+  # must not change what a state measures. Persisted storage and cookies are
+  # not cleared, so a state that stores something can affect a later one.
+  # Every await has a deadline and the whole run has a budget, because one
+  # hung click would otherwise cost every cell of the viewport its result.
   # Failures are caught per state.
   def runtime_js
     <<~JS
+      const STATE_BUDGET_MS = #{STATE_BUDGET_MS};
+      const STATE_RELOAD_MS = #{RELOAD_LIMIT_MS};
+
+      function withDeadline(promise, ms, what) {
+        let timer;
+        const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(what + " took over " + ms + "ms")), ms); });
+        return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+      }
+
+      // A zero-size box (display none) reads as absent: it has no layout to hold still.
       async function readRects(statePage, selectors) {
         return statePage.evaluate((list) => list.map((selector) => {
           const el = document.querySelector(selector);
           if (!el) return null;
           const r = el.getBoundingClientRect();
+          if (r.width === 0 && r.height === 0) return null;
           return { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
         }), selectors);
       }
 
+      // Fonts ready, two frames painted, then the rects polled until two reads
+      // in a row agree, so a transition is not sampled mid-flight.
+      async function settledRects(statePage, selectors, limitMs) {
+        await withDeadline(statePage.evaluate(async () => {
+          if (document.fonts && document.fonts.ready) await document.fonts.ready;
+          await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        }), limitMs, "fonts and paint");
+        const until = Date.now() + limitMs;
+        let last = JSON.stringify(await readRects(statePage, selectors));
+        while (Date.now() < until) {
+          await new Promise((done) => setTimeout(done, 50));
+          const next = JSON.stringify(await readRects(statePage, selectors));
+          if (next === last) break;
+          last = next;
+        }
+        return JSON.parse(last);
+      }
+
+      async function runOneState(statePage, st, reload) {
+        const result = { name: st.name };
+        try {
+          await withDeadline(reload(), STATE_RELOAD_MS, "reload");
+          if (st.click) await statePage.waitForSelector(st.click, { visible: true, timeout: st.timeoutMs });
+          const before = await settledRects(statePage, st.watch, st.timeoutMs);
+          if (st.click) await withDeadline(statePage.click(st.click), st.timeoutMs, "click");
+          if (st.ready) await statePage.waitForSelector(st.ready, { visible: true, timeout: st.timeoutMs });
+          result.after = await settledRects(statePage, st.watch, st.timeoutMs);
+          result.before = before;
+          result.scrollWidth = await withDeadline(statePage.evaluate(() => document.documentElement.scrollWidth), st.timeoutMs, "width read");
+        } catch (err) {
+          result.error = String(err);
+        }
+        return result;
+      }
+
       async function runStates(statePage, states, reload) {
+        const started = Date.now();
+        const onDialog = (dialog) => { dialog.dismiss().catch(() => {}); };
+        statePage.on("dialog", onDialog);
         const results = [];
-        for (let i = 0; i < states.length; i++) {
-          const st = states[i];
-          const result = { name: st.name };
-          try {
-            await reload();
-            const before = await readRects(statePage, st.watch);
-            if (st.click) {
-              await statePage.waitForSelector(st.click, { timeout: st.timeoutMs });
-              await statePage.click(st.click);
+        try {
+          for (const st of states) {
+            if (Date.now() - started > STATE_BUDGET_MS) {
+              results.push({ name: st.name, error: "state budget of " + STATE_BUDGET_MS + "ms was used up" });
+              continue;
             }
-            if (st.ready) await statePage.waitForSelector(st.ready, { timeout: st.timeoutMs });
-            await statePage.evaluate(async () => {
-              if (document.fonts && document.fonts.ready) await document.fonts.ready;
-              await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-            });
-            result.before = before;
-            result.after = await readRects(statePage, st.watch);
-            result.scrollWidth = await statePage.evaluate(() => document.documentElement.scrollWidth);
-          } catch (err) {
-            result.error = String(err);
+            results.push(await runOneState(statePage, st, reload));
           }
-          results.push(result);
+        } finally {
+          try { statePage.off("dialog", onDialog); } catch (err) { void err; }
         }
         return results;
       }
@@ -162,12 +207,13 @@ module ChangeRouteStates
     declared.map do |state|
       status, severity, detail = grade(state, reported[state.name], cell)
       Finding.new(lane: 'browserless', check: "#{cell['viewport']} state #{state.name}", target: target,
-                  status: status, severity: severity, location: cell['route'].to_s, detail: safe(detail))
+                  status: status, severity: severity, location: safe(cell['route']), detail: safe(detail))
     end
   end
 
   def grade(state, result, cell)
-    return [ 'fail', 'medium', 'state was not run: the route did not load' ] if cell['error'] || cell['authBlocked']
+    return [ 'fail', 'medium', 'state was not run: login failed for this route' ] if cell['authBlocked']
+    return [ 'fail', 'medium', 'state was not run: the route did not load' ] if cell['error']
     return [ 'fail', 'medium', 'state was not reported by the browser' ] unless result
     return [ 'fail', 'high', "state could not be reached: #{result['error']}" ] if result['error']
 
@@ -188,7 +234,10 @@ module ChangeRouteStates
     state.watch.each_with_index do |selector, index|
       from = before[index]
       to = after[index]
-      return "#{safe(selector)} is missing #{from.is_a?(Hash) ? 'after' : 'before'} the state" unless from.is_a?(Hash) && to.is_a?(Hash)
+      unless from.is_a?(Hash) && to.is_a?(Hash)
+        return "#{safe(selector)} is missing or hidden #{from.is_a?(Hash) ? 'after' : 'before'} the state " \
+               '(only the main document is searched)'
+      end
 
       delta = shift(from, to)
       return "#{safe(selector)} moved or resized by #{delta.round(1)}px (tolerance #{state.tolerance_px}px)" if delta > state.tolerance_px
@@ -211,7 +260,7 @@ module ChangeRouteStates
   def config_findings(entry, target:)
     Array(entry[:state_errors]).map do |message|
       Finding.new(lane: 'browserless', check: 'route states config', target: target, status: 'fail',
-                  severity: 'medium', location: entry[:path], detail: safe("#{entry[:path]} #{message}"))
+                  severity: 'medium', location: safe(entry[:path]), detail: safe("#{entry[:path]} #{message}"))
     end
   end
 end

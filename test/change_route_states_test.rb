@@ -99,9 +99,9 @@ class ChangeRouteStatesTest < Minitest::Test
   def test_a_missing_watched_element_fails_either_side
     before_gone = { "before" => [ nil ], "after" => [ RECT ], "scrollWidth" => 390 }
     after_gone = { "before" => [ RECT ], "after" => [ nil ], "scrollWidth" => 390 }
-    assert_match(/missing before/, grade(watched, before_gone).last)
-    assert_match(/missing after/, grade(watched, after_gone).last)
-    assert_match(/missing before/, grade(watched, { "scrollWidth" => 390 }).last)
+    assert_match(/missing or hidden before/, grade(watched, before_gone).last)
+    assert_match(/missing or hidden after/, grade(watched, after_gone).last)
+    assert_match(/missing or hidden before/, grade(watched, { "scrollWidth" => 390 }).last)
   end
 
   def test_overflow_in_the_state_fails
@@ -133,8 +133,42 @@ class ChangeRouteStatesTest < Minitest::Test
 
   def test_every_state_starts_from_a_fresh_load_including_the_first
     js = ChangeRouteStates.runtime_js
-    assert_match(/^\s*await reload\(\);/, js)
+    assert_match(/await withDeadline\(reload\(\)/, js)
     refute_match(/if \(i > 0\)/, js)
+  end
+
+  def test_selectors_wait_for_visibility
+    js = ChangeRouteStates.runtime_js
+    assert_match(/waitForSelector\(st\.click, \{ visible: true/, js)
+    assert_match(/waitForSelector\(st\.ready, \{ visible: true/, js)
+  end
+
+  def test_every_await_has_a_deadline_and_the_run_has_a_budget
+    js = ChangeRouteStates.runtime_js
+    assert_match(/withDeadline\(statePage\.click\(st\.click\)/, js)
+    assert_match(/withDeadline\(statePage\.evaluate\(async \(\) => \{\n\s*if \(document\.fonts/, js)
+    assert_match(/STATE_BUDGET_MS = 40000/, js)
+    assert_match(/statePage\.on\("dialog"/, js)
+  end
+
+  def test_a_state_is_measured_once_settled_before_and_after
+    js = ChangeRouteStates.runtime_js
+    assert_equal 2, js.scan("await settledRects(statePage, st.watch").length
+  end
+
+  def test_a_hidden_element_and_a_blocked_login_are_named
+    zero = RECT.merge("width" => 0, "height" => 0)
+    assert_includes ChangeRouteStates.runtime_js, "r.width === 0 && r.height === 0"
+    assert_match(/login failed/, grade(watched, nil, CELL.merge("authBlocked" => true)).last)
+    assert_match(/missing or hidden before/, grade(watched, { "before" => [ nil ], "after" => [ zero ], "scrollWidth" => 1 }).last)
+  end
+
+  def test_an_infinite_or_huge_tolerance_is_rejected
+    [ Float::INFINITY, Float::NAN, 10_001 ].each do |value|
+      states, errors = normalize([ state("tolerance_px" => value) ])
+      assert_empty states, value.to_s
+      assert_match(/tolerance_px/, errors.first)
+    end
   end
 
   # --- through the lane ---------------------------------------------------

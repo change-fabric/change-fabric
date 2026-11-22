@@ -128,39 +128,76 @@ async function finishRecording(state, vp) {
   return { viewport: vp.name, frames: sampled.frames, ticks: sampled.ticks, dropped: sampled.dropped };
 }
 
-  async function readRects(statePage, selectors) {
+  const STATE_BUDGET_MS = 40000;
+const STATE_RELOAD_MS = 20000;
+
+function withDeadline(promise, ms, what) {
+  let timer;
+  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(what + " took over " + ms + "ms")), ms); });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+// A zero-size box (display none) reads as absent: it has no layout to hold still.
+async function readRects(statePage, selectors) {
   return statePage.evaluate((list) => list.map((selector) => {
     const el = document.querySelector(selector);
     if (!el) return null;
     const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return null;
     return { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
   }), selectors);
 }
 
+// Fonts ready, two frames painted, then the rects polled until two reads
+// in a row agree, so a transition is not sampled mid-flight.
+async function settledRects(statePage, selectors, limitMs) {
+  await withDeadline(statePage.evaluate(async () => {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  }), limitMs, "fonts and paint");
+  const until = Date.now() + limitMs;
+  let last = JSON.stringify(await readRects(statePage, selectors));
+  while (Date.now() < until) {
+    await new Promise((done) => setTimeout(done, 50));
+    const next = JSON.stringify(await readRects(statePage, selectors));
+    if (next === last) break;
+    last = next;
+  }
+  return JSON.parse(last);
+}
+
+async function runOneState(statePage, st, reload) {
+  const result = { name: st.name };
+  try {
+    await withDeadline(reload(), STATE_RELOAD_MS, "reload");
+    if (st.click) await statePage.waitForSelector(st.click, { visible: true, timeout: st.timeoutMs });
+    const before = await settledRects(statePage, st.watch, st.timeoutMs);
+    if (st.click) await withDeadline(statePage.click(st.click), st.timeoutMs, "click");
+    if (st.ready) await statePage.waitForSelector(st.ready, { visible: true, timeout: st.timeoutMs });
+    result.after = await settledRects(statePage, st.watch, st.timeoutMs);
+    result.before = before;
+    result.scrollWidth = await withDeadline(statePage.evaluate(() => document.documentElement.scrollWidth), st.timeoutMs, "width read");
+  } catch (err) {
+    result.error = String(err);
+  }
+  return result;
+}
+
 async function runStates(statePage, states, reload) {
+  const started = Date.now();
+  const onDialog = (dialog) => { dialog.dismiss().catch(() => {}); };
+  statePage.on("dialog", onDialog);
   const results = [];
-  for (let i = 0; i < states.length; i++) {
-    const st = states[i];
-    const result = { name: st.name };
-    try {
-      await reload();
-      const before = await readRects(statePage, st.watch);
-      if (st.click) {
-        await statePage.waitForSelector(st.click, { timeout: st.timeoutMs });
-        await statePage.click(st.click);
+  try {
+    for (const st of states) {
+      if (Date.now() - started > STATE_BUDGET_MS) {
+        results.push({ name: st.name, error: "state budget of " + STATE_BUDGET_MS + "ms was used up" });
+        continue;
       }
-      if (st.ready) await statePage.waitForSelector(st.ready, { timeout: st.timeoutMs });
-      await statePage.evaluate(async () => {
-        if (document.fonts && document.fonts.ready) await document.fonts.ready;
-        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-      });
-      result.before = before;
-      result.after = await readRects(statePage, st.watch);
-      result.scrollWidth = await statePage.evaluate(() => document.documentElement.scrollWidth);
-    } catch (err) {
-      result.error = String(err);
+      results.push(await runOneState(statePage, st, reload));
     }
-    results.push(result);
+  } finally {
+    try { statePage.off("dialog", onDialog); } catch (err) { void err; }
   }
   return results;
 }
