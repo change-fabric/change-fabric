@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "tmpdir"
 require "fileutils"
 require "json"
+require "yaml"
 require "open3"
 require "rbconfig"
 require_relative "../scripts/change_flake_triage"
@@ -72,7 +73,7 @@ class ChangeFlakeTriageTest < Minitest::Test
   end
 
   def test_a_live_quarantine_is_listed_not_proposed
-    records = series("pay", %w[pass fail pass fail]).tap { |list| list[-1] = record("pay", "fail", "r3", quarantined: true) }
+    records = series("pay", %w[pass fail pass]) + [ record("pay", "fail", "r3", quarantined: true) ]
     result = triage(records)
 
     assert_empty result.proposals

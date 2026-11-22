@@ -122,7 +122,11 @@ class ChangeFlakeTriage
         proposal = assess(key, executed)
         next unless proposal
 
-        executed.last.quarantined? ? shielded << key : found << proposal
+        if executed.last.quarantined?
+          shielded << key
+        else
+          found << proposal
+        end
       end
       { proposals: found.sort_by { |item| [ -item.flips, item.key.to_s ] }, already_quarantined: shielded.sort }
     end
@@ -168,7 +172,8 @@ class ChangeFlakeTriage
   def step_text(step)
     return 'not recorded' unless step
 
-    "step #{step['index'].is_a?(Integer) ? step['index'] : '?'} #{cell(step['verb'])}#{step['label'] ? " (#{cell(step['label'])})" : ''}"
+    label = step['label'] ? " (#{cell(step['label'])})" : ''
+    "step #{step['index'].is_a?(Integer) ? step['index'] : '?'} #{cell(step['verb'])}#{label}"
   end
 
   # The YAML to paste into the suite file under the case, as a comment-led
