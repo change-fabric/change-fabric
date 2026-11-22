@@ -228,4 +228,23 @@ class ChangeChangedSelectionTest < Minitest::Test
       assert_nil runner.instance_variable_get(:@case_select)
     end
   end
+
+  def test_an_unknown_suite_selector_is_left_for_the_lane_to_report
+    with_repo do |repo|
+      commit_file(repo, "docs/readme.txt")
+      runner, config = resolver(repo, %w[testcases --changed main --suite chekout])
+      capture_io { assert_nil runner.send(:resolve_changed, config, [ "testcases" ]) }
+    end
+  end
+
+  def test_moving_a_covered_file_out_of_its_glob_still_selects_the_case
+    with_repo do |repo|
+      commit_file(repo, "app/cart/view.rb", "same content\n" * 20)
+      git(repo, "checkout", "-q", "-b", "move")
+      FileUtils.mkdir_p(File.join(repo, "app/other"))
+      git(repo, "mv", "app/cart/view.rb", "app/other/view.rb")
+      git(repo, "commit", "-q", "-m", "move")
+      assert_equal [ "checkout/cart" ], pick(repo, base: "topic")
+    end
+  end
 end

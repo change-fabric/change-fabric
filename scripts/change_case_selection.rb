@@ -43,7 +43,7 @@ module ChangeCaseSelection
     _, status = Open3.capture2e('git', '-C', repo, 'rev-parse', '--verify', '--quiet', "#{ref}^{commit}")
     raise Error, "--changed base #{clip(ref).inspect} does not resolve to a commit" unless status.success?
 
-    out, status = Open3.capture2('git', '-C', repo, 'diff', '--name-only', '-z', "#{ref}...HEAD", '--')
+    out, status = Open3.capture2('git', '-C', repo, 'diff', '--name-only', '--no-renames', '-z', "#{ref}...HEAD", '--')
     raise Error, "git diff against #{clip(ref).inspect} failed" unless status.success?
 
     out.split("\0").reject(&:empty?)
