@@ -72,6 +72,15 @@ class ChangeFlakeTriageTest < Minitest::Test
     assert_empty triage(records).proposals
   end
 
+  def test_a_newer_skipped_record_still_sets_the_definition_and_the_quarantine
+    old = series("pay", %w[pass fail pass], hash: "old")
+
+    assert_empty triage(old + [ record("pay", "skipped", "r9", hash: "new") ]).proposals
+    shielded = triage(old + [ record("pay", "skipped", "r9", hash: "old", quarantined: true) ])
+    assert_empty shielded.proposals
+    assert_equal [ "checkout/pay" ], shielded.already_quarantined
+  end
+
   def test_a_live_quarantine_is_listed_not_proposed
     records = series("pay", %w[pass fail pass]) + [ record("pay", "fail", "r3", quarantined: true) ]
     result = triage(records)

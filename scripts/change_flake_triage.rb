@@ -119,10 +119,10 @@ class ChangeFlakeTriage
         executed = history.reject(&:skipped?)
         next if executed.empty?
 
-        proposal = assess(key, executed)
+        proposal = assess(key, executed, history.last)
         next unless proposal
 
-        if executed.last.quarantined?
+        if history.last.quarantined?
           shielded << key
         else
           found << proposal
@@ -132,8 +132,11 @@ class ChangeFlakeTriage
     end
   end
 
-  def assess(key, executed)
-    hash = executed.last.case_hash
+  # `latest` is the newest record of any status: a skipped run adds no
+  # outcome, but it still says which definition is current and whether a
+  # quarantine now shields the case.
+  def assess(key, executed, latest)
+    hash = latest.case_hash
     window = executed.select { |record| record.case_hash == hash }.last(runs)
     outcomes = window.map { |record| record.failure? ? 'fail' : 'pass' }
     flips = outcomes.each_cons(2).count { |before, after| before != after }
