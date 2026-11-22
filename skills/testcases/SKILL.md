@@ -24,6 +24,7 @@ From the target repo root (a repo carrying `CHANGE.md`):
 ```
 ruby ~/.claude/cf/bin/change_run.rb testcases
 ruby ~/.claude/cf/bin/change_run.rb testcases --suite checkout   # one suite or tag
+ruby ~/.claude/cf/bin/change_run.rb testcases --changed [REF]    # only cases the diff can affect (cases[].covers)
 ruby ~/.claude/cf/bin/change_run.rb testcases --signoff          # pass this skill's --signoff through
 ```
 

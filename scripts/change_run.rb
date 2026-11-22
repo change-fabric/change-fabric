@@ -11,6 +11,7 @@ require 'tmpdir'
 require_relative 'change_apps'
 require_relative 'change_artifact'
 require_relative 'change_boot'
+require_relative 'change_case_selection'
 require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_findings'
@@ -40,7 +41,7 @@ require_relative 'change_trust'
 # outcome under the git head SHA so the merge gate can consult it later.
 #
 # Usage: change_run.rb <all|k6|a11y|zap|browserless|testcases> [--config PATH] [--profile NAME]
-#        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]... [--case ID]...
+#        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]... [--case ID]... [--changed [REF]] [--strict]
 #        [--no-publish] [--for-tag TAGNAME]
 #        change_run.rb gate-status [--ref REF] [--config PATH]
 #        change_run.rb schedule <name> [--repo PATH] [--dry-run]
@@ -76,6 +77,13 @@ require_relative 'change_trust'
 # ids. It intersects with --suite and the lane's tags, never widens them, and
 # is refused outside scope testcases so a filtered run cannot record the
 # comprehensive pass the merge gate reads.
+#
+# `--changed [<base-ref>]` (default origin/main) runs only the cases the diff
+# `<base>...HEAD` can affect (see change_case_selection.rb): cases whose
+# `covers` globs match a changed path, every case of an edited suite file, and
+# every case with no `covers`. `--strict` runs all cases when any lacks
+# `covers`. No match exits 0 with "no cases affected". Like --case it intersects
+# with the other filters and is refused outside scope testcases.
 #
 # `--suite <suite-or-tag>` narrows the testcases lane to the named suite or tag.
 # It is the deterministic regression entry point `cf:qa --suite` drives: no
@@ -149,7 +157,7 @@ class ChangeRun
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
                     :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, :out, :exports,
-                    :video_budget_mb, :cases, keyword_init: true)
+                    :video_budget_mb, :cases, :changed, :strict, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -505,6 +513,8 @@ class ChangeRun
     publish = true
     suites = []
     cases = []
+    changed = nil
+    strict = false
     for_tag = nil
     ref = nil
     signoff = false
@@ -524,6 +534,8 @@ class ChangeRun
       o.on('--health-url URL') { |value| health_url = value }
       o.on('--suite NAME') { |value| suites << value }
       o.on('--case ID') { |value| cases << value }
+      o.on('--changed [REF]') { |value| changed = value || 'origin/main' }
+      o.on('--strict') { strict = true }
       o.on('--no-publish') { publish = false }
       o.on('--for-tag NAME') { |value| for_tag = value }
       o.on('--ref REF') { |value| ref = value }
@@ -549,6 +561,11 @@ class ChangeRun
     # comprehensive pass for the gate while skipping the excluded cases.
     abort_and_exit('--case narrows the testcases lane; run scope testcases (not all)') if
       !cases.empty? && scope != 'testcases'
+    # The same refusal as --case, for the same reason: a diff-narrowed run must
+    # never record the comprehensive pass.
+    abort_and_exit('--changed narrows the testcases lane; run scope testcases (not all)') if
+      changed && scope != 'testcases'
+    abort_and_exit('--strict applies only with --changed') if strict && !changed
     abort_and_exit('schedule needs a schedule name: change_run.rb schedule <name>') if scope == 'schedule' && schedule.nil?
     abort_and_exit('--dry-run applies only to schedule <name>') if dry_run && scope != 'schedule'
     abort_and_exit('--mode applies only to the zap scope') if zap_mode && scope != 'zap'
@@ -561,7 +578,7 @@ class ChangeRun
       abort_and_exit("--mode must be one of #{ChangeScheduleConfig::ZAP_MODES.join(', ')}")
     end
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
-             health_url: health_url, publish: publish, suites: suites, cases: cases.uniq, for_tag: for_tag, ref: ref,
+             health_url: health_url, publish: publish, suites: suites, cases: cases.uniq, changed: changed, strict: strict, for_tag: for_tag, ref: ref,
              signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode, out: out,
              exports: exports.uniq, video_budget_mb: video_budget_mb)
   end
@@ -613,6 +630,8 @@ class ChangeRun
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
     check_case_ids(config, lanes)
+    return no_cases_affected(entry) if resolve_changed(config, lanes) == :none
+
     prefix = multi ? "#{entry.name}/" : ''
     trust = trust_verdict(config, prefix: prefix, apps: multi ? [ entry.name ] : nil)
     refuse_untrusted_boot(config, trust, app: label)
@@ -644,6 +663,45 @@ class ChangeRun
     raise ChangeConfig::ConfigError,
           "--case names #{unknown.map { |id| id[0, 80].inspect }.join(', ')}, which matches no case; " \
           "known ids: #{known.first(50).join(', ')}#{known.size > 50 ? ', ...' : ''}"
+  end
+
+  # `--changed`: turns the diff into the qualified ids of the cases it selects
+  # (intersected with any `--case`), kept in @case_select for the lane. Returns
+  # :none when nothing is affected, before anything boots, and nil (no narrowing)
+  # whenever the lane should own the outcome, such as an empty or broken suite set.
+  def resolve_changed(config, lanes)
+    @case_select = nil
+    return unless @args.changed && lanes.include?('testcases')
+
+    lane = config.lane('testcases')
+    set = ChangeSuiteSet.load(lane['suites'], lane.dir)
+    # A broken suite, a mistyped --suite or an unmatched gate tag must reach the lane, which reports it
+    # as a failure, and a lane with no cases at all fails in the lane itself; a successful
+    # "no cases affected" would hide either.
+    return if set.cases.empty?
+    return unless set.errors.empty? && set.unmatched_selectors(@args.suites).empty? &&
+                  set.unmatched_gate_tags(Array(lane['gate_tags']).map(&:to_s)).empty?
+
+    paths = ChangeCaseSelection.changed_paths(@args.changed, repo_root)
+    result = ChangeCaseSelection.select(set, paths, repo: repo_root, strict: @args.strict)
+    ChangeCaseSelection.summary(result, set.cases.size, @args.changed).each { |line| log(line) }
+    # Only cases the lane would run under --suite, its tags and --case.
+    eligible = set.selected(Array(lane['tags']).map(&:to_s), selectors: @args.suites, case_ids: @args.cases)
+    # Nothing eligible before the diff (a renamed tag, say) is the lane's failure to report, not a no-op.
+    return if eligible.empty?
+
+    picked = result.cases & eligible
+    return :none if picked.empty?
+
+    @case_select = picked.map(&:qualified_id)
+    nil
+  rescue ChangeCaseSelection::Error => e
+    raise ChangeConfig::ConfigError, e.message
+  end
+
+  def no_cases_affected(entry)
+    log('[change] no cases affected')
+    { app: entry.name, passed: true, failing: 0, report: 'none (no cases affected)' }
   end
 
   # The testcases lane's own report.html and junit.xml in its run dir, and its
@@ -750,7 +808,7 @@ class ChangeRun
   def with_context(config, network, artifact = nil, trust: nil, prefix: '')
     ctx_args = {
       network: network.name, target_url: config.boot.target_url,
-      health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites, case_select: @args.cases,
+      health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites, case_select: @case_select || @args.cases,
       signoff: @args.signoff, logger: method(:log), run_id: boot_run_id, profile: config.profile,
       trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config),
       active_scan_allowed: @active_scan_allowed == true, out_dir: out_dir,

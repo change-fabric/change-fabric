@@ -1,6 +1,6 @@
 # Test-case suite file specification
 
-Suite version: 5
+Suite version: 6
 
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
@@ -45,6 +45,7 @@ only adds optional fields, so an older file always loads on a newer install.
 | 3 | `cases[].persona`, `cases[].safe_retry`. |
 | 4 | Step verbs `wait_for_url`, `wait_for_text`, `wait_until_hidden`, `wait_for_response`, `wait_for_network_idle`. |
 | 5 | Measured reads `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom`, `scroll_y`; the step verb `expect_stable`; the step options `label`, `budget_ms`, `budget_from`; and `tolerance` on `expect_equal`. |
+| 6 | `cases[].covers`. |
 
 The loader is strict. An unknown top-level or case key is refused by name, and
 a key newer than the file's declared `suite_version` is refused with the version
@@ -75,6 +76,7 @@ The Since column is the `suite_version` that added the field.
 | `cases[].persona` | string | no (default `default`) | Who the case runs as: a name under `lanes.testcases.personas` in CHANGE.md, `default` (the lane's `auth:` block, or no login when it has none), or `anonymous` (never logs in). A name the lane does not define fails the case and is a doctor error. See Sessions. | 3 |
 | `cases[].safe_retry` | boolean | no (default false) | Says a mutating step (`click`, `fill`, `select`, `press`, `eval`) interrupted by an ended session may be replayed after the persona logs in again. Without it such a case fails `auth_interrupted`, because the action may already have taken effect server side. | 3 |
 | `cases[].expects_logout` | boolean | no (default false) | Says the case ends its own session on purpose, such as a logout test that then asserts the login form. Its persona's `expired_when` probe and the re-login are off for it, so its post-logout steps run. | 3 |
+| `cases[].covers` | list of string | no | Repo-relative globs for the paths this case exercises. `change_run.rb testcases --changed` runs the case when a changed path matches one (`**` crosses directories). A case with no `covers` always runs, and an edit to the suite file selects every case in it. | 6 |
 | `cases[].quarantined` | boolean | no (default false) | Time-boxes this case out of the gate. It still runs and still reports; its failure just cannot fail the gate, and only until `quarantine_until`. Requires both companions below. | 1 |
 | `cases[].quarantine_reason` | string | yes when quarantined | Why this case is quarantined, in plain English. Required, because without it nobody can tell a known flake from a real defect somebody muted. | 1 |
 | `cases[].quarantine_until` | date (`YYYY-MM-DD`) | yes when quarantined | The day the quarantine ends. Quarantine is never permanent. The shield has already lapsed on this date, and the case gates again from then on with no second action from anybody. | 1 |

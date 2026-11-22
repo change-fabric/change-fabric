@@ -1,0 +1,8 @@
+suite: compat-v6
+suite_version: 6
+cases:
+  - id: home
+    acceptance: The home page loads.
+    covers: [ "app/views/home/**", "app/controllers/home_controller.rb" ]
+    steps:
+      - goto: /
