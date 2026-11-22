@@ -29,6 +29,12 @@ module ChangeRouteStates
   MAX_TOLERANCE_PX = 10_000
   STATE_BUDGET_MS = 40_000
   RELOAD_LIMIT_MS = 20_000
+  STATE_LIMIT_MS = 30_000
+  # Equal to ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS (a test pins it).
+  FUNCTION_TIMEOUT_MS = 115_000
+  RESERVE_MS = 15_000
+  CELL_RESERVE_MS = 4_000
+  MIN_STEP_MS = 250
   SELECTOR_MAX = 200
   RECT_KEYS = %w[x y width height].freeze
 
@@ -117,18 +123,49 @@ module ChangeRouteStates
   # checks that ran earlier in the cell (a Figma diff injects style overrides)
   # must not change what a state measures. Persisted storage and cookies are
   # not cleared, so a state that stores something can affect a later one.
-  # Every await has a deadline and the whole run has a budget, because one
-  # hung click would otherwise cost every cell of the viewport its result.
+  # Every await is capped by the time left before one absolute route deadline
+  # (the budget, or the function timeout less a reserve, whichever is sooner),
+  # because one hung click would otherwise cost every cell of the viewport its
+  # result. `reload(ms)` receives its cap and must honour it.
   # Failures are caught per state.
   def runtime_js
     <<~JS
       const STATE_BUDGET_MS = #{STATE_BUDGET_MS};
       const STATE_RELOAD_MS = #{RELOAD_LIMIT_MS};
+      const STATE_LIMIT_MS = #{STATE_LIMIT_MS};
+      const FUNCTION_LIMIT_MS = #{FUNCTION_TIMEOUT_MS};
+      const STATE_RESERVE_MS = #{RESERVE_MS};
+      const CELL_RESERVE_MS = #{CELL_RESERVE_MS};
+      const MIN_STEP_MS = #{MIN_STEP_MS};
 
-      function withDeadline(promise, ms, what) {
+      // One absolute deadline per route: the route budget, but never later than
+      // the browserless function timeout less a reserve for this cell's cleanup
+      // and for every cell still to run after it.
+      function routeDeadline(scanStarted, cellsLeft) {
+        const reserve = STATE_RESERVE_MS + cellsLeft * CELL_RESERVE_MS;
+        return Math.min(Date.now() + STATE_BUDGET_MS, scanStarted + FUNCTION_LIMIT_MS - reserve);
+      }
+
+      // The time an await may take: its own limit, or what is left before the
+      // deadline if that is less. Nothing left fails the state instead of
+      // starting a wait that could outlive the route. Too little left to do the
+      // step is the same failure, not a misleading "took over 1ms".
+      function capMs(limitMs, deadline, what) {
+        const left = deadline - Date.now();
+        if (left < MIN_STEP_MS) throw new Error("state budget used up before " + what);
+        return Math.min(limitMs, left);
+      }
+
+      // Runs `start()` only once the cap is known, so a spent budget never
+      // dispatches work (a click, a read) whose late failure nobody handles.
+      // A timeout marks the error `hung`: the work behind it may still be running.
+      function bounded(start, limitMs, deadline, what) {
+        const ms = capMs(limitMs, deadline, what);
         let timer;
-        const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(what + " took over " + ms + "ms")), ms); });
-        return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+        const expiry = new Promise((_, reject) => {
+          timer = setTimeout(() => { const err = new Error(what + " took over " + ms + "ms"); err.hung = true; reject(err); }, ms);
+        });
+        return Promise.race([start(), expiry]).finally(() => clearTimeout(timer));
       }
 
       // A zero-size box (display none) reads as absent: it has no layout to hold still.
@@ -142,53 +179,78 @@ module ChangeRouteStates
         }), selectors);
       }
 
-      // Fonts ready, two frames painted, then the rects polled until two reads
-      // in a row agree, so a transition is not sampled mid-flight.
-      async function settledRects(statePage, selectors, limitMs) {
-        await withDeadline(statePage.evaluate(async () => {
-          if (document.fonts && document.fonts.ready) await document.fonts.ready;
-          await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-        }), limitMs, "fonts and paint");
-        const until = Date.now() + limitMs;
-        let last = JSON.stringify(await readRects(statePage, selectors));
-        while (Date.now() < until) {
-          await new Promise((done) => setTimeout(done, 50));
-          const next = JSON.stringify(await readRects(statePage, selectors));
-          if (next === last) return JSON.parse(last);
-          last = next;
-        }
-        throw new Error("layout did not settle in " + limitMs + "ms");
+      async function readRectsBy(statePage, selectors, deadline) {
+        return JSON.stringify(await bounded(() => readRects(statePage, selectors), STATE_LIMIT_MS, deadline, "rect read"));
       }
 
-      async function runOneState(statePage, st, reload) {
+      // Fonts ready, two frames painted, then the rects polled until two reads
+      // in a row agree, so a transition is not sampled mid-flight. At least one
+      // pair of reads is compared even when the limit is short.
+      async function settledRects(statePage, selectors, limitMs, deadline) {
+        await bounded(() => statePage.evaluate(async () => {
+          if (document.fonts && document.fonts.ready) await document.fonts.ready;
+          await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        }), limitMs, deadline, "fonts and paint");
+        const until = Math.min(Date.now() + limitMs, deadline);
+        let last = await readRectsBy(statePage, selectors, deadline);
+        for (;;) {
+          await new Promise((done) => setTimeout(done, 50));
+          const next = await readRectsBy(statePage, selectors, deadline);
+          if (next === last) return JSON.parse(last);
+          last = next;
+          if (Date.now() >= until) throw new Error("layout did not settle in " + limitMs + "ms");
+        }
+      }
+
+      async function runOneState(statePage, st, reload, routeEnd) {
         const result = { name: st.name };
+        const deadline = Math.min(routeEnd, Date.now() + STATE_LIMIT_MS);
+        const waitFor = (selector, what) => bounded(
+          () => statePage.waitForSelector(selector, { visible: true, timeout: Math.max(1, Math.min(st.timeoutMs, deadline - Date.now())) }),
+          st.timeoutMs, deadline, what);
         try {
-          await withDeadline(reload(), STATE_RELOAD_MS, "reload");
-          if (st.click) await statePage.waitForSelector(st.click, { visible: true, timeout: st.timeoutMs });
-          const before = await settledRects(statePage, st.watch, st.timeoutMs);
-          if (st.click) await withDeadline(statePage.click(st.click), st.timeoutMs, "click");
-          if (st.ready) await statePage.waitForSelector(st.ready, { visible: true, timeout: st.timeoutMs });
-          result.after = await settledRects(statePage, st.watch, st.timeoutMs);
+          await bounded(() => reload(Math.max(1, Math.min(STATE_RELOAD_MS, deadline - Date.now()))), STATE_RELOAD_MS, deadline, "reload");
+          if (st.click) await waitFor(st.click, "click target");
+          const before = await settledRects(statePage, st.watch, st.timeoutMs, deadline);
+          if (st.click) await bounded(() => statePage.click(st.click), st.timeoutMs, deadline, "click");
+          if (st.ready) await waitFor(st.ready, "ready element");
+          result.after = await settledRects(statePage, st.watch, st.timeoutMs, deadline);
           result.before = before;
-          result.scrollWidth = await withDeadline(statePage.evaluate(() => document.documentElement.scrollWidth), st.timeoutMs, "width read");
+          result.scrollWidth = await bounded(() => statePage.evaluate(() => document.documentElement.scrollWidth), st.timeoutMs, deadline, "width read");
         } catch (err) {
           result.error = String(err);
+          result.hung = err && err.hung === true;
         }
         return result;
       }
 
-      async function runStates(statePage, states, reload) {
-        const started = Date.now();
-        const onDialog = (dialog) => { dialog.dismiss().catch(() => {}); };
+      async function runStates(statePage, states, reload, routeEnd) {
+        // A beforeunload prompt is accepted so the next reload can leave the
+        // page; every other dialog is dismissed.
+        const onDialog = (dialog) => {
+          const settle = dialog.type() === "beforeunload" ? dialog.accept() : dialog.dismiss();
+          Promise.resolve(settle).catch(() => {});
+        };
         statePage.on("dialog", onDialog);
         const results = [];
+        let hung = false;
         try {
           for (const st of states) {
-            if (Date.now() - started > STATE_BUDGET_MS) {
-              results.push({ name: st.name, error: "state budget of " + STATE_BUDGET_MS + "ms was used up" });
+            if (Date.now() >= routeEnd) {
+              results.push({ name: st.name, error: "state budget was used up" });
               continue;
             }
-            results.push(await runOneState(statePage, st, reload));
+            // A timed-out step may still be running in the page (a click, a
+            // navigation). The next state would reload on top of it, so the
+            // rest of the route stops here instead.
+            if (hung) {
+              results.push({ name: st.name, error: "skipped: an earlier state hung and may still be running" });
+              continue;
+            }
+            const result = await runOneState(statePage, st, reload, routeEnd);
+            hung = result.hung === true;
+            delete result.hung;
+            results.push(result);
           }
         } finally {
           try { statePage.off("dialog", onDialog); } catch (err) { void err; }

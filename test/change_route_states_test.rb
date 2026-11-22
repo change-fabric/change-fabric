@@ -2,6 +2,8 @@
 
 require "minitest/autorun"
 require "json"
+require "open3"
+require_relative "../scripts/change_docker"
 require_relative "../scripts/change_config"
 require_relative "../scripts/change_lane_browserless"
 require_relative "../scripts/change_route_states"
@@ -133,22 +135,122 @@ class ChangeRouteStatesTest < Minitest::Test
 
   def test_every_state_starts_from_a_fresh_load_including_the_first
     js = ChangeRouteStates.runtime_js
-    assert_match(/await withDeadline\(reload\(\)/, js)
+    assert_match(/await bounded\(\(\) => reload\(/, js)
     refute_match(/if \(i > 0\)/, js)
   end
 
   def test_selectors_wait_for_visibility
     js = ChangeRouteStates.runtime_js
-    assert_match(/waitForSelector\(st\.click, \{ visible: true/, js)
-    assert_match(/waitForSelector\(st\.ready, \{ visible: true/, js)
+    assert_match(/waitForSelector\(selector, \{ visible: true/, js)
+    assert_match(/waitFor\(st\.click,/, js)
+    assert_match(/waitFor\(st\.ready,/, js)
   end
 
   def test_every_await_has_a_deadline_and_the_run_has_a_budget
     js = ChangeRouteStates.runtime_js
-    assert_match(/withDeadline\(statePage\.click\(st\.click\)/, js)
-    assert_match(/withDeadline\(statePage\.evaluate\(async \(\) => \{\n\s*if \(document\.fonts/, js)
+    assert_match(/bounded\(\(\) => statePage\.click\(st\.click\)/, js)
+    assert_match(/bounded\(\(\) => statePage\.evaluate\(async \(\) => \{\n\s*if \(document\.fonts/, js)
     assert_match(/STATE_BUDGET_MS = 40000/, js)
     assert_match(/statePage\.on\("dialog"/, js)
+  end
+
+  def test_every_await_is_capped_by_the_remaining_route_budget
+    js = ChangeRouteStates.runtime_js
+    assert_match(/bounded\(\(\) => statePage\.evaluate\(\(\) => document\.documentElement\.scrollWidth\)/, js)
+    assert_match(/bounded\(\(\) => readRects\(statePage, selectors\)/, js)
+    refute_match(/withDeadline/, js, "no await may bypass the remaining-time cap")
+    refute_match(/ms \+ 500/, js)
+  end
+
+  def test_the_function_timeout_constant_matches_the_container
+    assert_equal ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS, ChangeRouteStates::FUNCTION_TIMEOUT_MS
+  end
+
+  # Runs the real in-page runner under node against a page whose every call
+  # hangs, and returns [results, elapsed_ms, deadline_ms].
+  def run_hung_page(budget_ms, states)
+    skip "node is not installed" unless system("node", "--version", out: File::NULL, err: File::NULL)
+    driver = <<~JS
+      const never = () => new Promise(() => {});
+      const page = { on() {}, off() {}, waitForSelector: never, click: never, evaluate: never };
+      const states = #{JSON.generate(states)};
+      (async () => {
+        const started = Date.now();
+        const results = await runStates(page, states, never, started + #{budget_ms});
+        console.log(JSON.stringify({ results, elapsed: Date.now() - started }));
+      })();
+    JS
+    out, status = Open3.capture2("node", stdin_data: ChangeRouteStates.runtime_js + driver)
+    assert status.success?, out
+    JSON.parse(out)
+  end
+
+  def test_a_hung_page_cannot_outlive_the_route_deadline
+    states = [ { name: "a", click: "#a", watch: [], timeoutMs: 15_000 }, { name: "b", ready: "#b", watch: [], timeoutMs: 15_000 } ]
+    out = run_hung_page(400, states)
+    assert_operator out["elapsed"], :<, 2_000
+    assert_equal %w[a b], out["results"].map { |r| r["name"] }
+    assert(out["results"].all? { |r| r["error"] })
+  end
+
+  def node(script)
+    skip "node is not installed" unless system("node", "--version", out: File::NULL, err: File::NULL)
+    out, status = Open3.capture2("node", stdin_data: ChangeRouteStates.runtime_js + script)
+    assert status.success?, out
+    JSON.parse(out)
+  end
+
+  def test_the_route_deadline_never_passes_the_function_timeout_and_reserves_later_cells
+    out = node("const s = Date.now() - 100000; console.log(JSON.stringify([routeDeadline(s, 0) - s, routeDeadline(s, 3) - s]));")
+    limit = ChangeRouteStates::FUNCTION_TIMEOUT_MS - ChangeRouteStates::RESERVE_MS
+    assert_operator out[0], :<=, limit
+    assert_operator out[1], :<=, limit - (3 * ChangeRouteStates::CELL_RESERVE_MS)
+  end
+
+  def test_a_spent_budget_starts_no_work
+    out = node(<<~JS)
+      let started = 0;
+      (async () => {
+        let result;
+        try { result = await bounded(() => { started += 1; return Promise.resolve(1); }, 5000, Date.now() + 100, "step"); } catch (err) { result = String(err); }
+        console.log(JSON.stringify({ started, result }));
+      })();
+    JS
+    assert_equal 0, out["started"]
+    assert_match(/budget used up before step/, out["result"])
+  end
+
+  def test_a_hung_state_stops_the_rest_of_the_route
+    out = node(<<~JS)
+      const never = () => new Promise(() => {});
+      const calls = [];
+      const page = { on() {}, off() {}, waitForSelector: never, click: never, evaluate: never };
+      (async () => {
+        const reload = () => { calls.push("reload"); return Promise.resolve(); };
+        const states = [ { name: "a", click: "#a", watch: [], timeoutMs: 300 }, { name: "b", ready: "#b", watch: [], timeoutMs: 300 } ];
+        const results = await runStates(page, states, reload, Date.now() + 30000);
+        console.log(JSON.stringify({ results, calls }));
+      })();
+    JS
+    assert_equal %w[reload], out["calls"]
+    assert_match(/took over/, out["results"][0]["error"])
+    assert_match(/skipped: an earlier state hung/, out["results"][1]["error"])
+    refute(out["results"].any? { |r| r.key?("hung") })
+  end
+
+  def test_a_beforeunload_prompt_is_accepted_and_other_dialogs_dismissed
+    out = node(<<~JS)
+      const handlers = {};
+      const page = { on(n, f) { handlers[n] = f; }, off() {} };
+      (async () => {
+        await runStates(page, [], () => {}, Date.now() + 1000);
+        const seen = [];
+        handlers.dialog({ type: () => "beforeunload", accept: async () => seen.push("accept"), dismiss: async () => seen.push("dismiss") });
+        handlers.dialog({ type: () => "alert", accept: async () => seen.push("accept"), dismiss: async () => seen.push("dismiss") });
+        console.log(JSON.stringify(seen));
+      })();
+    JS
+    assert_equal %w[accept dismiss], out
   end
 
   def test_a_state_is_measured_once_settled_before_and_after
@@ -186,7 +288,10 @@ class ChangeRouteStatesTest < Minitest::Test
   class Session
     def initialize(states) = @states = states
 
+    attr_reader :code
+
     def run_function(code)
+      @code = code
       routes = JSON.parse(code[/const routeEntries = (\[.*?\]);/, 1])
       routes.each_with_index.map do |route, index|
         { "viewport" => "mobile", "width" => 390, "height" => 844, "route" => route["path"], "routeIndex" => index,
@@ -196,9 +301,17 @@ class ChangeRouteStatesTest < Minitest::Test
     end
   end
 
-  def lane_findings(routes, states = {})
+  def lane_findings(routes, states = {}, session = Session.new(states))
     config = ChangeConfig::LaneConfig.new("browserless", { "routes" => routes, "viewports" => [ { "name" => "mobile", "width" => 390, "height" => 844 } ] }, "/repo")
-    ChangeLaneBrowserless.new(config, Ctx.new("net", "https://app.example.org", Session.new(states))).run
+    ChangeLaneBrowserless.new(config, Ctx.new("net", "https://app.example.org", session)).run
+  end
+
+  def test_the_scan_passes_one_route_deadline_into_run_states
+    session = Session.new({})
+    lane_findings([ { "path" => "/", "states" => [ state ] } ], {}, session)
+    assert_includes session.code, "const scanStarted = Date.now();"
+    assert_includes session.code, "runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1))"
+    assert_includes session.code, "Math.min(waitFor.timeoutMs, capMs)"
   end
 
   def test_a_route_without_states_adds_no_state_findings

@@ -692,6 +692,9 @@ class ChangeLaneBrowserless < ChangeLane
         #{ChangeLaneBrowserless.diff_against_reference_js}
 
         const out = [];
+        const scanStarted = Date.now();
+        const totalCells = viewports.length * routeEntries.length;
+        let cellsDone = 0;
         const videos = [];
         // Non-null only when continuity was opted into: one session carried
         // across the whole matrix, exactly as the lane behaved before cells
@@ -774,11 +777,12 @@ class ChangeLaneBrowserless < ChangeLane
               // After every other read, so a state's clicks cannot change what
               // the cell above was graded on. A failure stays inside the state.
               if (entry.states.length && !cell.authBlocked) {
-                const reload = async () => {
-                  await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: waitFor.timeoutMs });
-                  await awaitReadiness(session.page, waitFor);
+                const reload = async (capMs) => {
+                  const bounded = Object.assign({}, waitFor, { timeoutMs: Math.min(waitFor.timeoutMs, capMs) });
+                  await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: bounded.timeoutMs });
+                  await awaitReadiness(session.page, bounded);
                 };
-                cell.states = await runStates(session.page, entry.states, reload);
+                cell.states = await runStates(session.page, entry.states, reload, routeDeadline(scanStarted, totalCells - cellsDone - 1));
               }
             } catch (err) {
               cell.error = String(err);
@@ -791,6 +795,7 @@ class ChangeLaneBrowserless < ChangeLane
               }
             }
             cell.totalMs = Date.now() - cellStart;
+            cellsDone += 1;
             out.push(cell);
           }
           const video = await finishRecording(recorder, vp);
