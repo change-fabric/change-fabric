@@ -51,7 +51,7 @@ class ChangeFlowCompiler
 
   ACTIONS = %w[goto click fill select press wait_for screenshot capture].freeze
   ASSERTIONS = %w[expect_visible expect_hidden expect_text expect_url expect_status expect_count
-                  expect_equal expect_stable].freeze
+                  expect_equal expect_stable expect_visual].freeze
   # State waits poll the current page until a condition holds. Event waits
   # observe something that happens, so the runtime arms their listener before
   # the step that triggers it (the step before, unless `after: none`).
@@ -292,6 +292,57 @@ class ChangeFlowCompiler
       try {
         return { screenshot: await page.screenshot({ encoding: "base64", fullPage: step.fullPage === true }), name: step.name };
       } finally {
+        if (previous) await page.setViewport(previous);
+      }
+    }
+
+    // expect_visual: the page or one element as a PNG, for the host to diff
+    // (ChangeVisualBaseline). Animations and the caret are off and masked
+    // elements hidden during the capture, then restored.
+    async function cfVisual(page, step, timeout) {
+      const previous = step.viewport ? page.viewport() : null;
+      if (step.viewport) await page.setViewport(step.viewport);
+      let prepared = false;
+      try {
+        const handle = step.selector ? await cfWait(page, step, timeout, "visible") : null;
+        const size = page.viewport();
+        if (!size) cfFail("expect_visual needs a viewport; the case set none");
+        prepared = true;
+        const masked = await page.evaluate(async (masks) => {
+          const style = document.createElement("style");
+          style.setAttribute("data-cf-visual", "1");
+          style.textContent = "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}";
+          document.head.appendChild(style);
+          window.__cfVisualHidden = [];
+          let count = 0;
+          for (const selector of masks) {
+            const nodes = document.querySelectorAll(selector);
+            if (nodes.length === 0) throw new Error("expect_visual mask " + JSON.stringify(selector) + " matched no element");
+            for (const node of nodes) {
+              window.__cfVisualHidden.push([node, node.style.getPropertyValue("visibility"), node.style.getPropertyPriority("visibility")]);
+              node.style.setProperty("visibility", "hidden", "important");
+              count += 1;
+            }
+          }
+          if (document.fonts && document.fonts.ready) await document.fonts.ready;
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          return count;
+        }, step.mask);
+        const options = { encoding: "base64" };
+        const image = handle ? await handle.screenshot(options) : await page.screenshot(options);
+        return { screenshot: image, name: step.name, visual: { name: step.name, width: size.width, height: size.height, masked: masked } };
+      } finally {
+        if (prepared) {
+          try {
+            await page.evaluate(() => {
+              for (const [node, value, priority] of (window.__cfVisualHidden || []).reverse()) {
+                if (value) node.style.setProperty("visibility", value, priority); else node.style.removeProperty("visibility");
+              }
+              window.__cfVisualHidden = [];
+              for (const style of document.querySelectorAll("style[data-cf-visual]")) style.remove();
+            });
+          } catch (err) { void err; }
+        }
         if (previous) await page.setViewport(previous);
       }
     }
@@ -616,6 +667,8 @@ class ChangeFlowCompiler
         }
         case "expectStable":
           return cfExpectStable(page, step, state, timeout);
+        case "expectVisual":
+          return cfVisual(page, step, timeout);
         case "eval":
           return { value: await page.evaluate("(async () => {" + step.script + "})()") };
         default:
@@ -1079,10 +1132,10 @@ class ChangeFlowCompiler
   # The recorder resolves selectors with document.querySelector in the page, so
   # a text or nth locator, or a `::-p-` selector, has no first-paint history.
   # Refused here rather than passed with nothing measured.
-  def recordable_selector!(selector)
+  def recordable_selector!(selector, who = 'expect_stable')
     return unless ChangeFlowSelector.locator(selector) || selector.include?('::-p-')
 
-    raise Error, "expect_stable needs a plain CSS selector (the first-paint recorder cannot resolve #{selector.inspect})"
+    raise Error, "#{who} needs a plain CSS selector (it is resolved in the page; #{selector.inspect} is not one)"
   end
 
   # `scroll_y` alone reads the window; every other kind reads an element.
@@ -1116,6 +1169,40 @@ class ChangeFlowCompiler
     recordable_selector!(selector)
     { var: name, selector: selector, kind: kind, tolerancePx: tolerance, maxCls: max_cls,
       label: "expect_stable #{kind} of #{selector || 'the window'} within #{tolerance}px" }
+  end
+
+  VISUAL_NAME = /\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z/
+  VISUAL_KEYS = %w[name selector viewport max_diff_ratio mask].freeze
+  DEFAULT_MAX_DIFF_RATIO = 0.001
+
+  # (suite_version 7) The page or one element must match the committed baseline
+  # within `max_diff_ratio` (0 to 1; 0 is exact). The diff is the host's; `mask`
+  # lists plain CSS selectors hidden before the capture.
+  def compile_expect_visual(value, _captured)
+    spec = spec_for(value, 'name')
+    unknown = spec.keys - VISUAL_KEYS
+    raise Error, "expect_visual does not know #{unknown.join(', ')} (expected: #{VISUAL_KEYS.join(', ')})" unless unknown.empty?
+
+    name = spec['name'].to_s
+    raise Error, "expect_visual name must be a word (letters, digits, underscore, dash), got #{spec['name'].inspect}" unless name.match?(VISUAL_NAME)
+
+    ratio = spec.fetch('max_diff_ratio', DEFAULT_MAX_DIFF_RATIO)
+    unless ratio.is_a?(Numeric) && ratio.to_f.finite? && ratio.between?(0, 1)
+      raise Error, "expect_visual max_diff_ratio is a fraction from 0 to 1 (0 is exact), got #{ratio.inspect}"
+    end
+
+    selector = spec['selector'].nil? ? nil : require_string(spec, 'selector', 'expect_visual')
+    viewport = spec['viewport'] && compile_viewport(spec['viewport'], "expect_visual #{name}")
+    { name: name, selector: selector, maxDiffRatio: ratio, mask: visual_masks(spec['mask']), viewport: viewport,
+      label: "expect_visual #{name} of #{selector || 'the page'}" }
+  end
+
+  def visual_masks(raw)
+    return [] if raw.nil?
+    raise Error, 'expect_visual mask must be a list of CSS selectors' unless raw.is_a?(Array) && raw.all? { |item| item.is_a?(String) && !item.strip.empty? }
+
+    raw.each { |mask| recordable_selector!(mask, 'expect_visual mask') }
+    raw
   end
 
   # --- assertions -------------------------------------------------------------

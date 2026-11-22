@@ -165,4 +165,22 @@ class ChangeTestcasesReportTest < Minitest::Test
       refute_includes File.read(File.join(run_dir, "report.html")), "Selector suggestions"
     end
   end
+
+  def test_visual_results_render_escaped_with_images_and_the_promote_command
+    with_run do |run_dir, ledger|
+      attempt = File.join(run_dir, "cases", "checkout", "pay", "attempt-1")
+      FileUtils.mkdir_p(attempt)
+      entry = { "name" => "<i>hero</i>", "status" => "blocked", "note" => "no baseline <x>",
+                "candidate" => "shot-0002-hero.png", "promote" => "mkdir -p /a && cp /b /a/hero.png" }
+      failing = ChangeCaseResult.new(key: "checkout/pay", suite: "checkout", id: "pay", status: "fail", run_id: "r3",
+                                     evidence_dir: attempt, visual_results: [ entry, "junk" ])
+      ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: [ failing ]).write
+      html = File.read(File.join(run_dir, "report.html"))
+
+      assert_includes html, "Visual baselines"
+      assert_includes html, "&lt;i&gt;hero&lt;/i&gt;"
+      assert_includes html, "cases/checkout/pay/attempt-1/shot-0002-hero.png"
+      assert_includes html, "mkdir -p /a &amp;&amp; cp /b /a/hero.png"
+    end
+  end
 end

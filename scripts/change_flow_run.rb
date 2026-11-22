@@ -219,6 +219,8 @@ module ChangeFlowRun
   end
 
   def execute(compiler, options)
+    # No committed baseline to judge against here, so it would pass unjudged.
+    raise ChangeFlowCompiler::Error, 'expect_visual needs a suite case: run it through the testcases lane' if compiler.compile.any? { |step| step[:verb] == 'expectVisual' }
     raise 'docker is unavailable; cannot run a browser flow' unless ChangeDocker.available?
 
     ChangeDocker.with_network(options[:network]) do |net|

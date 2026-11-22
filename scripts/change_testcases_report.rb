@@ -106,6 +106,7 @@ class ChangeTestcasesReport
       #{attention_section}
       #{flake_section}
       #{suggestion_section}
+      #{visual_section}
       <h2>Cases</h2>
       <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Quarantine</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th><th>Video</th></tr></thead>
       <tbody>
@@ -200,6 +201,28 @@ class ChangeTestcasesReport
     shown = candidates.empty? ? '<p>No candidate found.</p>' : "<ol>#{candidates.join}</ol>"
     note = entry['note'] ? "<p>#{h(entry['note'])}</p>" : ''
     "<li>#{h(record.key)} step #{h(entry['step'].to_i + 1)}: <code>#{h(entry['failed'])}</code>#{shown}#{note}</li>"
+  end
+
+  # expect_visual verdicts with their images. A blocked result carries the
+  # command that would accept the candidate; only a person runs it.
+  def visual_section
+    rows = @records.flat_map { |record| record.visual_results.map { |entry| visual_item(record, entry) } }
+    return '' if rows.empty?
+
+    "<h2>Visual baselines</h2><p>A missing baseline blocks the case; nothing is accepted automatically.</p><ul>#{rows.join}</ul>"
+  end
+
+  def visual_item(record, entry)
+    files = entry['files'].is_a?(Hash) ? entry['files'] : { 'actual' => entry['candidate'] }.compact
+    images = record.evidence_dir ? files.map { |label, name| visual_image(record, label, name) } : []
+    command = entry['promote'] ? "<p>Accept the candidate: <code>#{h(entry['promote'])}</code></p>" : ''
+    "<li>#{h(record.key)} #{h(entry['name'])} at #{h(entry['viewport'])}: <span class=\"#{entry['status'] == 'pass' ? 'pass' : 'fail'}\">" \
+      "#{h(entry['status'])}</span> #{h(entry['note'])}#{images.join}#{command}</li>"
+  end
+
+  def visual_image(record, label, name)
+    path = h(relative(File.join(record.evidence_dir, name.to_s)))
+    "<figure><a href=\"#{path}\"><img src=\"#{path}\" alt=\"#{h(label)}\"></a><figcaption>#{h(label)}</figcaption></figure>"
   end
 
   def case_row(record)

@@ -16,6 +16,7 @@ require_relative 'change_testcases_personas'
 require_relative 'change_testcases_evidence'
 require_relative 'change_case_result'
 require_relative 'change_selector_suggestions'
+require_relative 'change_visual_baseline'
 require_relative 'change_testcases_video'
 
 # The deterministic regression lane. Runs committed test cases (suite files
@@ -121,7 +122,8 @@ class ChangeLaneTestcases < ChangeLane
         run_id: run_id, evidence_dir: result[:record]&.dig('evidenceDir'),
         acceptance_verdict: result[:verdict]&.verdict, step_durations: step_durations(result[:record]),
         quarantined: item.quarantined?(today), quarantine_reason: item.quarantined?(today) ? item.quarantine.reason : nil,
-        case_hash: item.content_hash, selector_suggestions: Array(result[:record]&.dig('selectorSuggestions'))
+        case_hash: item.content_hash, selector_suggestions: Array(result[:record]&.dig('selectorSuggestions')),
+        visual_results: Array(result[:record]&.dig('visualResults'))
       )
     end
   end
@@ -570,6 +572,7 @@ class ChangeLaneTestcases < ChangeLane
       record = resume_after_expiry(session, item, compiled, number, persona, generation, record, dir)
     end
     record = suggest_selectors(item, record)
+    record = check_visuals(session, item, compiled, record, dir)
     dir ? evidence.close_attempt(dir, record) : record
   rescue PersonaCache::LoginError => e
     { 'ok' => false, 'notAttempted' => true, 'steps' => [],
@@ -593,6 +596,22 @@ class ChangeLaneTestcases < ChangeLane
     end
     record['selectorSuggestions'] = suggestions unless suggestions.empty?
     record
+  end
+
+  # expect_visual steps return their image; the verdict is the host's, after
+  # the call. A step the baseline does not match, or cannot be checked against,
+  # fails (it never passes unjudged), so the case does too.
+  def check_visuals(session, item, compiled, record, dir)
+    return record unless record.is_a?(Hash) && Array(record['steps']).any? { |step| step.is_a?(Hash) && step['visual'] }
+
+    runner = lambda do |code|
+      out = call_function(session, code, ChangeVisualBaseline::DIFF_TIMEOUT_MS)
+      raise(out&.dig('callError') || 'no result') if out.nil? || out['callError']
+
+      out
+    end
+    ChangeVisualBaseline.judge(record, compiled: compiled[:steps], root: @config.dir, suite: item.suite, case_id: item.id,
+                                       evidence_dir: dir&.host_dir, secrets: secret_values(item), runner: runner)
   end
 
   def unknown_persona(item)

@@ -4,6 +4,8 @@ require "minitest/autorun"
 require "tmpdir"
 require "tempfile"
 require "json"
+require "base64"
+require "fileutils"
 require "date"
 require_relative "../scripts/change_config"
 require_relative "../scripts/change_run"
@@ -1548,6 +1550,55 @@ class ChangeLaneTestcasesTest < Minitest::Test
 
       assert_equal record, runner.send(:suggest_selectors, item, record.dup)
       assert_nil runner.send(:suggest_selectors, item, nil)
+    end
+  end
+
+  VISUAL_SUITE = <<~YAML
+    suite: shots
+    suite_version: 7
+    cases:
+      - id: home
+        acceptance: The home page looks right.
+        steps:
+          - goto: /
+          - expect_visual: { name: hero, max_diff_ratio: 0.01 }
+  YAML
+
+  class VisualSession < FakeSession
+    PNG = Base64.strict_encode64("\x89PNG\r\n\x1a\n".b + [ 13 ].pack("N") + "IHDR" + [ 8, 6, 8, 6, 0, 0, 0 ].pack("NNCCCCC") + "crc!")
+
+    def initialize(diff)
+      super([ { "index" => 0, "attempts" => 1, "ok" => true, "observation" => { "url" => "u", "title" => "t", "text" => "x" },
+                "steps" => [ { "index" => 1, "verb" => "expectVisual", "ok" => true, "name" => "hero", "screenshot" => PNG,
+                               "visual" => { "name" => "hero", "width" => 8, "height" => 6 } } ] } ])
+      @diff = diff
+    end
+
+    def run_function(code, **options) = code.include?("createImageBitmap") ? @diff : super
+  end
+
+  def visual_case(diff, baseline: true)
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "shots.cf-testcases.yml"), VISUAL_SUITE)
+      path = File.join(dir, ".cf", "visual", "shots", "home", "hero-8x6.png")
+      FileUtils.mkdir_p(File.dirname(path)) && File.binwrite(path, Base64.decode64(VisualSession::PNG)) if baseline
+      runner = lane(dir, {}, session: VisualSession.new(diff.merge("diff" => VisualSession::PNG)))
+      yield runner, runner.run, dir
+    end
+  end
+
+  def test_a_missing_baseline_blocks_the_case_and_creates_nothing
+    visual_case({ "total" => 48, "differing" => 0 }, baseline: false) do |runner, findings|
+      assert_equal [ "fail", "blocked" ], [ runner.case_records.first.status, runner.case_records.first.visual_results.first["status"] ]
+      assert_match(/blocked_precondition: no baseline/, step_findings(findings).first.detail)
+    end
+  end
+
+  def test_a_diff_over_the_ratio_fails_the_case_and_one_within_it_passes
+    { 5 => "pass", 50 => "fail" }.each do |differing, status|
+      visual_case({ "total" => 1000, "differing" => differing }) do |runner|
+        assert_equal [ status, status ], [ runner.case_records.first.status, runner.case_records.first.visual_results.first["status"] ]
+      end
     end
   end
 end

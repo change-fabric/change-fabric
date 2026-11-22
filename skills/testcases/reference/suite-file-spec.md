@@ -1,6 +1,6 @@
 # Test-case suite file specification
 
-Suite version: 6
+Suite version: 7
 
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
@@ -46,6 +46,7 @@ only adds optional fields, so an older file always loads on a newer install.
 | 4 | Step verbs `wait_for_url`, `wait_for_text`, `wait_until_hidden`, `wait_for_response`, `wait_for_network_idle`. |
 | 5 | Measured reads `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom`, `scroll_y`; the step verb `expect_stable`; the step options `label`, `budget_ms`, `budget_from`; and `tolerance` on `expect_equal`. |
 | 6 | `cases[].covers`. |
+| 7 | The step verb `expect_visual` and its options `max_diff_ratio` and `mask`. |
 
 The loader is strict. An unknown top-level or case key is refused by name, and
 a key newer than the file's declared `suite_version` is refused with the version
@@ -143,6 +144,7 @@ quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 | assertion | expect_count | The number of elements matching the selector must equal the expected count. |
 | assertion | expect_equal | A captured `var` must equal a live read of `selector` (with `kind`) or a second captured `equals_var`. Compared as strings, so a captured number matches a count. A var no earlier step captures is refused at compile time. (suite_version 5) `tolerance: N` compares numerically within N instead; `kind: scroll_y` needs no selector. |
 | assertion | expect_stable | (suite_version 5) `{ var, selector, kind, tolerance_px, max_cls, wait }`: a figure must not move between first paint and the page settling. An init script installed before the first navigation records the selector's rect on the first animation frame it exists, samples it every frame it changes, and buffers layout-shift entries. The step waits for `document.fonts.ready` (`wait: fonts`, the default and only value) and for the network to be idle for 500 ms, counting requests already in flight (it fails if idle is never reached, and fails when nothing was recorded), then judges the whole window: the largest deviation of any sample from the first value must be within `tolerance_px` (default 0; `kind` default `rect.y`, and only `rect.*` kinds; the `selector` must be plain CSS, since the recorder resolves it in the page), so a header that moves 20 px during load and returns still fails. The layout-shift score attributed to the element (entries whose sources touched it, excluding those right after input) must be within `max_cls` (default 0). Both values ride on the step result with the entries. `var` keeps the final value. |
+| assertion | expect_visual | (suite_version 7) `{ name, selector, viewport, max_diff_ratio, mask }`: the page (or the `selector` element) must match the committed PNG at `.cf/visual/<suite>/<case>/<name>-<width>x<height>.png` within `max_diff_ratio` (a fraction of pixels from 0 to 1, default 0.001; 0 is exact; a percent such as 100 is refused). The browser hides every `mask` selector (plain CSS, each must match something), turns animations, transitions and the caret off, and waits for fonts before the capture; the diff runs in the pinned browserless container and the verdict comes after the call, so later steps still ran. No baseline, an unreadable or symlinked one, or no diff container is `blocked_precondition`: the case fails, the candidate is kept as evidence with a promote command in the report, and nothing is accepted automatically. A size mismatch fails. A pixel differs when a channel is off by more than 2. Commit baselines by hand. |
 | escape hatch | eval | Raw JS, run as-is in the page. Marked as raw in the compiled step and labeled as such in the report, so a reader can see exactly where the declarative contract was abandoned. Reach for it last. |
 
 ## Sessions
