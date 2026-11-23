@@ -195,17 +195,17 @@ class PulseStore
   end
 
   # One lock covers the dedup check and the write, and the cursor update.
-  # Reentrant within a thread's call, so appends can nest write_row.
+  # Reentrant only for the owning thread; other threads wait on the file lock.
   def locked
     FileUtils.mkdir_p(@dir)
-    return yield if @held
+    return yield if @owner == Thread.current
 
     File.open(File.join(@dir, '.pulse.lock'), File::RDWR | File::CREAT, 0o600) do |lock|
       lock.flock(File::LOCK_EX)
-      @held = true
+      @owner = Thread.current
       yield
     ensure
-      @held = false
+      @owner = nil
     end
   end
 

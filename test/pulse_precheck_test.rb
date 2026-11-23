@@ -43,6 +43,7 @@ class PulsePrecheckTest < Minitest::Test
   def test_over_budget_at_one_and_a_half_times
     File.write(File.join(@dir, "pulse_budgets.json"), JSON.generate([ { command: "suite", budget_s: 1200, started_at: t(0).iso8601 } ]))
     check(1)
+    check(21)
     refute check(29)["due"]
     assert_includes check(30)["reasons"], "over_budget:suite"
     refute check(31)["due"]
@@ -91,5 +92,11 @@ class PulsePrecheckTest < Minitest::Test
   def test_malformed_event_rows_are_skipped
     File.write(File.join(@dir, "pulse_events.jsonl"), "[1]\n{\"child_id\":\"w1\"}\nnot json\n")
     refute check(100)["due"]
+  end
+
+  def test_budget_only_session_gets_an_initial_pass
+    File.write(File.join(@dir, "pulse_budgets.json"), JSON.generate([ { command: "suite", budget_s: 7200, started_at: t(0).iso8601 } ]))
+    assert_includes check(1)["reasons"], "state_changed"
+    assert_equal [ "interval" ], check(21)["reasons"]
   end
 end

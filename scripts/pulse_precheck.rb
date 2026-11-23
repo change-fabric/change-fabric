@@ -40,7 +40,7 @@ class PulsePrecheck
     fresh = deadlines.reject { |d| reported.include?(d['fingerprint']) }
     new_events = @events.drop(cursor['consumed_events'].to_i).select { |e| e['event'] }
     reasons = fresh.map { |d| d['reason'] } + new_events.map { |e| "event:#{e['event']}" }
-    reasons << 'state_changed' if state_digest != cursor['snapshot_digest'] && !children.empty?
+    reasons << 'state_changed' if state_digest != cursor['snapshot_digest'] && !(children.empty? && budgets.empty?)
     reasons << 'interval' if interval_due?(cursor)
     { 'due' => !reasons.empty?, 'reasons' => reasons, 'cursor' => pending(reported, fresh) }
   ensure

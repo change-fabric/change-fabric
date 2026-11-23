@@ -80,6 +80,11 @@ class PulseStoreTest < Minitest::Test
     assert_equal 1, @store.rows.size
   end
 
+  def test_threads_sharing_one_store_instance_store_once
+    Array.new(6) { Thread.new { @store.append(finding) } }.each(&:join)
+    assert_equal 1, @store.rows.size
+  end
+
   def test_non_string_quote_is_parked
     assert_equal "park", @store.append(finding("serves" => finding["serves"].merge("quote" => 5)))["action_class"]
   end
