@@ -12,11 +12,15 @@ class PulseIntegrityTest < Minitest::Test
 
   FIXTURES = File.expand_path("fixtures/pulse", __dir__)
 
+  def integrity = PulseIntegrity.new(@session)
+
+  def result_path = File.join(@dir, "pulse_results", "result.json")
+
   def load_fixture(name, result: nil)
     plan = File.join(@home, "plan")
     FileUtils.mkdir_p([ plan, File.join(@dir, "pulse_results") ])
     FileUtils.cp(File.join(FIXTURES, name, "goal.md"), File.join(plan, "goal.md"))
-    File.write(File.join(@dir, "pulse_results", "result.json"), result || File.read(File.join(FIXTURES, name, "result.json")))
+    File.write(result_path, result || File.read(File.join(FIXTURES, name, "result.json")))
     PulseScope.new(session: @session, project: @home, plan_dir: plan).resolve
   end
 
@@ -24,7 +28,7 @@ class PulseIntegrityTest < Minitest::Test
     define_method("test_matrix_#{name}") do
       load_fixture(name)
       expected = JSON.parse(File.read(File.join(FIXTURES, name, "expected.json")))
-      found = PulseIntegrity.new(@session).run
+      found = integrity.run
       assert_equal expected, found.map { |f| f.slice("check", "severity", "route") }
       found.each { |f| assert_includes File.read(File.join(FIXTURES, name, "goal.md")), f.dig("serves", "quote") }
     end
@@ -32,7 +36,7 @@ class PulseIntegrityTest < Minitest::Test
 
   def test_findings_validate_and_store_as_authorizable_with_the_fixture_quote
     load_fixture("zero_row_pass")
-    stored = PulseStore.new(@session).append(PulseIntegrity.new(@session).run.first)
+    stored = PulseStore.new(@session).append(integrity.run.first)
     assert_equal "stored", stored["status"]
     assert stored["authorizable"]
   end
@@ -41,7 +45,7 @@ class PulseIntegrityTest < Minitest::Test
 
   def checks(result)
     load_fixture("legit_pass", result: result)
-    PulseIntegrity.new(@session).run.map { |f| f["check"] }
+    integrity.run.map { |f| f["check"] }
   end
 
   def test_skipped_excluded_from_passed_is_legitimate_under_either_ran_convention
@@ -78,26 +82,26 @@ class PulseIntegrityTest < Minitest::Test
 
   def test_commit_skips_appended_results_and_a_failed_append_is_retried
     load_fixture("zero_row_pass")
-    findings = PulseIntegrity.new(@session).run
-    refute_empty PulseIntegrity.new(@session).run, "no commit, so the next pass still sees it"
-    PulseIntegrity.new(@session).commit(findings)
-    assert_empty PulseIntegrity.new(@session).run
-    File.write(File.join(@dir, "pulse_results", "result.json"), '{"id":"s","verdict":"PASS","rows":0,"expected":4}')
-    refute_empty PulseIntegrity.new(@session).run, "a changed result is checked again"
+    findings = integrity.run
+    refute_empty integrity.run, "no commit, so the next pass still sees it"
+    integrity.commit(findings)
+    assert_empty integrity.run
+    File.write(result_path, '{"id":"s","verdict":"PASS","rows":0,"expected":4}')
+    refute_empty integrity.run, "a changed result is checked again"
   end
 
   def test_commit_forgets_results_whose_file_is_gone
     load_fixture("zero_row_pass")
-    PulseIntegrity.new(@session).commit(PulseIntegrity.new(@session).run)
-    File.delete(File.join(@dir, "pulse_results", "result.json"))
-    PulseIntegrity.new(@session).commit([])
+    integrity.commit(integrity.run)
+    File.delete(result_path)
+    integrity.commit([])
     assert_empty PulseStore.new(@session).cursor["integrity_digests"]
   end
 
   def test_no_scope_yields_a_finding_without_serves_and_still_appends_as_system
     load_fixture("zero_row_pass")
     File.delete(File.join(@dir, "pulse_scope.json"))
-    finding = PulseIntegrity.new(@session).run.first
+    finding = integrity.run.first
     assert_nil finding["serves"]
     assert_equal "stored", PulseStore.new(@session).append_system(finding)["status"]
   end

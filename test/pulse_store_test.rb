@@ -112,12 +112,31 @@ class PulseStoreTest < Minitest::Test
   end
 
   def test_p0_notification_is_queued_once_and_only_for_p0
-    p0 = @store.append(finding("severity" => "P0"))
+    p0 = @store.append(finding("kind" => "integrity", "severity" => "P0"))
     assert_equal "queued", @store.queue_notify(p0["id"])["status"]
     assert_equal "duplicate", @store.queue_notify(p0["id"])["status"]
     p2 = @store.append(finding("claim" => "other", "anchor" => "other"))
     assert_equal "not P0", @store.queue_notify(p2["id"])["reason"]
     assert_equal "unknown finding", @store.queue_notify("nope")["reason"]
+  end
+
+  def test_notification_skips_non_integrity_and_later_rejected_or_parked_findings
+    accel = @store.append(finding("severity" => "P0"))
+    assert_equal "not integrity", @store.queue_notify(accel["id"])["reason"]
+    integ = @store.append(finding("kind" => "integrity", "severity" => "P0", "claim" => "z", "anchor" => "z"))
+    fp = @store.findings[integ["id"]]["fingerprint"]
+    @store.disposition(fp, "rejected")
+    assert_equal "rejected", @store.queue_notify(integ["id"])["reason"]
+    system = @store.append_system("kind" => "integrity", "severity" => "P0", "claim" => "down", "evidence" => "e", "anchor" => "down")
+    @store.disposition(@store.findings[system["id"]]["fingerprint"], "parked")
+    assert_equal "queued", @store.queue_notify(system["id"])["status"]
+  end
+
+  def test_append_system_suppresses_a_rejected_fingerprint
+    first = @store.append_system("kind" => "integrity", "severity" => "P0", "claim" => "c", "subject" => "s", "evidence" => "e", "anchor" => "a")
+    @store.disposition(@store.findings[first["id"]]["fingerprint"], "rejected")
+    again = @store.append_system("kind" => "integrity", "severity" => "P0", "claim" => "c", "subject" => "s", "evidence" => "e", "anchor" => "a")
+    assert_equal "suppressed", again["status"]
   end
 
   def test_activation_stays_off

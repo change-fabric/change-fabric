@@ -96,8 +96,13 @@ class PulseStore
     reason = invalid_reason(finding)
     return { 'status' => 'rejected', 'reason' => reason } if reason
 
-    fp = finding['fingerprint'] = self.class.fingerprint(finding['kind'], finding['claim'], finding['anchor'])
-    locked { disposition_of(fp) ? { 'status' => 'duplicate', 'fingerprint' => fp } : store(finding) }
+    fp = finding['fingerprint'] = self.class.fingerprint(finding['kind'], finding['subject'] || finding['claim'], finding['anchor'])
+    locked do
+      prior = disposition_of(fp)
+      next { 'status' => 'suppressed', 'fingerprint' => fp } if prior == 'rejected'
+
+      prior ? { 'status' => 'duplicate', 'fingerprint' => fp } : store(finding)
+    end
   end
 
   def disposition(fingerprint, value)
@@ -114,7 +119,10 @@ class PulseStore
     found = findings[finding_id]
     return { 'status' => 'rejected', 'reason' => 'unknown finding' } unless found
     return { 'status' => 'rejected', 'reason' => 'not P0' } unless found['severity'] == 'P0'
-    return { 'status' => 'rejected', 'reason' => 'parked' } if found['disposition'] == 'parked' && found['origin'] != 'system'
+    return { 'status' => 'rejected', 'reason' => 'not integrity' } unless found['kind'] == 'integrity'
+
+    current = disposition_of(found['fingerprint']) || found['disposition']
+    return { 'status' => 'rejected', 'reason' => current } if current == 'rejected' || (current == 'parked' && found['origin'] != 'system')
 
     locked do
       queued = File.file?(notify_path) && File.readlines(notify_path).any? { |line| line.include?(%("finding":"#{finding_id}")) }

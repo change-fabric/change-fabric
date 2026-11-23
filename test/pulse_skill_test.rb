@@ -14,7 +14,7 @@ class PulseSkillTest < Minitest::Test
   end
 
   def test_integrity_lens_names_every_c5_check
-    [ "vacuous pass", "skipped counted as", "narrowed run", "bound to the head SHA", "denominator" ].each do |text|
+    [ "vacuous pass", "skipped counted as", "narrowed run", "bound to the head SHA", "a missing denominator" ].each do |text|
       assert_includes BRIEF.tr("\n", " ").squeeze(" "), text
     end
   end

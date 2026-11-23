@@ -38,15 +38,17 @@ nudge; the watcher exit is the dispatch path.
    change.
 3. `ruby ~/.claude/cf/bin/pulse_integrity.rb --session <id> --json`, always,
    with or without model budget. It makes no model call. After its findings
-   are appended, pipe them to `pulse_integrity.rb --session <id> --commit true`
-   so unchanged results are skipped next pass.
+   are appended, pipe only the findings whose append returned `stored`,
+   `duplicate` or `suppressed` to `pulse_integrity.rb --session <id> --commit
+   true`, so unchanged results are skipped next pass and a failed append is
+   retried.
 4. `ruby ~/.claude/cf/bin/pulse_store.rb reserve --project <root>` (add
    `--critic true` for an integrity event). Reserved: spawn the reviewer in the
    background with the pass limits. Exhausted: say `[cf] pulse budget
    exhausted` once and go report-only; step 3 keeps running.
 5. Every finding, deterministic or from the reviewer, goes through
    `pulse_store.rb append --session <id>` (JSON on stdin; a deterministic finding
-   with no `serves` because no scope resolved uses `append-system`). A stored P0 then
+   with no `serves` because no scope resolved uses `append-system`). A stored integrity P0 then
    goes to `pulse_store.rb notify --session <id> --finding <id>`, which queues
    the delivery. Actionable findings are applied only as the action policy
    allows. Everything else is a proposal.
