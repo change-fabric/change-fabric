@@ -8,11 +8,11 @@ require 'fileutils'
 require 'securerandom'
 require 'yaml'
 
-# Pulse is the background acceleration and integrity review. Landing code does
-# not turn it on: ACTIVATED stays false until the phase that ships the watcher
-# events (C8).
+# Pulse is the background acceleration and integrity review. ACTIVATED (C8) is
+# the default-on switch, flipped by the phase that shipped the watcher events;
+# the engage hook still requires every ready part to be installed.
 module Pulse
-  ACTIVATED = false
+  ACTIVATED = true
   READY_PARTS = %w[pulse_store pulse_precheck pulse_stamp pulse_scope pulse_integrity pulse_watch pulse_act
                    skills/pulse/SKILL.md].freeze
   DEFAULTS = { 'max_passes_per_day' => 24, 'max_tokens_per_pass' => 60_000, 'max_turns_per_pass' => 12,
@@ -20,7 +20,14 @@ module Pulse
 
   def self.root = File.join(Dir.home, '.claude', 'cf')
 
-  def self.session_dir(session) = File.join(root, 'sessions', session.to_s)
+  SESSION_ID = /\A\w[\w.:-]*\z/
+
+  # A session id is a path segment: refuse anything that could leave the tree.
+  def self.session_dir(session)
+    raise ArgumentError, "bad session id: #{session.inspect}" unless session.to_s.match?(SESSION_ID) && !session.to_s.include?('..')
+
+    File.join(root, 'sessions', session.to_s)
+  end
 
   # Config comes from <cf dir>/pulse.yml, a `pulse:` block, over DEFAULTS.
   def self.config

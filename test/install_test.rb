@@ -348,8 +348,9 @@ class InstallerTest < Minitest::Test
     assert adapter.any? { |command| command.include?("cf_host_hook.rb") }, "the adapter entry survives"
   end
 
-  # Landing the stamp installs it, it does not turn pulse on. Every engage
-  # trigger present, run through the installed hook, prints nothing.
+  # C8: Pulse::ACTIVATED is true, so an install with every ready part present
+  # engages; a missing part keeps the hook silent. Every trigger is run through
+  # the installed hook.
   def pulse_hook(paths, event, extra = {})
     project = File.join(@home, "proj")
     FileUtils.mkdir_p(project)
@@ -373,26 +374,38 @@ class InstallerTest < Minitest::Test
     [ outputs, record.pulse ]
   end
 
-  def test_install_with_every_trigger_never_dispatches
+  def test_every_ready_part_is_installed_and_the_flag_is_on
     paths = install
+    require_relative "../scripts/pulse_stamp"
+    assert_empty PulseStamp.missing_parts(bin: paths.runtime_bin, home: @home)
+    assert_includes File.read(File.join(paths.runtime_bin, "pulse_store.rb")), "ACTIVATED = true"
+  end
+
+  def test_install_with_every_part_and_trigger_dispatches
+    paths = install
+    outputs, record = engage_every_trigger(paths)
+    assert outputs.any? { |out| out.include?("pulse engaged: arm watcher") }, outputs.inspect
+    assert record["engaged_at"]
+    assert record["arm_requested_at"]
+  end
+
+  def test_install_missing_one_part_stays_silent
+    paths = install
+    FileUtils.rm(File.join(paths.runtime_bin, "pulse_act.rb"))
     outputs, record = engage_every_trigger(paths)
     assert_equal [ "" ] * 4, outputs
     assert record["detected_trigger"], "the trigger is recorded"
     refute record["engaged_at"]
-    refute record["arm_requested_at"]
-    refute File.exist?(File.join(@home, ".claude", "cf", "sessions", "s-c8", "pulse_cursor.json"))
-    assert_includes File.read(File.join(paths.runtime_bin, "pulse_store.rb")), "ACTIVATED = false"
+    assert_includes File.read(File.join(@home, ".claude", "cf", "logs", "pulse.log")), "pulse_act"
   end
 
-  def test_upgrade_to_a_later_phase_install_still_does_not_dispatch
+  def test_upgrade_from_a_phase_3_install_dispatches_only_after_the_executor_lands
     paths = install
-    # ACTIVATED stays false even when these later parts are present.
-    %w[pulse_integrity.rb pulse_act.rb].each { |name| File.write(File.join(paths.runtime_bin, name), "") }
-    FileUtils.mkdir_p(File.join(@home, ".claude", "skills", "pulse"))
-    File.write(File.join(@home, ".claude", "skills", "pulse", "SKILL.md"), "")
-    outputs, record = engage_every_trigger(install)
+    FileUtils.rm(File.join(paths.runtime_bin, "pulse_act.rb"))
+    outputs, = engage_every_trigger(paths)
     assert_equal [ "" ] * 4, outputs
-    refute record["engaged_at"]
+    install
+    assert pulse_hook(paths, "PostToolUse", "tool_name" => "Bash", "tool_input" => {}).include?("arm watcher")
   end
 
   def test_reinstall_leaves_an_unmanaged_file_in_bin_alone

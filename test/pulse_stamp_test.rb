@@ -7,7 +7,7 @@ require_relative "../scripts/pulse_stamp"
 require_relative "../scripts/native_hook_install"
 require_relative "../scripts/pulse_scope"
 
-# While Pulse::ACTIVATED is false it must never
+# With activated: false (the constructor default here) it must never
 # print a dispatch line, arm a watcher or write an engaged cursor.
 class PulseStampTest < Minitest::Test
   include PulseHome
@@ -30,7 +30,7 @@ class PulseStampTest < Minitest::Test
 
   def install_parts(except: nil)
     (Pulse::READY_PARTS - [ except ].compact).each do |part|
-      path = part.end_with?(".md") ? File.join(@home, ".claude", "skills", part.delete_prefix("skills/")) : File.join(@bin, "#{part}.rb")
+      path = PulseStamp.installed_path(part, bin: @bin, home: @home)
       FileUtils.mkdir_p(File.dirname(path))
       File.write(path, "")
     end
@@ -105,6 +105,15 @@ class PulseStampTest < Minitest::Test
     assert state.pulse["arm_requested_at"]
     assert_nil stamp("PostToolUse", at: 2, activated: true, tool_name: "Bash", tool_input: {})
     assert_includes stamp("PostToolUse", at: 6, activated: true, tool_name: "Bash", tool_input: {}), "re-arm"
+  end
+
+  def test_engaged_stamp_records_whether_work_is_active_for_the_interval
+    install_parts
+    stamp("PostToolUse", activated: true, **workflow_event)
+    assert_equal true, PulseStore.new(@session).cursor["active"]
+    state.update_pulse { |pulse| pulse.delete("workflow_active") }
+    stamp("PostToolUse", at: 1, activated: true, tool_name: "Bash", tool_input: {})
+    assert_equal false, PulseStore.new(@session).cursor["active"]
   end
 
   def test_live_watcher_suppresses_the_arm_request_and_a_dead_pid_brings_it_back

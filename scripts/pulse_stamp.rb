@@ -60,9 +60,14 @@ class PulseStamp
   end
 
   def self.missing_parts(bin:, home:)
-    Pulse::READY_PARTS.reject do |part|
-      File.file?(part.end_with?('.md') ? File.join(home, '.claude', 'skills', part.delete_prefix('skills/')) : File.join(bin, "#{part}.rb"))
-    end
+    Pulse::READY_PARTS.reject { |part| File.file?(installed_path(part, bin: bin, home: home)) }
+  end
+
+  # The installer links a skill as ~/.claude/skills/cf:<name>, not <name>.
+  def self.installed_path(part, bin:, home:)
+    return File.join(bin, "#{part}.rb") unless part.end_with?('.md')
+
+    File.join(home, '.claude', 'skills', part.delete_prefix('skills/').sub(%r{\A(\w+)/}, 'cf:\1/'))
   end
 
   private
@@ -127,6 +132,8 @@ class PulseStamp
       store.advance_cursor('engaged_at' => iso)
       record = state.update_pulse { |pulse| pulse['engaged_at'] = iso }
     end
+    active = !!active_work?(record)
+    store.advance_cursor('active' => active) unless store.cursor['active'] == active
     lines = [ watcher_line(record), (DUE if due?(record, store.cursor)) ].compact
     lines.join("\n") if SPEAKS_ON.include?(@name) && !lines.empty?
   end

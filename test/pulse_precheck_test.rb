@@ -97,6 +97,13 @@ class PulsePrecheckTest < Minitest::Test
   def test_budget_only_session_gets_an_initial_pass
     File.write(File.join(@dir, "pulse_budgets.json"), JSON.generate([ { command: "suite", budget_s: 7200, started_at: t(0).iso8601 } ]))
     assert_includes check(1)["reasons"], "state_changed"
+    assert_equal %w[flat_state interval], check(21)["reasons"].sort
+  end
+
+  def test_a_hook_engaged_run_with_no_children_or_budgets_still_gets_the_interval
+    PulseStore.new(@session).advance_cursor("engaged_at" => t(0).iso8601)
+    refute check(30)["due"], "no recorded active work"
+    PulseStore.new(@session).advance_cursor("active" => true)
     assert_equal [ "interval" ], check(21)["reasons"]
   end
 end

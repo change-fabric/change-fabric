@@ -164,8 +164,8 @@ class PulseStoreTest < Minitest::Test
     assert_equal "started", @store.start_pass("t2")["status"]
   end
 
-  def test_activation_stays_off_and_every_ready_part_ships_in_the_repo
-    refute Pulse::ACTIVATED
+  def test_activation_is_on_and_every_ready_part_ships_in_the_repo
+    assert Pulse::ACTIVATED
     root = File.expand_path("..", __dir__)
     Pulse::READY_PARTS.each do |part|
       assert File.file?(File.join(root, part.end_with?(".md") ? part : "scripts/#{part}.rb")), part

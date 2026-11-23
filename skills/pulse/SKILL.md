@@ -13,8 +13,8 @@ over nothing is not a pass.
 
 Trigger: pulse engages by itself on a long run (a Workflow or plan run, 2 or
 more background agents, or away mode with open work). `/cf:pulse off` and
-`/cf:pulse on` set the per-session opt-out. Landing this skill does not turn
-pulse on: the engage hook stays silent until the toolkit marks pulse active.
+`/cf:pulse on` set the per-session opt-out. The engage hook speaks only when
+the toolkit marks pulse active and every ready part is installed.
 
 ## Roles
 
@@ -101,7 +101,12 @@ proposal.
 
 Run `pulse_store.rb pass-end --task-id <pass-id> --findings <n>` when a pass
 ends: an empty pass doubles the interval (to 60 minutes), a pass with findings
-resets it. Grants arrive in a later phase.
+resets it. Push run events with `pulse_watch.rb emit --session <id> --event
+<pr_opened|pr_merged|pr_parked|ci_red|gate_verdict|retry_started|round_started|phase_boundary|resource_gate_fail|run_result>`
+(`pulse_watch.rb --repo OWNER/NAME` also polls PRs and CI). The watcher exits
+at once on a stall, an over-budget command, a pass overrun, flat state or the
+pass interval, and once per burst of events, at least 5 minutes after its last
+event exit. Grants arrive in a later phase.
 
 ## Lenses
 
