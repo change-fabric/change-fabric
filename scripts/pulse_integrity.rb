@@ -3,6 +3,7 @@
 
 require 'json'
 require 'digest'
+require 'set'
 require_relative 'pulse_store'
 
 # C5: deterministic integrity checks over the run results a session records in
@@ -11,12 +12,16 @@ require_relative 'pulse_store'
 # coordinator appends the findings (C1 step 5). A result that is missing
 # evidence yields an evidence-gap finding, never a pass.
 #
-# Result fields: id, verdict, rows, expected, ran, skipped, passed, failed,
+# Result fields: id, verdict, rows, expected, ran, skipped, passed, failed, judged,
 # scope_label, head_sha, gate {sha}. `ran` includes `skipped`; when `expected`
 # is present it is the denominator, so a runner that omits skipped units from
 # `ran` is not misread.
 class PulseIntegrity
   COMPREHENSIVE = /\b(comprehensive|full|complete|exhaustive)\b/i
+  FAIL = /\A(fail|failed|failing|error|errored|red|false|no)\z/i
+  BAD = :malformed
+  COUNTERS = %w[rows ran passed skipped failed judged expected].freeze
+  MAX_BYTES = 2_000_000
   PASS = /\A(pass|passed|passing|ok|success|succeeded|green|true)\z/i
 
   def initialize(session)
@@ -47,83 +52,147 @@ class PulseIntegrity
   private
 
   def scan
-    findings = results.flat_map do |name, text, data|
-      digest = Digest::SHA256.hexdigest(text)
-      check(name, data).map { |finding| finding.merge('result' => name, 'digest' => digest) }
+    seen = Set.new
+    findings = results.flat_map do |name, body, data|
+      digest = Digest::SHA256.hexdigest(body)
+      check(name, data, seen).map { |finding| finding.merge('result' => name, 'digest' => digest) }
     end
-    findings.map { |finding| finding.merge('serves' => serves(finding)).compact }
+    findings.uniq { |finding| [ finding['result'], finding['anchor'] ] }
+            .map { |finding| finding.merge('serves' => serves(finding)).compact }
   end
 
   def results
     Dir.glob(File.join(@dir, 'pulse_results', '*.json')).sort.map do |file|
-      text = File.read(file)
-      [ File.basename(file), text, parse(text) ]
+      text = File.size(file) > MAX_BYTES ? "oversized #{File.size(file)}" : File.read(file)
+      [ File.basename(file), text, parse(file, text) ]
+    rescue SystemCallError
+      [ File.basename(file), 'unreadable', nil ]
     end
   end
 
-  def parse(text)
+  # A result that is too large, truncated, nested past the parser limit, or not
+  # an object parses to nil, which `check` reports as an evidence gap.
+  def parse(file, text)
+    return nil if File.size(file) > MAX_BYTES
+
     data = JSON.parse(text)
     data.is_a?(Hash) ? data : nil
-  rescue JSON::ParserError
+  rescue StandardError
     nil
   end
 
-  def check(name, data)
-    return [ gap(name, 'unreadable', 'result file is not a JSON object') ] unless data
+  def check(name, data, seen)
+    return [ gap(name, 'unreadable', 'result file is oversized, truncated or not a JSON object') ] unless data
 
-    id = data['id'] || name
-    [ vacuous(id, data), skipped_as_pass(id, data), narrowed(id, data), stale_head(id, data), denominator(id, data),
-      verdict_gap(id, data), execution_gap(id, data) ].compact
+    id = text(data['id']).then { |value| value.empty? ? name : value }
+    dup = seen.add?(id) ? nil : gap(name, 'duplicate-record', "result id #{id} already appears in another result file")
+    id = name if dup
+    counts, bad = counters(data)
+    [ dup, vacuous(id, data, counts), skipped_as_pass(id, data, counts), narrowed(id, data, counts), stale_head(id, data),
+      denominator(id, data, counts), verdict_gap(id, data), execution_gap(id, data, counts), malformed(id, data, bad),
+      inconsistent(id, data, counts) ].compact
+  rescue StandardError => e
+    [ gap(name, 'unreadable', "result could not be checked: #{e.class}") ]
   end
 
-  def passing?(data) = data['verdict'].to_s.strip.match?(PASS)
+  # The one coercion for every counter field: an absent or null field is nil
+  # (unknown), a non-negative integer (or an integral finite float) is itself,
+  # and anything else (false, a string, a negative, a fraction, NaN, a nested
+  # value) is malformed. Malformed reads as unknown in every check and is
+  # reported as an evidence gap, never as healthy and never as a crash.
+  def counters(data)
+    bad = []
+    counts = COUNTERS.to_h do |key|
+      value = count(data[key])
+      bad << key if value == BAD
+      [ key, value == BAD ? nil : value ]
+    end
+    [ counts, bad ]
+  end
+
+  def count(value)
+    case value
+    when nil then nil
+    when Integer then value.negative? ? BAD : value
+    when Float then value.finite? && !value.negative? && value == value.floor ? value.to_i : BAD
+    else BAD
+    end
+  end
+
+  def text(value) = value.is_a?(String) ? value.scrub.strip : ''
+
+  def label(data) = data['scope_label'].is_a?(String) ? text(data['scope_label']) : data['scope_label'].to_s.scrub
+
+  def verdict(data) = [ true, false ].include?(data['verdict']) ? data['verdict'].to_s : text(data['verdict'])
+
+  def passing?(data) = verdict(data).match?(PASS)
+
+  def malformed(id, data, bad)
+    return if bad.empty?
+
+    gap(id, 'counter-malformed', bad.map { |key| "#{key}: #{data[key].inspect[0, 40]}" }.join(', '))
+  end
 
   # A pass that reports no execution count at all cannot show anything ran.
-  def execution_gap(id, data)
-    return unless passing?(data) && %w[rows ran passed].none? { |key| data[key].is_a?(Numeric) }
+  def execution_gap(id, data, counts)
+    return unless passing?(data) && %w[rows ran passed judged].all? { |key| counts[key].nil? }
 
-    gap(id, 'execution-unknown', 'passing result reports no rows, ran or passed count')
+    gap(id, 'execution-unknown', 'passing result reports no rows, ran, passed or judged count')
   end
 
   def verdict_gap(id, data)
-    gap(id, 'verdict-unknown', 'result has no verdict') if data['verdict'].to_s.strip.empty?
+    return gap(id, 'verdict-unknown', 'result has no verdict') if verdict(data).empty?
+
+    gap(id, 'verdict-unrecognized', "verdict #{verdict(data)[0, 40].inspect} is not a known pass or fail") unless passing?(data) || verdict(data).match?(FAIL)
   end
 
-  def vacuous(id, data)
+  # Counts that contradict each other on a pass: more passed than ran, any
+  # failure, or more ran than the inventory.
+  def inconsistent(id, data, counts)
     return unless passing?(data)
 
-    zero = %w[rows ran].find { |key| data[key].is_a?(Numeric) && data[key].zero? }
-    finding(id, 'vacuous-pass', 'P0', "vacuous pass: #{id} recorded PASS with #{zero}: 0", "#{zero}: 0, verdict: #{data['verdict']}") if zero
+    ran, passed, failed, expected = counts.values_at('ran', 'passed', 'failed', 'expected')
+    return unless (ran && passed && passed > ran) || failed.to_i.positive? || (ran && expected && ran > expected)
+
+    gap(id, 'counts-inconsistent', "ran: #{ran.inspect}, passed: #{passed.inspect}, failed: #{failed.inspect}, expected: #{expected.inspect}")
+  end
+
+  # A pass whose execution count is zero by any field cannot show anything ran.
+  def vacuous(id, data, counts)
+    return unless passing?(data)
+
+    zero = %w[rows ran passed judged].find { |key| counts[key]&.zero? }
+    finding(id, 'vacuous-pass', 'P0', "vacuous pass: #{id} recorded PASS with #{zero}: 0", "#{zero}: 0, verdict: #{verdict(data)}") if zero
   end
 
   # skipped units must not count as passed: passed can reach at most
   # ran - skipped - failed.
-  def skipped_as_pass(id, data)
-    skipped, ran, passed = data.values_at('skipped', 'ran', 'passed')
-    return unless passing?(data) && [ skipped, ran, passed ].all?(Numeric) && skipped.positive?
+  def skipped_as_pass(id, data, counts)
+    skipped, ran, passed = counts.values_at('skipped', 'ran', 'passed')
+    return unless passing?(data) && [ skipped, ran, passed ].none?(&:nil?) && skipped.positive?
 
-    total = data['expected'].is_a?(Numeric) ? data['expected'] : ran
-    failed = data['failed'].to_i
+    total = counts['expected'] || ran
+    failed = counts['failed'].to_i
     return unless passed > total - skipped - failed || passed + failed > ran
 
     finding(id, 'skipped-as-pass', 'P0', "skipped counted as pass: #{id} skipped #{skipped} and counted them in passed",
-            "skipped: #{skipped}, ran: #{ran}, passed: #{passed}, verdict: #{data['verdict']}")
+            "skipped: #{skipped}, ran: #{ran}, passed: #{passed}, verdict: #{verdict(data)}")
   end
 
-  def narrowed(id, data)
-    expected, ran = data.values_at('expected', 'ran')
-    return unless passing?(data) && [ expected, ran ].all?(Numeric) && data['scope_label'].to_s.match?(COMPREHENSIVE)
+  def narrowed(id, data, counts)
+    expected, ran = counts.values_at('expected', 'ran')
+    return unless passing?(data) && expected && ran && label(data).match?(COMPREHENSIVE)
 
-    judged = ran - data['skipped'].to_i
+    judged = counts['judged'] || ran - counts['skipped'].to_i
     return unless judged < expected
 
     finding(id, 'narrowed-comprehensive', 'P0', "narrowed run claims comprehensive coverage: #{id} judged #{judged} of #{expected}",
-            "expected: #{expected}, ran: #{ran}, skipped: #{data['skipped'].to_i}, scope_label: #{data['scope_label']}")
+            "expected: #{expected}, ran: #{ran}, skipped: #{counts['skipped'].to_i}, scope_label: #{label(data)}")
   end
 
   def stale_head(id, data)
-    gate = data['gate'].is_a?(Hash) ? data['gate']['sha'].to_s : ''
-    head = data['head_sha'].to_s
+    gate = data['gate'].is_a?(Hash) ? text(data['gate']['sha']) : ''
+    head = text(data['head_sha'])
     return unless passing?(data)
     return gap(id, 'gate-unknown', 'passing result has no gate sha or head sha to bind it') if gate.empty? || head.empty?
     return if gate == head
@@ -132,8 +201,8 @@ class PulseIntegrity
             "gate.sha: #{gate}, head_sha: #{head}", 'queued')
   end
 
-  def denominator(id, data)
-    return unless passing?(data) && !data['expected'].is_a?(Numeric)
+  def denominator(id, data, counts)
+    return unless passing?(data) && counts['expected'].nil?
 
     gap(id, 'denominator-unknown', 'result carries no expected inventory, so coverage cannot be judged')
   end
