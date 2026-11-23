@@ -107,6 +107,15 @@ class PulseStampTest < Minitest::Test
     assert_includes stamp("PostToolUse", at: 6, activated: true, tool_name: "Bash", tool_input: {}), "re-arm"
   end
 
+  def test_engaged_stamp_records_whether_work_is_active_for_the_interval
+    install_parts
+    stamp("PostToolUse", activated: true, **workflow_event)
+    assert_equal true, PulseStore.new(@session).cursor["active"]
+    state.update_pulse { |pulse| pulse.delete("workflow_active") }
+    stamp("PostToolUse", at: 1, activated: true, tool_name: "Bash", tool_input: {})
+    assert_equal false, PulseStore.new(@session).cursor["active"]
+  end
+
   def test_live_watcher_suppresses_the_arm_request_and_a_dead_pid_brings_it_back
     install_parts
     beat = ->(pid) { File.write(File.join(@dir, "watcher.json"), JSON.generate(heartbeat_at: t(0).iso8601, pid: pid, interval: 60)) }

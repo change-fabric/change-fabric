@@ -132,6 +132,8 @@ class PulseStamp
       store.advance_cursor('engaged_at' => iso)
       record = state.update_pulse { |pulse| pulse['engaged_at'] = iso }
     end
+    active = !!active_work?(record)
+    store.advance_cursor('active' => active) unless store.cursor['active'] == active
     lines = [ watcher_line(record), (DUE if due?(record, store.cursor)) ].compact
     lines.join("\n") if SPEAKS_ON.include?(@name) && !lines.empty?
   end

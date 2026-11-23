@@ -134,7 +134,7 @@ class PulsePrecheck
 
   def interval_due?(cursor)
     last = cursor['last_pass_at'] || cursor['engaged_at']
-    return false if last.nil? || (children.empty? && budgets.empty?)
+    return false if last.nil? || !(cursor['active'] || !children.empty? || !budgets.empty?)
 
     @now - Time.parse(last) >= self.class.interval_s(cursor['empty_passes'])
   end
