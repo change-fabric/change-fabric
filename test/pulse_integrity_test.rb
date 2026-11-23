@@ -94,6 +94,16 @@ class PulseIntegrityTest < Minitest::Test
     refute_empty integrity.run, "a changed result is checked again"
   end
 
+  def test_a_partial_append_leaves_the_whole_result_pending
+    load_fixture("zero_row_pass", result: %({"id":"s","verdict":"PASS","rows":0,"ran":0,"expected":10,"scope_label":"full",#{GATED}}))
+    found = integrity.run
+    assert_equal %w[narrowed-comprehensive vacuous-pass], found.map { |f| f["check"] }.sort
+    integrity.commit([ found.first ])
+    assert_equal 2, integrity.run.size
+    integrity.commit(found)
+    assert_empty integrity.run
+  end
+
   def test_commit_forgets_results_whose_file_is_gone
     load_fixture("zero_row_pass")
     integrity.commit(integrity.run)

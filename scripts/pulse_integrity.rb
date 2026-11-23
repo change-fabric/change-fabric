@@ -29,26 +29,30 @@ class PulseIntegrity
   # cursor is not advanced here; `commit` does that once they are appended.
   def run
     seen = @store.cursor['integrity_digests'] || {}
-    findings = results.flat_map do |name, text, data|
-      digest = Digest::SHA256.hexdigest(text)
-      next [] if seen[name] == digest
-
-      check(name, data).map { |finding| finding.merge('result' => name, 'digest' => digest) }
-    end
-    findings.map { |finding| finding.merge('serves' => serves(finding)).compact }
+    scan.reject { |finding| seen[finding['result']] == finding['digest'] }
   end
 
-  # Records the digests of results whose findings were appended (the findings
-  # JSON that `run` printed), and forgets results whose file is gone. Called
-  # only after a successful append, so a failed append is retried.
-  def commit(findings)
-    names = results.map(&:first)
-    kept = (@store.cursor['integrity_digests'] || {}).slice(*names)
-    findings.each { |finding| kept[finding['result']] = finding['digest'] if names.include?(finding['result']) }
+  # Records a result's digest only when every finding it produced is in the
+  # given list (the appended findings from `run`), so a partial append is
+  # retried whole. Forgets results whose file is gone.
+  def commit(appended)
+    done = appended.map { |finding| [ finding['result'], finding['digest'], finding['anchor'] ] }
+    kept = (@store.cursor['integrity_digests'] || {}).slice(*results.map(&:first))
+    scan.group_by { |finding| [ finding['result'], finding['digest'] ] }.each do |(name, digest), found|
+      kept[name] = digest if found.all? { |finding| done.include?([ name, digest, finding['anchor'] ]) }
+    end
     @store.advance_cursor('integrity_digests' => kept)
   end
 
   private
+
+  def scan
+    findings = results.flat_map do |name, text, data|
+      digest = Digest::SHA256.hexdigest(text)
+      check(name, data).map { |finding| finding.merge('result' => name, 'digest' => digest) }
+    end
+    findings.map { |finding| finding.merge('serves' => serves(finding)).compact }
+  end
 
   def results
     Dir.glob(File.join(@dir, 'pulse_results', '*.json')).sort.map do |file|
