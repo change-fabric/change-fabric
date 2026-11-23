@@ -37,7 +37,7 @@ class PulseScope
   end
 
   def project_source
-    path = override_paths.first unless override_conflict?
+    path = goal_path(overrides.first.last) if overrides.any? && !override_conflict?
     path ||= ctx_goal
     path ? [ entry('project_goal', path) ].compact : []
   end
@@ -58,7 +58,11 @@ class PulseScope
     end
   end
 
-  def override_paths = overrides.map(&:first)
+  # The override names a goal document, relative to the project or with ~.
+  def goal_path(goal)
+    path = File.expand_path(goal.start_with?('~') ? goal.sub('~', @home) : goal, @project)
+    path if File.file?(path)
+  end
 
   def override_conflict? = overrides.map(&:last).uniq.size > 1
 

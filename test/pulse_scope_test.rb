@@ -39,4 +39,14 @@ class PulseScopeTest < Minitest::Test
     assert_equal "~/x", scope.send(:tilde, "/Users/pst/x")
     assert_equal "/Users/pstx/x", scope.send(:tilde, "/Users/pstx/x")
   end
+
+  def test_override_registers_the_named_goal_document_not_the_instruction_file
+    project = File.join(@home, "proj")
+    FileUtils.mkdir_p(project)
+    File.write(File.join(project, "AGENTS.md"), "pulse.goal: docs/goal.md\n")
+    FileUtils.mkdir_p(File.join(project, "docs"))
+    File.write(File.join(project, "docs", "goal.md"), "Real goal.\n")
+    sources = PulseScope.new(session: @session, project: project).resolve["sources"]
+    assert_equal [ "~/proj/docs/goal.md" ], sources.map { |s| s["source_path"] }
+  end
 end
