@@ -22,8 +22,6 @@ class PulseIntegrationTest < Minitest::Test
   def run_sequence(session)
     scope = cli("pulse_scope.rb", "resolve", "--session", session, "--project", @home, "--plan-dir", @plan)
     check = cli("pulse_precheck.rb", "--session", session, "--now", t(1).iso8601, "--json")
-    return [ scope, check, [], [] ] unless check["due"]
-
     findings = cli("pulse_integrity.rb", "--session", session, "--json")
     stored = findings.map { |f| cli("pulse_store.rb", "append", "--session", session, input: JSON.generate(f)) }
     queued = stored.zip(findings).select { |_, f| f["severity"] == "P0" }.map { |s, _| cli("pulse_store.rb", "notify", "--session", session, "--finding", s["id"]) }
@@ -96,9 +94,10 @@ class PulseIntegrationTest < Minitest::Test
     assert_equal [ "event:gate_verdict" ], later["reasons"]
   end
 
-  def test_nothing_due_skips_integrity
-    _, check, stored, = run_sequence(@session)
+  def test_integrity_runs_even_when_the_precheck_is_not_due
+    _, check, stored, queued = run_sequence(@session)
     refute check["due"]
-    assert_empty stored
+    assert_equal [ "stored" ], stored.map { |s| s["status"] }
+    assert_equal 1, queued.size
   end
 end

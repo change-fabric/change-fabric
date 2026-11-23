@@ -34,7 +34,8 @@ nudge; the watcher exit is the dispatch path.
 1. `ruby ~/.claude/cf/bin/pulse_scope.rb resolve --session <id>` persists the
    allowed scope sources. The reviewer never nominates a source.
 2. `ruby ~/.claude/cf/bin/pulse_precheck.rb --session <id> --json`. Not due:
-   go to step 6. Elapsed deadlines and unconsumed watcher events count as
+   skip step 4 (no model pass) but still run steps 3, 5 and 6, since integrity
+   results can land with no watcher event. Elapsed deadlines and unconsumed watcher events count as
    change. The check is read-only. Keep its JSON: step 4 pipes it back with
    `--commit-result true`, which consumes exactly what this check saw, so a
    failed reservation or spawn leaves them due and later arrivals are not lost.

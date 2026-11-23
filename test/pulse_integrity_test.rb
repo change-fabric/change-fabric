@@ -63,6 +63,10 @@ class PulseIntegrityTest < Minitest::Test
     end
   end
 
+  def test_passing_result_with_no_execution_counts_is_an_evidence_gap
+    assert_equal [ "evidence-gap-execution-unknown" ], checks(%({"id":"s","verdict":"PASS","expected":100,#{GATED}}))
+  end
+
   def test_missing_verdict_is_an_evidence_gap
     assert_equal [ "evidence-gap-verdict-unknown" ], checks(%({"id":"s","rows":3,"expected":3,#{GATED}}))
   end

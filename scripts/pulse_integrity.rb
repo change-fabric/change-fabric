@@ -73,10 +73,17 @@ class PulseIntegrity
 
     id = data['id'] || name
     [ vacuous(id, data), skipped_as_pass(id, data), narrowed(id, data), stale_head(id, data), denominator(id, data),
-      verdict_gap(id, data) ].compact
+      verdict_gap(id, data), execution_gap(id, data) ].compact
   end
 
   def passing?(data) = data['verdict'].to_s.strip.match?(PASS)
+
+  # A pass that reports no execution count at all cannot show anything ran.
+  def execution_gap(id, data)
+    return unless passing?(data) && %w[rows ran passed].none? { |key| data[key].is_a?(Numeric) }
+
+    gap(id, 'execution-unknown', 'passing result reports no rows, ran or passed count')
+  end
 
   def verdict_gap(id, data)
     gap(id, 'verdict-unknown', 'result has no verdict') if data['verdict'].to_s.strip.empty?
