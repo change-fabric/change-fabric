@@ -106,9 +106,20 @@ class PulseDispatchSpikeTest < Minitest::Test
     clock = [ t(0) ]
     health = PulseWatch::Health.new(@session, clock: -> { clock.first })
     3.times { health.record_failed_start }
-    health.beat(60, started: true)
+    health.beat(60)
+    health.clear_failures
     clock[0] = t(120)
     3.times { health.record_failed_start }
     assert_equal 2, PulseStore.new(@session).rows.count { |r| r["claim"] == "pulse-dispatch-down" }
+  end
+
+  def test_a_start_that_fails_its_first_poll_does_not_clear_the_counter
+    File.write(File.join(@dir, "pulse_budgets.json"), JSON.generate([ { command: "x", budget_s: 1, started_at: "garbage" } ]))
+    health = PulseWatch::Health.new(@session)
+    3.times do
+      assert_raises(ArgumentError) { PulseWatch.new(session: @session, ttl: 1, sleeper: ->(_) { }).run }
+      health.record_failed_start
+    end
+    assert_equal "dispatch_down", health.check
   end
 end

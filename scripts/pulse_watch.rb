@@ -33,10 +33,14 @@ class PulseWatch
   # Returns [exit_code, event_hash].
   def run
     started = @clock.call
-    Health.new(@session, clock: @clock).beat(@interval, started: true)
+    cleared = false
     loop do
-      Health.new(@session, clock: @clock).beat(@interval)
+      health = Health.new(@session, clock: @clock)
+      health.beat(@interval)
       hit = PulsePrecheck.new(@session, now: @clock.call).deadlines.find { |d| !announced?(d['fingerprint']) }
+      # A start counts as good only after one successful poll.
+      health.clear_failures unless cleared
+      cleared = true
       return emit(hit) if hit
       return [ TIMEOUT, { event: 'timeout', ttl: @ttl } ] if @clock.call - started >= @ttl
 
@@ -54,13 +58,11 @@ class PulseWatch
       @path = File.join(Pulse.session_dir(session), 'watcher.json')
     end
 
-    def beat(interval, started: false)
-      locked do
-        data = read.merge('heartbeat_at' => @clock.call.utc.iso8601, 'pid' => Process.pid, 'interval' => interval)
-        data = data.except('failed_starts', 'outage_at') if started
-        write(data)
-      end
+    def beat(interval)
+      locked { write(read.merge('heartbeat_at' => @clock.call.utc.iso8601, 'pid' => Process.pid, 'interval' => interval)) }
     end
+
+    def clear_failures = locked { write(read.except('failed_starts', 'outage_at')) }
 
     # ok, rearm (heartbeat older than 2 poll periods, or the pid is gone) or
     # dispatch_down (3 failed starts in a row).
