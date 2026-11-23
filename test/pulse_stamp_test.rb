@@ -7,7 +7,7 @@ require_relative "../scripts/pulse_stamp"
 require_relative "../scripts/native_hook_install"
 require_relative "../scripts/pulse_scope"
 
-# While Pulse::ACTIVATED is false it must never
+# With activated: false (the constructor default here) it must never
 # print a dispatch line, arm a watcher or write an engaged cursor.
 class PulseStampTest < Minitest::Test
   include PulseHome
@@ -30,7 +30,7 @@ class PulseStampTest < Minitest::Test
 
   def install_parts(except: nil)
     (Pulse::READY_PARTS - [ except ].compact).each do |part|
-      path = part.end_with?(".md") ? File.join(@home, ".claude", "skills", part.delete_prefix("skills/")) : File.join(@bin, "#{part}.rb")
+      path = PulseStamp.installed_path(part, bin: @bin, home: @home)
       FileUtils.mkdir_p(File.dirname(path))
       File.write(path, "")
     end

@@ -26,7 +26,16 @@ class PulsePrecheck
   # Read-only: every deadline crossed right now, each with a fingerprint that
   # changes when the underlying state does.
   def deadlines
-    stalls + over_budget + pass_overrun
+    stalls + over_budget + pass_overrun + flat_state
+  end
+
+  # The 20 minute pass interval (backoff to 60) as a watcher deadline, so a
+  # quiet run still gets its pass. Fingerprinted by the last pass.
+  def interval_deadline
+    cursor = @store.cursor
+    return unless interval_due?(cursor)
+
+    deadline('interval', 'interval', [ cursor['last_pass_at'] || cursor['engaged_at'], cursor['empty_passes'].to_i ])
   end
 
   # Returns {due, reasons[], cursor}. Read-only: the cursor update in the
@@ -105,6 +114,20 @@ class PulsePrecheck
     [ deadline('pass_overrun', "pass_overrun:#{pass['task_id']}", [ pass['task_id'], pass['started_at'] ]).merge('task_id' => pass['task_id']) ]
   rescue JSON::ParserError
     []
+  end
+
+  # Unfinished budgeted commands and no signal for one full interval. Open
+  # children are the stall check's job, so this covers work with no child to
+  # stall. Deadline records the watcher itself wrote do not count as signal.
+  def flat_state
+    active = budgets.reject { |b| b['finished_at'] }
+    return [] if active.empty? || children.any? { |_, c| !c['done'] }
+
+    signals = events.reject { |e| e['fingerprint'] }.filter_map { |e| e['at'] } + active.map { |b| b['started_at'] }
+    latest = signals.filter_map { |t| Time.parse(t) rescue nil }.max # rubocop:disable Style/RescueModifier
+    return [] unless latest && @now - latest >= self.class.interval_s(@store.cursor['empty_passes'])
+
+    [ deadline('flat_state', 'flat_state', [ latest.iso8601, *active.map { |b| b['command'] }.sort ]) ]
   end
 
   def deadline(kind, reason, parts) = { 'kind' => kind, 'reason' => reason, 'fingerprint' => Pulse.sha([ kind, *parts ].join('|')) }

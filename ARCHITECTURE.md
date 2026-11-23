@@ -50,7 +50,8 @@ Wired by `install.rb` per lifecycle event (Claude Code names shown):
 
 `pulse_stamp.rb` is wired by `native_hook_install.rb` as its own command (not
 through `cf_host_hook.rb`). It stamps activity into the session record and
-records engage triggers; it prints nothing until `Pulse::ACTIVATED` is true.
+records engage triggers; it speaks only when `Pulse::ACTIVATED` is true and every
+`Pulse::READY_PARTS` entry is installed.
 
 Every hook reads its event through `scripts/hook_event.rb` and fails silent.
 SessionStart hooks state rules up front (`doctrine_digest.rb` holds the

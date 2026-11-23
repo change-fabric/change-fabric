@@ -97,6 +97,6 @@ class PulsePrecheckTest < Minitest::Test
   def test_budget_only_session_gets_an_initial_pass
     File.write(File.join(@dir, "pulse_budgets.json"), JSON.generate([ { command: "suite", budget_s: 7200, started_at: t(0).iso8601 } ]))
     assert_includes check(1)["reasons"], "state_changed"
-    assert_equal [ "interval" ], check(21)["reasons"]
+    assert_equal %w[flat_state interval], check(21)["reasons"].sort
   end
 end
