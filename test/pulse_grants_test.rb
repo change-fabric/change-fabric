@@ -185,10 +185,26 @@ class PulseGrantsTest < Minitest::Test
     refute walled.send(:grants).allows?("nudge_worker"), "the real clock is far past the 2026-11-22 expiry"
   end
 
+  def test_a_caller_named_project_cannot_borrow_another_projects_grant_or_run_here
+    other = File.join(@home, "other")
+    FileUtils.mkdir_p(other)
+    record(attrs(repo: CfProjectIdentity.for(other).id))
+    assert_equal "wrong-project", PulseActFixture.new(@home, @project, @store, act_project: other).prepare.authorize("nudge_worker")["reason"]
+    assert_equal "grant-wrong-project", PulseActFixture.new(@home, @project, @store).prepare.authorize("nudge_worker")["reason"],
+                 "a grant for the other project does not apply to this session"
+  end
+
+  def test_a_session_with_no_project_stamp_honors_no_grant
+    record
+    assert_equal "grant-wrong-project", PulseActFixture.new(@home, @project, @store, stamp: false).prepare.authorize("nudge_worker")["reason"]
+  end
+
   # A pulse session with one stalled child and a plan that has no pulse-allow
   # line, so only a grant can authorize.
   class PulseActFixture
-    def initialize(home, project, store, now: T0 + 300)
+    def initialize(home, project, store, now: T0 + 300, stamp: true, act_project: nil)
+      @stamp = stamp
+      @act_project = act_project
       @home = home
       @project = project
       @store = store
@@ -206,7 +222,9 @@ class PulseGrantsTest < Minitest::Test
       sources = %w[goal plan].map { |name| { "role" => "run_#{name}", "source_path" => File.join(plan, "#{name}.md"), "revision" => Pulse.sha(File.read(File.join(plan, "#{name}.md"))) } }
       File.write(File.join(@dir, "pulse_scope.json"), JSON.generate("sources" => sources))
       File.write(File.join(@dir, "pulse_events.jsonl"), "#{JSON.generate(child_id: 'w1', state_digest: 'd1', at: T0.iso8601)}\n")
-      CfState.new(host: "claude", project: @project, session_id: @session).update({ "mode" => "admin-bypass" })
+      state = CfState.new(host: "claude", project: @project, session_id: @session)
+      state.update({ "mode" => "admin-bypass" })
+      state.update_pulse { |pulse| pulse["project_id"] = CfProjectIdentity.for(@project).id } if @stamp
       goal = sources.first
       @finding = PulseStore.new(@session).append("kind" => "stall", "severity" => "P2", "claim" => "w1 stalled", "evidence" => "no change", "anchor" => "w1 stall",
                                                   "action_class" => "auto", "serves" => { "source_path" => goal["source_path"], "revision" => goal["revision"],
@@ -215,7 +233,7 @@ class PulseGrantsTest < Minitest::Test
     end
 
     def authorize(action, target = "w1")
-      PulseAct.new(@session, project: @project, now: @now).authorize(finding: @finding, action: action, target: target, observed_at: T0.iso8601, text: "report status")
+      PulseAct.new(@session, project: @act_project || @project, now: @now).authorize(finding: @finding, action: action, target: target, observed_at: T0.iso8601, text: "report status")
     end
   end
 end

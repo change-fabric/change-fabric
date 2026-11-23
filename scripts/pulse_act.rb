@@ -11,6 +11,7 @@ require_relative 'pulse_store'
 require_relative 'pulse_precheck'
 require_relative 'cf_state'
 require_relative 'pulse_grants'
+require_relative 'cf_project_identity'
 
 # C3: an authorization and reservation service. It never touches a worker: it
 # returns a typed command, the coordinator runs it through the one `pulse-exec`
@@ -165,6 +166,7 @@ class PulseAct
   def denial(req)
     return 'action-not-allowed' unless TOOLS.key?(req['action'])
     return 'local-only' if merge_mode == 'local-only'
+    return 'wrong-project' if session_project_id && session_project_id != CfProjectIdentity.for(@project).id
 
     finding = @store.findings[req['finding']]
     return 'unknown-finding' unless finding
@@ -213,7 +215,16 @@ class PulseAct
   # be able to back-date a grant's expiry.
   # Phone-approved console receipts only (pulse_grants.rb); re-verified on
   # every call, so authorize and begin both see an expiry the moment it lands.
-  def grants = PulseGrants.new(project: @project, now: @wall_clock ? Time.now : @now)
+  def grants = PulseGrants.new(project: @project, now: @wall_clock ? Time.now : @now, project_id: session_project_id.to_s)
+
+  # The project the session was stamped with (pulse_stamp.rb, from the first
+  # event's cwd). A caller's --project can never change it; a session with no
+  # stamp has no project, so no grant applies to it.
+  def session_project_id
+    @session_project_id ||= CfState.new(host: 'claude', project: @project, session_id: @session, root: CfState.root).pulse['project_id']
+  rescue StandardError
+    nil
+  end
 
   # The run's plan.md lists the acts it authorizes: `pulse-allow: nudge_worker, stop_runaway`.
   # A verified, unexpired grant (`grants`) widens this list.

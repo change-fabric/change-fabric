@@ -30,8 +30,9 @@ class PulseGrants
 
   # `rejected` maps a record's grant id (or its file position) to why it was
   # refused, so a denial can name the reason.
-  def initialize(project: Dir.pwd, store: ApprovalConsole::LocalStore.new, grants: ChangeGrantStore.new, now: Time.now)
+  def initialize(project: Dir.pwd, store: ApprovalConsole::LocalStore.new, grants: ChangeGrantStore.new, now: Time.now, project_id: nil)
     @project = project
+    @project_id = project_id
     @store = store
     @grants = grants
     @now = now
@@ -75,7 +76,7 @@ class PulseGrants
   end
 
   def problem(record, body, id)
-    return 'wrong-project' unless body['repo'] == CfProjectIdentity.for(@project).id && record['repo'] == body['repo']
+    return 'wrong-project' unless body['repo'] == (@project_id || CfProjectIdentity.for(@project).id) && record['repo'] == body['repo']
     return 'tampered' unless record['grant_id'] == id
     return 'unverified' if verification_problem(record['proof'])
 
