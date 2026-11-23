@@ -131,7 +131,7 @@ class PulseActTest < Minitest::Test
     key = authorize["key"]
     act.begin(key)
     transcript = File.join(@home, "transcript.txt")
-    File.write(transcript, "assistant: sent please report status\n")
+    File.write(transcript, "assistant: SendMessage w1 please report status\n")
     assert_equal "acked", act.reconcile(key, transcript: transcript)["state"]
     assert_equal "not-executing", act.reconcile(key, transcript: transcript)["reason"]
   end
@@ -162,7 +162,13 @@ class PulseActTest < Minitest::Test
     PulseStore.new(@session).append_system("kind" => "integrity", "severity" => "P0", "claim" => "vacuous pass", "evidence" => "rows 0", "anchor" => "r")
     id = PulseStore.new(@session).rows.last["id"]
     PulseStore.new(@session).queue_notify(id)
-    assert_equal [ "delivered" ], act.notify.map { |r| r["state"] }
+    filed = act.notify
+    assert_equal [ "filed" ], filed.map { |r| r["state"] }
+    assert_match(/Inbox announce/, filed.first["doorbell"])
+    assert_equal [ "filed" ], act.notify.map { |r| r["state"] }, "returned again until the doorbell is surfaced"
+    assert_equal "delivered", act.delivered(id)["state"]
+    assert_empty act.notify
+    assert_equal "not-filed", act.delivered(id)["reason"]
     assert_equal 2, Dir.glob(File.join(@home, "inbox", "inbox", "*", "*pulse-p0*")).size
   ensure
     ENV.delete("INBOX_ROOT")
@@ -201,6 +207,25 @@ class PulseActTest < Minitest::Test
       act(5 + i).ack(key, result: "error")
     end
     assert_equal "attempts-exhausted", authorize(minutes: 8)["reason"]
+  end
+
+  def test_reauthorizing_with_a_new_observation_refreshes_the_cached_authorization
+    authorize
+    write_events({ child_id: "w1", state_digest: "d2", at: t(6).iso8601 })
+    fresh = authorize(minutes: 7, observed: t(6).iso8601)
+    assert_equal "executing", act(7).begin(fresh["key"])["state"]
+  end
+
+  def test_a_nudge_is_reconciled_only_by_a_send_message_line_not_the_authorize_call
+    key = authorize["key"]
+    act.begin(key)
+    transcript = File.join(@home, "t.txt")
+    File.write(transcript, "ruby pulse_act.rb authorize --target w1 --text please report status\n")
+    assert_equal "failed", act.reconcile(key, transcript: transcript)["state"]
+    key = authorize(minutes: 6)["key"]
+    act(6).begin(key)
+    File.write(transcript, "SendMessage to w1: please report status\n")
+    assert_equal "acked", act(6).reconcile(key, transcript: transcript)["state"]
   end
 
   def test_cli_round_trip

@@ -27,7 +27,7 @@ class PulseAct
 
   # Every state transition is serialized (see `exclusive`).
   module Serialized
-    %i[authorize begin ack reconcile notify].each do |name|
+    %i[authorize begin ack reconcile notify delivered].each do |name|
       define_method(name) { |*args, **opts| exclusive { super(*args, **opts) } }
     end
   end
@@ -56,7 +56,8 @@ class PulseAct
     return deny(key, request, reason) if reason
 
     # The cached authorization is reused only when it passes every check again.
-    return prior.slice('state', 'command', 'key', 'expires_at') if prior&.dig('state') == 'authorized' && fresh_auth?(prior) && prior['text'] == request['text']
+    return prior.slice('state', 'command', 'key', 'expires_at') if prior&.dig('state') == 'authorized' && fresh_auth?(prior) &&
+                                                                    prior.values_at('text', 'observed_at') == request.values_at('text', 'observed_at')
 
     row = request.merge('key' => key, 'state' => 'authorized', 'command' => command(action, target, text),
                         'expires_at' => (@now + TTL_S).utc.iso8601)
@@ -96,7 +97,7 @@ class PulseAct
 
     done = case row['action']
     when 'stop_runaway' then finished?(row['target'])
-    when 'nudge_worker' then transcript && File.file?(transcript) && File.read(transcript).include?(row['text'].to_s) && !row['text'].to_s.empty?
+    when 'nudge_worker' then sent_in?(transcript, row)
     else false
     end
     state = done ? 'acked' : 'failed'
@@ -104,30 +105,53 @@ class PulseAct
     { 'state' => state, 'key' => key }
   end
 
+  # The authorize call carries the same text, so only a SendMessage line to
+  # this target, not a pulse_act line, counts as the nudge having been sent.
+  def sent_in?(transcript, row)
+    return false unless transcript && File.file?(transcript) && !row['text'].to_s.empty?
+
+    File.foreach(transcript).any? do |line|
+      line.include?('SendMessage') && line.include?(row['text']) && line.include?(row['target']) && !line.include?('pulse_act')
+    end
+  end
+
   def proposals = read(File.join(@dir, 'pulse_proposals.jsonl'))
 
   # P0 delivery (C3): consumes pulse_notifications.jsonl through the cf:inbox
-  # store (`inbox_store.rb announce`). Each attempt is a new row; a failure is
-  # retried once at the next pass. There is no phone push path outside the
-  # approval console's own request flow, so the row records the inbox channel
-  # only.
+  # store (`inbox_store.rb announce`). Announce only files the item; the
+  # returned doorbell must reach the human, so a filed row carries the doorbell
+  # for the coordinator to surface and is `delivered` only after `delivered`
+  # is called. A filed row is returned again each pass until then; a failed
+  # attempt is retried once. There is no phone push path outside the approval
+  # console's own request flow, so the channel is the inbox only.
   def notify(only: nil)
     path = File.join(@dir, 'pulse_notifications.jsonl')
     newest = read(path).group_by { |row| row['finding'] }.transform_values(&:last)
     newest.filter_map do |id, row|
       next if only && id != only
       next if row['state'] == 'delivered' || (row['state'] == 'failed' && row['attempts'].to_i >= MAX_ATTEMPTS)
+      next row if row['state'] == 'filed'
 
       finding = @store.findings[id]
       next unless finding
 
       outcome = @inbox.call("pulse P0: #{finding['claim']}", "#{finding['evidence']}\n\nfinding #{id}, session #{@session}", id)
       attempts = row['attempts'].to_i + 1
-      done = { 'finding' => id, 'state' => outcome[:ok] ? 'delivered' : 'failed', 'channel' => 'inbox', 'attempts' => attempts,
-               'error' => outcome[:error], 'at' => iso }.compact
+      done = { 'finding' => id, 'state' => outcome[:ok] ? 'filed' : 'failed', 'channel' => 'inbox', 'attempts' => attempts,
+               'doorbell' => outcome[:doorbell], 'error' => outcome[:error], 'at' => iso }.compact
       File.write(path, "#{JSON.generate(done)}\n", mode: 'a')
       done
     end
+  end
+
+  # The coordinator surfaced the doorbell of a filed P0.
+  def delivered(id)
+    path = File.join(@dir, 'pulse_notifications.jsonl')
+    row = read(path).reverse.find { |r| r['finding'] == id }
+    return { 'state' => 'denied', 'reason' => 'not-filed' } unless row && row['state'] == 'filed'
+
+    File.write(path, "#{JSON.generate(row.merge('state' => 'delivered', 'at' => iso))}\n", mode: 'a')
+    { 'state' => 'delivered', 'finding' => id }
   end
 
   private
@@ -252,13 +276,13 @@ class PulseAct
     out, status = Open3.capture2(RbConfig.ruby, File.join(__dir__, 'inbox_store.rb'), 'announce', '--from', 'all', '--subject', subject,
                                  '--body-file', file, '--refs', ref, chdir: @project)
     result = JSON.parse(out.lines.last.to_s) rescue {} # rubocop:disable Style/RescueModifier
-    status.success? && !result['error'] ? { ok: true } : { ok: false, error: result['error'] || 'inbox failed' }
+    status.success? && !result['error'] ? { ok: true, doorbell: result['doorbell'] } : { ok: false, error: result['error'] || 'inbox failed' }
   ensure
     FileUtils.rm_f(file)
   end
 end
 
-# CLI: authorize|begin|ack|reconcile|notify|proposals --session ID. JSON out.
+# CLI: authorize|begin|ack|reconcile|notify|delivered|proposals --session ID. JSON out.
 class PulseActCLI
   def self.run(argv, out: $stdout)
     cmd, *rest = argv
@@ -280,8 +304,9 @@ class PulseActCLI
     when 'ack' then act.ack(opts.fetch('key'), result: opts.fetch('result'), detail: opts['detail'])
     when 'reconcile' then act.reconcile(opts.fetch('key'), transcript: opts['transcript'])
     when 'notify' then act.notify(only: opts['finding'])
+    when 'delivered' then act.delivered(opts.fetch('finding'))
     when 'proposals' then { 'queued' => act.proposals.size, 'proposals' => act.proposals }
-    else raise ArgumentError, 'usage: pulse_act.rb authorize|begin|ack|reconcile|notify|proposals --session ID'
+    else raise ArgumentError, 'usage: pulse_act.rb authorize|begin|ack|reconcile|notify|delivered|proposals --session ID'
     end
   end
 end

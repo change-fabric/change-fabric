@@ -64,9 +64,12 @@ nudge; the watcher exit is the dispatch path.
    `stored` or `duplicate` goes to `pulse_store.rb notify --session <id>
    --finding <id>` (the id is in the result), which queues the delivery once. Actionable findings are applied only as the action policy
    allows, through the `pulse-exec` adapter below. Everything else is a
-   proposal. Then deliver P0s: `pulse_act.rb notify --session <id>`, which
-   announces each queued P0 in the cf:inbox store (`inbox_store.rb announce`)
-   and retries a failure once at the next pass.
+   proposal. Then deliver P0s:
+   `pulse_act.rb notify --session <id>` files each queued P0 in the cf:inbox
+   store (`inbox_store.rb announce`) and returns a `doorbell` line. Surface
+   that line to the human, then run `pulse_act.rb delivered --session <id>
+   --finding <fid>`. A filed P0 comes back each pass until then, and a failed
+   filing is retried once.
 6. Re-arm the watcher (`pulse_watch.rb --session <id>`, background). Re-arm is
    the last step of every handling turn, success or failure.
 
