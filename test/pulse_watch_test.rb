@@ -109,6 +109,12 @@ class PulseWatchTest < Minitest::Test
     assert_equal %w[ci_red pr_opened pr_merged], names
   end
 
+  def test_a_failing_forge_poll_keeps_the_snapshot_and_local_deadlines_still_exit
+    File.write(File.join(@dir, "pulse_pass.json"), JSON.generate(task_id: "pulse-1", started_at: t(0).iso8601))
+    code, = run_watch(start: 5, ttl: 3600, prs: -> { raise JSON::ParserError, "empty" })
+    assert_equal 12, code
+  end
+
   def test_cli_emit_and_unknown_event_setup_error
     out = StringIO.new
     assert_equal 0, PulseWatch::CLI.run(%w[emit --session s1 --event pr_parked --pr 7], out: out)

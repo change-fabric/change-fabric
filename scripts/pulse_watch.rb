@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'English'
 require 'time'
 require 'fileutils'
 require_relative 'pulse_store'
@@ -181,7 +182,12 @@ class PulseWatch
 
     health = Health.new(@session, clock: @clock)
     seen = health.data['prs'] || {}
-    now = @prs.call.to_h { |pr| [ pr['number'].to_s, pr ] }
+    # A forge failure keeps the last snapshot and never stops the local checks.
+    now = begin
+      @prs.call.to_h { |pr| [ pr['number'].to_s, pr ] }
+    rescue StandardError
+      return
+    end
     return health.note('prs' => now) unless health.data.key?('prs')
 
     now.each do |number, pr|
@@ -207,9 +213,11 @@ class PulseWatch
   # `gh pr list` as the default PR source for `--repo owner/name`.
   def self.gh_prs(repo)
     out = IO.popen([ 'gh', 'pr', 'list', '--repo', repo, '--state', 'all', '--limit', '30', '--json', 'number,state,headRefOid,statusCheckRollup' ], &:read)
+    raise 'gh pr list failed' unless $CHILD_STATUS.success?
+
     JSON.parse(out).map do |pr|
       { 'number' => pr['number'], 'state' => pr['state'], 'head_sha' => pr['headRefOid'],
-        'ci_red' => Array(pr['statusCheckRollup']).any? { |c| %w[FAILURE TIMED_OUT CANCELLED].include?(c['conclusion']) } }
+        'ci_red' => Array(pr['statusCheckRollup']).any? { |c| %w[FAILURE ERROR TIMED_OUT CANCELLED].include?(c['conclusion'] || c['state']) } }
     end
   end
 
