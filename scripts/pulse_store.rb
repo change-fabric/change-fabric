@@ -74,7 +74,7 @@ class PulseStore
   # no finding. A rejected idea never resurfaces. A `serves` that fails C7
   # validation parks the finding instead of dropping it.
   def append(input)
-    finding = input.transform_keys(&:to_s)
+    finding = input.transform_keys(&:to_s).except('origin')
     reason = invalid_reason(finding)
     return { 'status' => 'rejected', 'reason' => reason } if reason
 

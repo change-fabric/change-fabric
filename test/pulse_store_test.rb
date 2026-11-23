@@ -85,6 +85,11 @@ class PulseStoreTest < Minitest::Test
     assert_equal 1, @store.rows.size
   end
 
+  def test_caller_cannot_claim_system_origin
+    result = @store.append(finding("origin" => "system", "serves" => nil, "action_class" => "auto"))
+    assert_equal "park", result["action_class"]
+  end
+
   def test_non_string_quote_is_parked
     assert_equal "park", @store.append(finding("serves" => finding["serves"].merge("quote" => 5)))["action_class"]
   end
