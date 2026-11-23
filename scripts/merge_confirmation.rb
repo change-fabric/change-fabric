@@ -37,7 +37,8 @@ module MergeConfirmation
   # Errno::ENOENT covers gh missing from PATH; other Open3/system errors also
   # count as a lookup failure so the CLI never crashes instead of failing closed.
   def gh_pr_view(branch)
-    Open3.capture2e('gh', 'pr', 'view', branch, '--json', 'state,headRefName,number')
+    out, _err, status = Open3.capture3('gh', 'pr', 'view', branch, '--json', 'state,headRefName,number')
+    [ out, status ]
   rescue SystemCallError
     [ '', Struct.new(:success?).new(false) ]
   end

@@ -257,7 +257,7 @@ class ChangeMergeGuard
     args = [ 'gh', 'pr', 'view' ]
     args << ref if ref
     args += [ '--json', 'baseRefName,headRefOid,url', '-q', '.baseRefName + "\t" + .headRefOid + "\t" + .url' ]
-    out, status = Open3.capture2e(*args)
+    out, _err, status = Open3.capture3(*args)
     return nil unless status.success?
 
     base, sha, url = out.strip.split("\t", 3)

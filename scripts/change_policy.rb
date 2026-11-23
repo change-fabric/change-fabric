@@ -125,8 +125,8 @@ class ChangePolicy
   end
 
   def self.gh_default_branch(root, repo)
-    out, status = Open3.capture2e('gh', 'repo', 'view', repo.to_s, '--json', 'defaultBranchRef',
-                                  '--jq', '.defaultBranchRef.name', chdir: root.to_s)
+    out, _err, status = Open3.capture3('gh', 'repo', 'view', repo.to_s, '--json', 'defaultBranchRef',
+                                       '--jq', '.defaultBranchRef.name', chdir: root.to_s)
     status.success? ? out.strip : nil
   rescue SystemCallError
     nil

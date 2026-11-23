@@ -512,14 +512,14 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
     seen = []
     stub = lambda do |*args|
       seen << args
-      [ "main\t#{HEAD}\t#{PR_URL}\n", Struct.new(:success?).new(true) ]
+      [ "main\t#{HEAD}\t#{PR_URL}\n", "", Struct.new(:success?).new(true) ]
     end
-    original = Open3.method(:capture2e)
-    Open3.define_singleton_method(:capture2e, &stub)
+    original = Open3.method(:capture3)
+    Open3.define_singleton_method(:capture3, &stub)
     begin
       assert_equal [ "main", HEAD, PR_URL ], guard.send(:pr_facts)
     ensure
-      Open3.define_singleton_method(:capture2e, original)
+      Open3.define_singleton_method(:capture3, original)
     end
     refute_includes seen.first, HEAD
     assert_equal %w[gh pr view --json], seen.first.first(4)

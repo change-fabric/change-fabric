@@ -124,8 +124,8 @@ module WalkthroughPublish
   # Runs a command, optionally feeding stdin. Returns [output, ok?].
   def default_gh
     lambda do |*argv, stdin: nil|
-      out, status = Open3.capture2e(*argv.map(&:to_s), stdin_data: stdin.to_s)
-      [ out.strip, status.success? ]
+      out, err, status = Open3.capture3(*argv.map(&:to_s), stdin_data: stdin.to_s)
+      [ (status.success? || err.strip.empty? ? out : err).strip, status.success? ]
     end
   end
 
