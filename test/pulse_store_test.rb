@@ -2,6 +2,7 @@
 
 require_relative "pulse_helper"
 require_relative "../scripts/pulse_store"
+require_relative "../scripts/pulse_precheck"
 
 class PulseStoreTest < Minitest::Test
   include PulseHome
@@ -137,6 +138,30 @@ class PulseStoreTest < Minitest::Test
     @store.disposition(@store.findings[first["id"]]["fingerprint"], "rejected")
     again = @store.append_system("kind" => "integrity", "severity" => "P0", "claim" => "c", "subject" => "s", "evidence" => "e", "anchor" => "a")
     assert_equal "suppressed", again["status"]
+  end
+
+  def test_duplicate_append_returns_the_id_so_a_lost_notify_can_be_repeated
+    first = @store.append(finding("kind" => "integrity", "severity" => "P0"))
+    again = @store.append(finding("kind" => "integrity", "severity" => "P0"))
+    assert_equal [ "duplicate", first["id"] ], again.values_at("status", "id")
+    assert_equal "queued", @store.queue_notify(again["id"])["status"]
+  end
+
+  def test_pass_record_feeds_the_overrun_deadline
+    @store.start_pass("t1")
+    over = PulsePrecheck.new(@session, now: Time.now + Pulse.config["max_seconds_per_pass"] + 5).deadlines
+    assert_equal [ "pass_overrun" ], over.map { |d| d["kind"] }
+    @store.finish_pass("t1")
+    assert_empty PulsePrecheck.new(@session, now: Time.now + 9999).deadlines
+    assert_equal "none", PulseStore.new("other").finish_pass("t1")["status"]
+  end
+
+  def test_one_pass_at_a_time_and_a_late_end_cannot_close_a_newer_pass
+    assert_equal "started", @store.start_pass("t1")["status"]
+    assert_equal [ "busy", "t1" ], @store.start_pass("t2").values_at("status", "task_id")
+    assert_equal "stale", @store.finish_pass("t2")["status"]
+    @store.finish_pass("t1")
+    assert_equal "started", @store.start_pass("t2")["status"]
   end
 
   def test_activation_stays_off

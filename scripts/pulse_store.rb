@@ -83,7 +83,7 @@ class PulseStore
     locked do
       prior = disposition_of(fp)
       next { 'status' => 'suppressed', 'fingerprint' => fp } if prior == 'rejected'
-      next { 'status' => 'duplicate', 'fingerprint' => fp } if prior
+      next { 'status' => 'duplicate', 'fingerprint' => fp, 'id' => id_of(fp) } if prior
 
       store(finding)
     end
@@ -101,7 +101,7 @@ class PulseStore
       prior = disposition_of(fp)
       next { 'status' => 'suppressed', 'fingerprint' => fp } if prior == 'rejected'
 
-      prior ? { 'status' => 'duplicate', 'fingerprint' => fp } : store(finding)
+      prior ? { 'status' => 'duplicate', 'fingerprint' => fp, 'id' => id_of(fp) } : store(finding)
     end
   end
 
@@ -110,6 +110,33 @@ class PulseStore
 
     write_row('event' => 'disposition', 'fingerprint' => fingerprint, 'disposition' => value, 'at' => now)
     { 'status' => 'recorded' }
+  end
+
+  # The pass in flight, so the watcher can emit pass_overrun (C4). One pass at
+  # a time: a start while another is unfinished and inside its wall clock is
+  # refused; an overrun one is replaced (the watcher already reported it).
+  def start_pass(task_id)
+    locked do
+      current = pass_record
+      if current && !current['finished_at'] && Time.now.utc - Time.parse(current['started_at']) < Pulse.config['max_seconds_per_pass']
+        next { 'status' => 'busy', 'task_id' => current['task_id'] }
+      end
+
+      atomic_write(pass_path, JSON.generate('task_id' => task_id, 'started_at' => now))
+      { 'status' => 'started', 'task_id' => task_id }
+    end
+  end
+
+  # Closes only the named pass, so a late pass-end never closes a newer one.
+  def finish_pass(task_id)
+    locked do
+      current = pass_record
+      next { 'status' => 'none' } unless current
+      next { 'status' => 'stale', 'task_id' => current['task_id'] } unless current['task_id'] == task_id
+
+      atomic_write(pass_path, JSON.generate(current.merge('finished_at' => now)))
+      { 'status' => 'finished' }
+    end
   end
 
   # P0 delivery is queued here for the phase that ships the executor (C3
@@ -240,6 +267,16 @@ class PulseStore
     File.open(ledger_path, 'a') { |file| file.puts(JSON.generate(row)) }
   end
 
+  def pass_record
+    JSON.parse(File.read(pass_path)) if File.file?(pass_path)
+  rescue JSON::ParserError
+    nil
+  end
+
+  def pass_path = File.join(@dir, 'pulse_pass.json')
+
+  def id_of(fingerprint) = rows.find { |row| row['fingerprint'] == fingerprint && row['id'] }&.dig('id')
+
   def notify_path = File.join(@dir, 'pulse_notifications.jsonl')
 
   def cursor_path = File.join(@dir, 'pulse_cursor.json')
@@ -272,11 +309,13 @@ class PulseStoreCLI
     when 'append' then store.append(JSON.parse(input.read))
     when 'disposition' then store.disposition(opts.fetch('fingerprint'), opts.fetch('value'))
     when 'append-system' then store.append_system(JSON.parse(input.read))
+    when 'pass-start' then store.start_pass(opts.fetch('task-id'))
+    when 'pass-end' then store.finish_pass(opts.fetch('task-id'))
     when 'notify' then store.queue_notify(opts.fetch('finding'))
     when 'cursor' then store.cursor
     when 'advance' then store.advance_cursor(JSON.parse(input.read)) || store.cursor
     when 'reserve' then PulseStore.reserve(opts.fetch('project'), critic: opts['critic'] == 'true')
-    else raise ArgumentError, 'usage: pulse_store.rb append|append-system|disposition|notify|cursor|reserve --session ID'
+    else raise ArgumentError, 'usage: pulse_store.rb append|append-system|disposition|notify|pass-start|pass-end|cursor|reserve --session ID'
     end
   end
 end

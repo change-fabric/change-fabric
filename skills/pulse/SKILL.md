@@ -46,16 +46,21 @@ nudge; the watcher exit is the dispatch path.
    retried.
 4. `ruby ~/.claude/cf/bin/pulse_store.rb reserve --project <root>` (add
    `--critic true` for an integrity event). Reserved: spawn the reviewer in the
-   background with the pass limits. Exhausted: say `[cf] pulse budget
+   background with the pass limits, record it with
+   `pulse_store.rb pass-start --session <id> --task-id <task>`, and run
+   `pass-end --task-id <task>` when it completes (a start while another pass is
+   running returns `busy`; do not spawn). A `pass_overrun` event means the pass is past
+   its wall clock: TaskStop it, then run `pass-end --task-id <task>`. Exhausted: say `[cf] pulse budget
    exhausted` once and go report-only; step 3 keeps running. Either way, once
    the spawn succeeded or exhaustion is handled, commit the pre-check with
    `pulse_precheck.rb --session <id> --commit-result true --json` (step 2's
    JSON on stdin).
 5. Every finding, deterministic or from the reviewer, goes through
    `pulse_store.rb append --session <id>` (JSON on stdin; a deterministic finding
-   with no `serves` because no scope resolved uses `append-system`). A stored integrity P0 then
-   goes to `pulse_store.rb notify --session <id> --finding <id>`, which queues
-   the delivery. Actionable findings are applied only as the action policy
+   with no `serves` because no scope resolved uses `append-system`). An integrity P0 whose append returned
+   `stored` or `duplicate` goes to `pulse_store.rb notify --session <id>
+   --finding <id>` (the id is in the result), which queues the delivery once, so
+   a notify lost to a crash is repeated on the next pass. Actionable findings are applied only as the action policy
    allows. Everything else is a proposal.
 6. Re-arm the watcher (`pulse_watch.rb --session <id>`, background). Re-arm is
    the last step of every handling turn, success or failure.
