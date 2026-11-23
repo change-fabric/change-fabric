@@ -20,8 +20,10 @@ class PulseAct
   TTL_S = 300
   MAX_TEXT = 500
   MAX_ATTEMPTS = 2
-  # Action type to exactly one host tool call (v1 allowlist).
-  TOOLS = { 'nudge_worker' => 'SendMessage', 'stop_runaway' => 'TaskStop', 'reorder_phase' => 'Workflow' }.freeze
+  # Action type to exactly one host tool call (v1 allowlist). reorder_phase is
+  # a proposal for now: its target is a workflow phase title, and the C6 record
+  # has no phase signal to check that title or its freshness against.
+  TOOLS = { 'nudge_worker' => 'SendMessage', 'stop_runaway' => 'TaskStop' }.freeze
   # Decision 18 hard limits, matched against the text a nudge would send.
   HARD_LIMIT = /CF_ALLOW_\w+|\bgit\s+(?:push\s+)?tag\b|--no-verify|\bterraform\s+apply\b|approval_console|\bprod(?:uction)?\b/i
 
@@ -186,8 +188,7 @@ class PulseAct
   def command(action, target, text)
     args = case action
     when 'nudge_worker' then { 'target_id' => target, 'text' => text.to_s[0, MAX_TEXT] }
-    when 'stop_runaway' then { 'target_id' => target }
-    else { 'only' => [ target ], 'resource_gate' => true }
+    else { 'target_id' => target }
     end
     { 'tool' => TOOLS.fetch(action), 'args' => args }
   end
@@ -211,7 +212,7 @@ class PulseAct
   end
 
   # The current state timestamp of a child, command or pass (the C6 record).
-  # A nudge targets a child of this session only; a stop or reorder may also
+  # A nudge targets a child of this session only; a stop may also
   # name a budgeted command. The pulse pass itself is never a target.
   def state_at(target, action)
     check = PulsePrecheck.new(@session, now: @now)

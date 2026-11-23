@@ -68,8 +68,8 @@ class PulseActTest < Minitest::Test
 
   def test_each_action_maps_to_one_tool
     write_plan("Land phase one.\n", "pulse-allow: stop_runaway, reorder_phase\n")
+    assert_equal "action-not-allowed", authorize("reorder_phase")["reason"], "reorder is a proposal in v1"
     assert_equal({ "tool" => "TaskStop", "args" => { "target_id" => "w1" } }, authorize("stop_runaway")["command"])
-    assert_equal "Workflow", authorize("reorder_phase")["command"]["tool"]
   end
 
   def test_denials_queue_a_proposal

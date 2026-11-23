@@ -77,8 +77,9 @@ nudge; the watcher exit is the dispatch path.
 
 `pulse_act.rb` never touches a worker. It authorizes and returns a typed
 command; the coordinator runs it through this one adapter. Allowed actions,
-each one tool call: `nudge_worker` (SendMessage), `stop_runaway` (TaskStop),
-`reorder_phase` (Workflow resume with `only`, through the resource gate). A
+each one tool call: `nudge_worker` (SendMessage), `stop_runaway` (TaskStop).
+Reordering phases through the resource gate stays a proposal until the C6
+record carries a phase signal to validate a target against. A
 run authorizes them in its plan.md with a line such as
 `pulse-allow: nudge_worker, stop_runaway`; without it every action is a
 proposal.
