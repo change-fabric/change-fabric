@@ -6,15 +6,17 @@ require 'time'
 require_relative 'approval_console/canonical'
 require_relative 'approval_console/local_store'
 require_relative 'approval_console/proof_check'
+require_relative 'approval_console/recorder'
 require_relative 'approval_console/remote'
+require_relative 'change_policy'
 require_relative 'change_grant_store'
 require_relative 'cf_project_identity'
 
 # Pulse's standing permissions (C3, decision 5). A grant is a phone-approved
 # console receipt of type `grant`; this reads them and never writes one (the
 # only writer is ApprovalConsole::Recorder, after a phone tap). Every record
-# is re-verified on every read, offline, against the pinned passkey and receipt
-# keys, so a hand-edited or hand-made file counts for nothing.
+# is re-verified on every read against the repository's authoritative approval_pins
+# (the default branch's policy, fetched once per instance; unreadable means no grants), so a hand-edited or hand-made file counts for nothing.
 #
 # A grant stands only when all of these hold:
 #   - the proof verifies as a console receipt of kind webauthn+totp for exactly
@@ -30,8 +32,9 @@ class PulseGrants
 
   # `rejected` maps a record's grant id (or its file position) to why it was
   # refused, so a denial can name the reason.
-  def initialize(project: Dir.pwd, store: ApprovalConsole::LocalStore.new, grants: ChangeGrantStore.new, now: Time.now, project_id: nil)
+  def initialize(project: Dir.pwd, store: ApprovalConsole::LocalStore.new, grants: ChangeGrantStore.new, now: Time.now, project_id: nil, pins: :authoritative)
     @project = project
+    @pins = pins
     @project_id = project_id
     @store = store
     @grants = grants
@@ -66,7 +69,8 @@ class PulseGrants
   end
 
   def parse_body(record)
-    text = record.dig('proof', 'body')
+    proof = record['proof']
+    text = proof.is_a?(Hash) ? proof['body'] : nil
     return nil unless text.is_a?(String)
 
     body = ApprovalConsole::Canonical.parse(text)
@@ -88,9 +92,25 @@ class PulseGrants
 
     # The verifier fills in this machine's id, so a receipt for another machine is refused.
     expected = ApprovalConsole::Remote.expected_from_body(proof['body']).except('machine_id')
-    ApprovalConsole::ProofCheck.new(level: 'remote', store: @store, now: @now).receipt_problem(proof, expected)
-  rescue ApprovalConsole::LocalStore::PinMismatch, ApprovalConsole::Canonical::Invalid
-    true
+    # The passkey level checks the local pins against the repository's own
+    # approval_pins, so replaced local keys cannot vouch for a hand-made grant.
+    ApprovalConsole::ProofCheck.new(level: 'passkey', store: @store, pins: authoritative_pins, now: @now).receipt_problem(proof, expected)
+  rescue StandardError
+    true # a malformed proof is unverified, never an abort of the scan
+  end
+
+  # The default branch's approval_pins for this project, resolved once and
+  # fail-closed: an unreadable policy leaves no pins, so nothing verifies.
+  def authoritative_pins
+    return @pins unless @pins == :authoritative
+
+    return @authoritative_pins if defined?(@authoritative_pins) # a failed lookup is cached too
+
+    @authoritative_pins = begin
+      ApprovalConsole::Recorder.authority_for(CfProjectIdentity.for(@project).root).policy&.approval_pins
+    rescue StandardError
+      nil
+    end
   end
 
   def window_problem(proof, body)

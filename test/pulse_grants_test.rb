@@ -49,7 +49,7 @@ class PulseGrantsTest < Minitest::Test
     proof
   end
 
-  def grants(at: @now) = PulseGrants.new(project: @project, store: @store, now: at)
+  def grants(at: @now, pins: authoritative_pins) = PulseGrants.new(project: @project, store: @store, now: at, pins: pins)
 
   def stored_files = Dir.glob(File.join(@home, ".claude", "cf", "change", "grants", "*.json"))
 
@@ -121,6 +121,22 @@ class PulseGrantsTest < Minitest::Test
     assert_empty checked.rejected.values.map { |entry| entry[:reason] } - %w[malformed tampered unverified]
   end
 
+  def test_local_keys_that_differ_from_the_authoritative_pins_cannot_vouch_for_a_grant
+    record
+    assert grants.allows?("nudge_worker")
+    refute grants(pins: authoritative_pins.merge("receipt_key_fingerprint" => "0" * 64)).allows?("nudge_worker")
+    refute grants(pins: authoritative_pins.merge("rp_id" => "evil.example.com")).allows?("nudge_worker")
+    refute grants(pins: nil).allows?("nudge_worker"), "no authoritative policy means no grant"
+  end
+
+  def test_a_malformed_proof_object_is_rejected_without_aborting_the_scan
+    record
+    store = ChangeGrantStore.new
+    store.record(repo: @repo, grant_id: "a" * 64, proof: "bad", policy_sha: "x", recorded_by: "t")
+    store.record(repo: @repo, grant_id: "b" * 64, proof: [ 1 ], policy_sha: "x", recorded_by: "t")
+    assert grants.allows?("nudge_worker")
+  end
+
   def test_a_terminal_proof_is_not_a_grant
     proof = phone_proof(attrs).merge("kind" => "totp-terminal")
     ChangeGrantStore.new.record(repo: @repo, grant_id: ApprovalConsole::Canonical.body_sha256(proof["body"]), proof: proof, policy_sha: "x", recorded_by: "t")
@@ -149,7 +165,7 @@ class PulseGrantsTest < Minitest::Test
     record
     other = SimpleDelegator.new(@store)
     other.define_singleton_method(:machine_id) { "00000000-0000-4000-8000-000000000000" }
-    refute PulseGrants.new(project: @project, store: other, now: @now).allows?("nudge_worker")
+    refute PulseGrants.new(project: @project, store: other, now: @now, pins: authoritative_pins).allows?("nudge_worker")
   end
 
   def test_no_request_path_writes_a_grant_without_the_phone
@@ -169,19 +185,19 @@ class PulseGrantsTest < Minitest::Test
   end
 
   def test_pulse_act_denies_without_a_grant_and_authorizes_with_a_real_receipt
-    act = PulseActFixture.new(@home, @project, @store).prepare
+    act = PulseActFixture.new(@home, @project, @store, pins: authoritative_pins).prepare
     assert_equal "not-in-protocol", act.authorize("nudge_worker")["reason"]
     record
     assert_equal "authorized", act.authorize("nudge_worker")["state"]
-    expired = PulseActFixture.new(@home, @project, @store, now: T0 + 7300).prepare
+    expired = PulseActFixture.new(@home, @project, @store, pins: authoritative_pins, now: T0 + 7300).prepare
     assert_equal "grant-expired", expired.authorize("nudge_worker")["reason"]
   end
 
   def test_a_caller_set_clock_cannot_back_date_an_expiry_through_the_cli_path
     record
-    fixture = PulseActFixture.new(@home, @project, @store).prepare
+    fixture = PulseActFixture.new(@home, @project, @store, pins: authoritative_pins).prepare
     assert_equal "authorized", fixture.authorize("nudge_worker")["state"]
-    walled = PulseAct.new("s1", project: @project, now: T0 + 300, wall_clock: true)
+    walled = PulseAct.new("s1", project: @project, now: T0 + 300, wall_clock: true, grant_pins: authoritative_pins)
     refute walled.send(:grants).allows?("nudge_worker"), "the real clock is far past the 2026-11-22 expiry"
   end
 
@@ -189,20 +205,21 @@ class PulseGrantsTest < Minitest::Test
     other = File.join(@home, "other")
     FileUtils.mkdir_p(other)
     record(attrs(repo: CfProjectIdentity.for(other).id))
-    assert_equal "wrong-project", PulseActFixture.new(@home, @project, @store, act_project: other).prepare.authorize("nudge_worker")["reason"]
-    assert_equal "grant-wrong-project", PulseActFixture.new(@home, @project, @store).prepare.authorize("nudge_worker")["reason"],
+    assert_equal "wrong-project", PulseActFixture.new(@home, @project, @store, pins: authoritative_pins, act_project: other).prepare.authorize("nudge_worker")["reason"]
+    assert_equal "grant-wrong-project", PulseActFixture.new(@home, @project, @store, pins: authoritative_pins).prepare.authorize("nudge_worker")["reason"],
                  "a grant for the other project does not apply to this session"
   end
 
   def test_a_session_with_no_project_stamp_honors_no_grant
     record
-    assert_equal "grant-wrong-project", PulseActFixture.new(@home, @project, @store, stamp: false).prepare.authorize("nudge_worker")["reason"]
+    assert_equal "grant-wrong-project", PulseActFixture.new(@home, @project, @store, pins: authoritative_pins, stamp: false).prepare.authorize("nudge_worker")["reason"]
   end
 
   # A pulse session with one stalled child and a plan that has no pulse-allow
   # line, so only a grant can authorize.
   class PulseActFixture
-    def initialize(home, project, store, now: T0 + 300, stamp: true, act_project: nil)
+    def initialize(home, project, store, now: T0 + 300, stamp: true, act_project: nil, pins:)
+      @pins = pins
       @stamp = stamp
       @act_project = act_project
       @home = home
@@ -233,7 +250,7 @@ class PulseGrantsTest < Minitest::Test
     end
 
     def authorize(action, target = "w1")
-      PulseAct.new(@session, project: @act_project || @project, now: @now).authorize(finding: @finding, action: action, target: target, observed_at: T0.iso8601, text: "report status")
+      PulseAct.new(@session, project: @act_project || @project, now: @now, grant_pins: @pins).authorize(finding: @finding, action: action, target: target, observed_at: T0.iso8601, text: "report status")
     end
   end
 end

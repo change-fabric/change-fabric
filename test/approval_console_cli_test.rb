@@ -520,7 +520,7 @@ class ApprovalConsoleRecordVerbTest < Minitest::Test
       assert_equal [ "grant", %w[nudge_worker stop_runaway], (@now + 8 * 3600).utc.iso8601 ], body.values_at("type", "scope_list", "grant_expires_at")
       assert_empty Dir.glob(File.join(@home, ".claude", "cf", "change", "grants", "*"))
       assert_equal 0, cli([ "record", rid, "--repo", checkout ]).first
-      grants = PulseGrants.new(project: checkout, store: @store, now: @now)
+      grants = PulseGrants.new(project: checkout, store: @store, now: @now, pins: authoritative_pins)
       assert grants.allows?("nudge_worker")
       refute grants.allows?("reorder_phase")
     end

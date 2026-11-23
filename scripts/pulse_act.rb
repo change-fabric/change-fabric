@@ -37,7 +37,8 @@ class PulseAct
   end
   prepend Serialized
 
-  def initialize(session, project: Dir.pwd, now: Time.now, inbox: nil, wall_clock: false)
+  def initialize(session, project: Dir.pwd, now: Time.now, inbox: nil, wall_clock: false, grant_pins: :authoritative)
+    @grant_pins = grant_pins
     @session = session
     @wall_clock = wall_clock
     @project = project
@@ -215,7 +216,9 @@ class PulseAct
   # be able to back-date a grant's expiry.
   # Phone-approved console receipts only (pulse_grants.rb); re-verified on
   # every call, so authorize and begin both see an expiry the moment it lands.
-  def grants = PulseGrants.new(project: @project, now: @wall_clock ? Time.now : @now, project_id: session_project_id.to_s)
+  def grants
+    @grants ||= PulseGrants.new(project: @project, now: @wall_clock ? Time.now : @now, project_id: session_project_id.to_s, pins: @grant_pins)
+  end
 
   # The project the session was stamped with (pulse_stamp.rb, from the first
   # event's cwd). A caller's --project can never change it; a session with no
