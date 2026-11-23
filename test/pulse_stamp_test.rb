@@ -7,7 +7,7 @@ require_relative "../scripts/pulse_stamp"
 require_relative "../scripts/native_hook_install"
 require_relative "../scripts/pulse_scope"
 
-# Phase 2 stamps and detects. While Pulse::ACTIVATED is false it must never
+# While Pulse::ACTIVATED is false it must never
 # print a dispatch line, arm a watcher or write an engaged cursor.
 class PulseStampTest < Minitest::Test
   include PulseHome
@@ -196,7 +196,7 @@ class PulseStampTest < Minitest::Test
     end
     assert_equal foreign, hooks["SubagentStop"].first
     assert hooks["PostToolUse"].flat_map { |g| g["hooks"] }.any? { |h| h["command"].include?("cf_host_hook.rb") }
-    assert_equal 1, hooks["Stop"].size.then { |n| n }, "Stop carries only the pulse stamp for claude"
+    assert_equal 1, hooks["Stop"].size, "Stop carries only the pulse stamp for claude"
     claude.unwire
     after = JSON.parse(File.read(file))["hooks"]
     assert_equal [ foreign ], after["SubagentStop"]

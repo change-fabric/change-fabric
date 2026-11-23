@@ -348,7 +348,7 @@ class InstallerTest < Minitest::Test
     assert adapter.any? { |command| command.include?("cf_host_hook.rb") }, "the adapter entry survives"
   end
 
-  # C8: landing the stamp installs it, it does not turn pulse on. Every engage
+  # Landing the stamp installs it, it does not turn pulse on. Every engage
   # trigger present, run through the installed hook, prints nothing.
   def pulse_hook(paths, event, extra = {})
     project = File.join(@home, "proj")
@@ -373,7 +373,7 @@ class InstallerTest < Minitest::Test
     [ outputs, record.pulse ]
   end
 
-  def test_phase_two_install_with_every_trigger_never_dispatches
+  def test_install_with_every_trigger_never_dispatches
     paths = install
     outputs, record = engage_every_trigger(paths)
     assert_equal [ "" ] * 4, outputs
@@ -386,7 +386,7 @@ class InstallerTest < Minitest::Test
 
   def test_upgrade_to_a_later_phase_install_still_does_not_dispatch
     paths = install
-    # Later phases add these parts; ACTIVATED stays false until the phase that flips it.
+    # ACTIVATED stays false even when these later parts are present.
     %w[pulse_integrity.rb pulse_act.rb].each { |name| File.write(File.join(paths.runtime_bin, name), "") }
     FileUtils.mkdir_p(File.join(@home, ".claude", "skills", "pulse"))
     File.write(File.join(@home, ".claude", "skills", "pulse", "SKILL.md"), "")

@@ -25,6 +25,7 @@ class PulseStamp
   EVENTS = %w[PostToolUse SubagentStart SubagentStop Stop].freeze
   SPEAKS_ON = %w[PostToolUse SubagentStart].freeze
   COALESCE_S = 300
+  MISSING_LOG_S = 3600
   AGENT_TTL_S = 86_400
   BACKGROUND_S = 3600
   PLAN_FILE = %r{([^\s"'\\]*?/plans/[^\s"'\\]+?)/(?:workflow\.js|plan\.md|goal\.md)}
@@ -122,10 +123,10 @@ class PulseStamp
       record = state.update_pulse { |pulse| pulse['engaged_at'] = iso }
     end
     lines = [ watcher_line(record), (DUE if due?(record, store.cursor)) ].compact
-    lines.join("\n") unless lines.empty? || !SPEAKS_ON.include?(@name)
+    lines.join("\n") if SPEAKS_ON.include?(@name) && !lines.empty?
   end
 
-  # C8: every ready part installed, else log the miss and stay silent.
+  # Every ready part must be installed; otherwise log the miss and stay silent.
   def ready?
     return false unless @activated
 
@@ -133,7 +134,7 @@ class PulseStamp
     return true if missing.empty?
 
     stamped = state.pulse['missing_logged_at']
-    unless stamped && @now - Time.parse(stamped) < 3600
+    unless stamped && @now - Time.parse(stamped) < MISSING_LOG_S
       state.update_pulse { |pulse| pulse['missing_logged_at'] = iso }
       log("pulse not engaged: missing #{missing.join(', ')}")
     end
