@@ -64,7 +64,7 @@ class PulseIntegrity
   def results
     Dir.glob(File.join(@dir, 'pulse_results', '*.json')).sort.map do |file|
       text = File.size(file) > MAX_BYTES ? "oversized #{File.size(file)}" : File.read(file)
-      [ File.basename(file), text, parse(file, text) ]
+      [ File.basename(file), text, parse(text) ]
     rescue SystemCallError
       [ File.basename(file), 'unreadable', nil ]
     end
@@ -72,9 +72,7 @@ class PulseIntegrity
 
   # A result that is too large, truncated, nested past the parser limit, or not
   # an object parses to nil, which `check` reports as an evidence gap.
-  def parse(file, text)
-    return nil if File.size(file) > MAX_BYTES
-
+  def parse(text)
     data = JSON.parse(text)
     data.is_a?(Hash) ? data : nil
   rescue StandardError
