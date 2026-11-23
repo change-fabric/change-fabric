@@ -25,7 +25,7 @@ require_relative 'cf_project_identity'
 #
 #   totp-enroll  generate this machine's seed and show it once on /dev/tty
 #   enroll       register this machine with a deployed console and pin it
-#   request      ask the console for a prod-op, carve-out, money, release or override approval
+#   request      ask the console for a prod-op, carve-out, money, release, override, run-script or grant approval
 #   wait         resume waiting on a request made with --no-wait
 #   record       wait for a request this machine made, then record its receipt
 #   sync         upload offline terminal approvals for console receipts
@@ -74,26 +74,27 @@ module ApprovalConsoleCli
 
   def usage(stderr)
     stderr.puts 'usage: approval_console.rb totp-enroll | enroll --url URL --profile NAME | ' \
-                'request --type prod-op|carve-out|money|release|override|run-script [--summary TEXT] [--script PATH --title TEXT [--account ID]] [--pr-url URL] [--tag TAG] ' \
+                'request --type prod-op|carve-out|money|release|override|run-script|grant [--summary TEXT] [--expires 8h|ISO --scope a,b (grant)] [--script PATH --title TEXT [--account ID]] [--pr-url URL] [--tag TAG] ' \
                 '[--reason TEXT] [--scope merge|tag] [--profile NAME] [--sha SHA] [--no-wait] [-- argv...] | ' \
                 'wait <request_id> | record <request_id> [--repo PATH] | sync | verify <sha> [--repo PATH] [--profile NAME] | status | unlock'
     1
   end
 
-  REQUEST_TYPES = %w[prod-op carve-out money release override run-script].freeze
-  SUMMARY_TYPES = %w[prod-op carve-out money].freeze
+  REQUEST_TYPES = %w[prod-op carve-out money release override run-script grant].freeze
+  SUMMARY_TYPES = %w[prod-op carve-out money grant].freeze
 
   # Asks the console to approve one high-risk action, bound to this repo, its
   # HEAD and the exact argv or PR URL. Prints the verified proof as one line of
   # JSON on stdout and exits 0 only when the console approved it.
   def request(args, ctx)
     opts = parse_request(args, ctx.stderr) or return 1
+    opts[:now] = ctx.clock.call
     refusal = request_refusal(opts, ctx)
     return refuse(ctx.stderr, 'request', refusal) if refusal
 
     attrs = request_attrs(opts, ctx.io[:gh])
     client = ctx.client
-    body, url = ApprovalConsole::Remote.submit(attrs, store: ctx.store, client: client, now: ctx.clock.call, ttl: opts[:ttl])
+    body, url = ApprovalConsole::Remote.submit(attrs, store: ctx.store, client: client, now: opts[:now], ttl: opts[:ttl])
     ctx.stderr.puts "[approval_console] approve on your phone: #{url}"
     if opts[:no_wait]
       ctx.stdout.puts JSON.generate('request_id' => ApprovalConsole::Canonical.parse(body)['request_id'], 'url' => url)
@@ -122,19 +123,29 @@ module ApprovalConsoleCli
       o.on('--title TEXT') { |value| opts[:title] = value }
       o.on('--account ID') { |value| opts[:account] = value }
       o.on('--reason TEXT') { |value| opts[:reason] = value }
-      o.on('--scope SCOPE', ApprovalConsole::Canonical::SCOPES) { |value| opts[:scope] = value }
+      o.on('--scope SCOPE') { |value| opts[:scope] = value }
+      o.on('--expires WHEN') { |value| opts[:expires] = value }
       o.on('--profile NAME') { |value| opts[:profile] = value }
       o.on('--repo PATH') { |value| opts[:repo] = value }
       o.on('--ttl SECONDS', Integer) { |value| opts[:ttl] = value.clamp(60, ApprovalConsole::Canonical::MAX_LIFETIME) }
       o.on('--no-wait') { opts[:no_wait] = true }
     end.parse!(split ? args[0...split] : args.dup)
-    return opts if REQUEST_TYPES.include?(opts[:type]) && (!SUMMARY_TYPES.include?(opts[:type]) || !opts[:summary].to_s.strip.empty?)
+    return opts if REQUEST_TYPES.include?(opts[:type]) && scope_ok?(opts) && (!SUMMARY_TYPES.include?(opts[:type]) || !opts[:summary].to_s.strip.empty?)
 
     usage(stderr)
     nil
   rescue OptionParser::ParseError
     usage(stderr)
     nil
+  end
+
+  # An override scope is one of merge|tag; a grant's is read by `grant_scopes`.
+  def scope_ok?(opts)
+    case opts[:type]
+    when 'grant' then true
+    when 'override' then opts[:scope].nil? || ApprovalConsole::Canonical::SCOPES.include?(opts[:scope])
+    else opts[:scope].nil?
+    end
   end
 
   def request_refusal(opts, ctx)
@@ -151,6 +162,7 @@ module ApprovalConsoleCli
     when 'carve-out' then 'carve-out needs --pr-url' if opts[:pr_url].to_s.empty?
     when 'release' then 'release needs --tag' if opts[:tag].to_s.strip.empty?
     when 'run-script' then run_script_refusal(opts)
+    when 'grant' then grant_refusal(opts)
     when 'override'
       min = ApprovalConsole::Recorder::MIN_REASON
       "override needs a --reason of at least #{min} characters" if opts[:reason].to_s.strip.length < min
@@ -158,10 +170,40 @@ module ApprovalConsoleCli
     end
   end
 
+  # A grant needs a comma-separated action list and an expiry. Nothing here
+  # writes a grant: the request only asks the console, and only a phone-tapped
+  # receipt recorded by ApprovalConsole::Recorder makes one.
+  def grant_refusal(opts)
+    return 'grant needs --scope with at least one action, such as nudge_worker,stop_runaway' if grant_scopes(opts).empty?
+    return "grant --scope entries must match #{ApprovalConsole::Canonical::GRANT_SCOPE.source} (at most #{ApprovalConsole::Canonical::GRANT_MAX_SCOPES})" unless grant_scopes_valid?(opts)
+
+    expiry = grant_expiry(opts)
+    return 'grant needs --expires: a duration such as 8h, 90m or 3600, or a UTC time like 2026-11-24T14:00:00Z' unless expiry
+    return 'grant --expires must be later than the request window (--ttl, default 15 minutes)' unless expiry > opts[:now] + opts[:ttl]
+
+    "grant --expires is over #{ApprovalConsole::Canonical::GRANT_MAX_LIFETIME / 3600} hours away" if expiry - opts[:now] > ApprovalConsole::Canonical::GRANT_MAX_LIFETIME
+  end
+
+  def grant_scopes(opts) = opts[:scope].to_s.split(',').map(&:strip).reject(&:empty?).uniq.sort
+
+  def grant_scopes_valid?(opts)
+    scopes = grant_scopes(opts)
+    scopes.size <= ApprovalConsole::Canonical::GRANT_MAX_SCOPES && scopes.all? { |scope| scope.match?(ApprovalConsole::Canonical::GRANT_SCOPE) }
+  end
+
+  def grant_expiry(opts)
+    text = opts[:expires].to_s.strip
+    case text
+    when /\A(\d+)([smhd]?)\z/ then opts[:now] + (Regexp.last_match(1).to_i * { '' => 1, 's' => 1, 'm' => 60, 'h' => 3600, 'd' => 86_400 }.fetch(Regexp.last_match(2)))
+    else ApprovalConsole::Canonical.parse_time(text)
+    end
+  end
+
   def request_attrs(opts, gh = nil)
     root = File.expand_path(opts[:repo] || Dir.pwd)
     return run_script_attrs(opts, root) if opts[:type] == 'run-script'
     return carve_out_attrs(opts, gh || ChangePrFacts.method(:gh)) if opts[:type] == 'carve-out'
+    return grant_attrs(opts, root) if opts[:type] == 'grant'
 
     attrs = { 'type' => opts[:type], 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root),
               'profile' => opts[:profile] }
@@ -170,6 +212,13 @@ module ApprovalConsoleCli
     when 'override' then attrs.merge({ 'reason' => opts[:reason] }, opts[:scope] ? { 'scope' => opts[:scope] } : {})
     else attrs.merge('summary' => opts[:summary], 'argv' => opts[:argv])
     end
+  end
+
+  # The sha is informational (the HEAD the grant was asked from); a grant is
+  # bound to the repo, this machine and its signed scope and expiry.
+  def grant_attrs(opts, root)
+    { 'type' => 'grant', 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root), 'profile' => opts[:profile],
+      'summary' => opts[:summary], 'scope_list' => grant_scopes(opts), 'grant_expires_at' => grant_expiry(opts).utc.iso8601 }
   end
 
   def run_script_refusal(opts)

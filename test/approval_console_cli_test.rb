@@ -375,6 +375,7 @@ class ApprovalConsoleCliTest < Minitest::Test
 end
 
 require_relative "support/phone_console"
+require_relative "../scripts/pulse_grants"
 
 # `record <request_id>`: the agent-runnable resume verb. It waits for a
 # request this machine made, then hands the receipt to the Recorder, which
@@ -495,6 +496,43 @@ class ApprovalConsoleRecordVerbTest < Minitest::Test
         [ [ "--script", script, "--title", "t", "--account", "12" ], /12-digit/ ] ].each do |extra, pattern|
         status, _out, err = cli([ "request", "--type", "run-script", "--no-wait" ] + extra)
         assert_equal 2, status
+        assert_match(pattern, err)
+      end
+    end
+  end
+
+  def grant_checkout
+    checkout = File.join(@home, "widgets")
+    FileUtils.mkdir_p(checkout)
+    [ [ "init", "-q", "-b", "main" ], [ "remote", "add", "origin", "https://github.com/acme/widgets.git" ],
+      [ "-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "c" ] ].each { |args| system("git", "-C", checkout, *args, exception: true) }
+    checkout
+  end
+
+  def test_a_grant_request_signs_scope_and_expiry_then_only_record_after_the_tap_makes_it
+    checkout = grant_checkout
+    healthy_host do
+      status, out, err = cli([ "request", "--type", "grant", "--scope", "stop_runaway, nudge_worker", "--expires", "8h", "--summary", "overnight",
+                               "--repo", checkout, "--no-wait" ])
+      assert_equal 0, status, err
+      rid = JSON.parse(out)["request_id"]
+      body = ApprovalConsole::Canonical.parse(@store.saved_request(rid))
+      assert_equal [ "grant", %w[nudge_worker stop_runaway], (@now + 8 * 3600).utc.iso8601 ], body.values_at("type", "scope_list", "grant_expires_at")
+      assert_empty Dir.glob(File.join(@home, ".claude", "cf", "change", "grants", "*"))
+      assert_equal 0, cli([ "record", rid, "--repo", checkout ]).first
+      grants = PulseGrants.new(project: checkout, store: @store, now: @now)
+      assert grants.allows?("nudge_worker")
+      refute grants.allows?("reorder_phase")
+    end
+  end
+
+  def test_a_grant_request_refuses_a_missing_scope_a_bad_expiry_and_an_overlong_one
+    healthy_host do
+      [ [ [ "--expires", "1h" ], /needs --scope/ ], [ [ "--scope", "Bad Name", "--expires", "1h" ], /entries must match/ ],
+        [ [ "--scope", "nudge_worker" ], /needs --expires/ ], [ [ "--scope", "nudge_worker", "--expires", "10m" ], /later than the request window/ ],
+        [ [ "--scope", "nudge_worker", "--expires", "4d" ], /hours away/ ] ].each do |extra, pattern|
+        status, _out, err = cli([ "request", "--type", "grant", "--summary", "x", "--sha", SHA, "--no-wait" ] + extra)
+        assert_equal 2, status, extra.inspect
         assert_match(pattern, err)
       end
     end

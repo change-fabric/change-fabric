@@ -129,6 +129,22 @@ class ApprovalConsoleCanonicalTest < Minitest::Test
     assert Canonical.build(base.merge(run_script_attrs))
   end
 
+  def grant_attrs(**over)
+    { type: "grant", summary: "overnight", scope_list: %w[nudge_worker stop_runaway], grant_expires_at: "2026-11-18T20:00:00Z", expires_at: "2026-11-18T12:15:00Z" }.merge(over)
+  end
+
+  def test_a_grant_signs_a_sorted_scope_list_and_an_expiry_past_the_request_window
+    base = step_attrs.reject { |key, _| key == :items }
+    body = Canonical.parse(Canonical.build(base.merge(grant_attrs)))
+    assert_equal [ %w[nudge_worker stop_runaway], "2026-11-18T20:00:00Z" ], body.values_at("scope_list", "grant_expires_at")
+    [ { scope_list: %w[stop_runaway nudge_worker] }, { scope_list: %w[a a] }, { scope_list: [] }, { scope_list: [ "Bad" ] }, { scope_list: "nudge_worker" },
+      { grant_expires_at: "2026-11-18T12:15:00Z" }, { grant_expires_at: "2026-11-21T12:00:01Z" }, { grant_expires_at: "later" }, { summary: " " } ].each do |bad|
+      assert_raises(Canonical::Invalid, bad.inspect) { Canonical.build(base.merge(grant_attrs(**bad))) }
+    end
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(grant_attrs.except(:grant_expires_at))) }
+    assert Canonical.build(base.merge(grant_attrs(grant_expires_at: "2026-11-21T12:00:00Z")))
+  end
+
   def test_release_signs_the_tag_and_the_commit_it_points_at
     base = step_attrs.reject { |key, _| key == :items }
     body = Canonical.parse(Canonical.build(base.merge(type: "release", tag: "skills/v1.2.3", commit: base[:sha])))

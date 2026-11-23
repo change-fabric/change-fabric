@@ -81,8 +81,8 @@ each one tool call: `nudge_worker` (SendMessage), `stop_runaway` (TaskStop).
 Reordering phases through the resource gate stays a proposal until the C6
 record carries a phase signal to validate a target against. A
 run authorizes them in its plan.md with a line such as
-`pulse-allow: nudge_worker, stop_runaway`; without it every action is a
-proposal.
+`pulse-allow: nudge_worker, stop_runaway`, or by a phone-approved grant
+(`pulse_grants.rb list`); without either, every action is a proposal.
 
 1. `pulse_act.rb authorize --session <id> --finding <fid> --action <type>
    --target <id> --observed-at <ts> [--text T]`. `denied` queues a proposal

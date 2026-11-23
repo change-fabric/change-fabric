@@ -10,6 +10,7 @@ require_relative '../change_override_store'
 require_relative '../change_carve_out_store'
 require_relative '../change_release_store'
 require_relative '../change_run_script_store'
+require_relative '../change_grant_store'
 
 module ApprovalConsole
   # The one writer of every phone approval record. Given a console proof and
@@ -24,6 +25,7 @@ module ApprovalConsole
   #   carve-out ChangeCarveOutStore   repo + PR number + head sha
   #   release   ChangeReleaseStore    repo + tag + sha
   #   run-script ChangeRunScriptStore repo + script sha256 + sha
+  #   grant     ChangeGrantStore      repo + body sha256 (this is the only grant writer)
   #
   # `authority` is a ChangePolicy::Authority (policy and policy_sha) from the
   # base or default branch, never the working tree.
@@ -91,7 +93,16 @@ module ApprovalConsole
       when 'carve-out' then carve_out_problem(expected)
       when 'release' then 'release needs a tag' if expected['tag'].to_s.strip.empty?
       when 'run-script' then run_script_problem(expected)
+      when 'grant' then grant_problem(expected)
       end
+    end
+
+    # A grant already past its signed expiry is never recorded.
+    def grant_problem(expected)
+      expiry = Canonical.parse_time(expected['grant_expires_at'])
+      return 'the grant has no valid grant_expires_at' unless expiry && expected['scope_list'].is_a?(Array) && !expected['scope_list'].empty?
+
+      'the grant is already expired' unless expiry > @clock.call
     end
 
     def run_script_problem(expected)
@@ -141,6 +152,12 @@ module ApprovalConsole
       store(:run_script, ChangeRunScriptStore).record(repo: expected['repo'], script_sha256: expected['script_sha256'], sha: expected['sha'],
                                                       proof: proof, policy_sha: policy_sha, recorded_by: @recorded_by)
       "run-script #{File.basename(expected['script_path'].to_s)} (#{expected['script_sha256'][0, 12]}) at #{expected['sha'][0, 12]}"
+    end
+
+    def write_grant(proof, expected)
+      store(:grant, ChangeGrantStore).record(repo: expected['repo'], grant_id: Canonical.body_sha256(proof['body']), proof: proof,
+                                             policy_sha: policy_sha, recorded_by: @recorded_by)
+      "grant of #{expected['scope_list'].join(', ')} until #{expected['grant_expires_at']}"
     end
 
     def approvals(sha) = @stores[:approval]&.call(sha) || ChangeApprovalStore.new(sha)

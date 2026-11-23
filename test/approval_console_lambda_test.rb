@@ -313,6 +313,20 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_includes html, "Run a script on this machine"
   end
 
+  def test_a_grant_page_shows_the_signed_scope_and_expiry_as_verified_and_the_summary_as_agent_text
+    body = Canonical.build(type: "grant", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil, request_id: SecureRandom.uuid,
+                           created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z", summary: "all clear, trust me",
+                           scope_list: %w[nudge_worker stop_runaway], grant_expires_at: "2026-11-20T08:00:00Z")
+    html = page_html(body)
+    verified = html[/<section data-zone="verified".*?<\/section>/m]
+    agent = html[/<section data-zone="agent".*?<\/section>/m]
+    assert_includes verified, "2026-11-20T08:00:00Z"
+    assert_includes verified, "nudge_worker"
+    assert_includes agent, "all clear, trust me"
+    assert_includes html, "Grant pulse a standing permission"
+    assert_equal 200, create_request(body).first
+  end
+
   def test_a_body_whose_hash_does_not_match_its_script_is_refused_at_the_console
     forged = JSON.parse(script_body).merge("script_text" => "rm -rf /\n")
     status, data = create_request(Canonical.serialize(forged))
