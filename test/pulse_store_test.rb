@@ -111,6 +111,15 @@ class PulseStoreTest < Minitest::Test
     assert_equal 3, @store.cursor["consumed_events"]
   end
 
+  def test_p0_notification_is_queued_once_and_only_for_p0
+    p0 = @store.append(finding("severity" => "P0"))
+    assert_equal "queued", @store.queue_notify(p0["id"])["status"]
+    assert_equal "duplicate", @store.queue_notify(p0["id"])["status"]
+    p2 = @store.append(finding("claim" => "other", "anchor" => "other"))
+    assert_equal "not P0", @store.queue_notify(p2["id"])["reason"]
+    assert_equal "unknown finding", @store.queue_notify("nope")["reason"]
+  end
+
   def test_activation_stays_off
     refute Pulse::ACTIVATED
   end

@@ -27,6 +27,9 @@ class PulseStamp
   COALESCE_S = 300
   MISSING_LOG_S = 3600
   AGENT_TTL_S = 86_400
+  # A background task has no stop event, so it counts as active work for an
+  # hour after the call that started it. A heuristic, stated in the cf:pulse
+  # skill; long tasks re-stamp it with every later background call.
   BACKGROUND_S = 3600
   PLAN_FILE = %r{([^\s"'\\]+?)/(?:workflow\.js|plan\.md|goal\.md)(?=[\s"'\\]|\z)}
   SAFE_ID = /\A\w[\w.-]*\z/

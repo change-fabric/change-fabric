@@ -107,6 +107,24 @@ class PulseStore
     { 'status' => 'recorded' }
   end
 
+  # P0 delivery is queued here for the phase that ships the executor (C3
+  # `pulse_act.rb notify`), which writes the inbox item and the phone push.
+  # A finding is queued once; nothing is delivered from this call.
+  def queue_notify(finding_id)
+    found = findings[finding_id]
+    return { 'status' => 'rejected', 'reason' => 'unknown finding' } unless found
+    return { 'status' => 'rejected', 'reason' => 'not P0' } unless found['severity'] == 'P0'
+    return { 'status' => 'rejected', 'reason' => 'parked' } if found['disposition'] == 'parked' && found['origin'] != 'system'
+
+    locked do
+      queued = File.file?(notify_path) && File.readlines(notify_path).any? { |line| line.include?(%("finding":"#{finding_id}")) }
+      next { 'status' => 'duplicate' } if queued
+
+      File.open(notify_path, 'a') { |file| file.puts(JSON.generate('finding' => finding_id, 'state' => 'pending', 'at' => now)) }
+      { 'status' => 'queued', 'finding' => finding_id }
+    end
+  end
+
   def cursor = (JSON.parse(File.read(cursor_path)) if File.file?(cursor_path)) || {}
 
   def advance_cursor(values)
@@ -214,6 +232,8 @@ class PulseStore
     File.open(ledger_path, 'a') { |file| file.puts(JSON.generate(row)) }
   end
 
+  def notify_path = File.join(@dir, 'pulse_notifications.jsonl')
+
   def cursor_path = File.join(@dir, 'pulse_cursor.json')
 
   def atomic_write(path, text)
@@ -243,10 +263,12 @@ class PulseStoreCLI
     case cmd
     when 'append' then store.append(JSON.parse(input.read))
     when 'disposition' then store.disposition(opts.fetch('fingerprint'), opts.fetch('value'))
+    when 'append-system' then store.append_system(JSON.parse(input.read))
+    when 'notify' then store.queue_notify(opts.fetch('finding'))
     when 'cursor' then store.cursor
     when 'advance' then store.advance_cursor(JSON.parse(input.read)) || store.cursor
     when 'reserve' then PulseStore.reserve(opts.fetch('project'), critic: opts['critic'] == 'true')
-    else raise ArgumentError, 'usage: pulse_store.rb append|disposition|cursor|reserve --session ID'
+    else raise ArgumentError, 'usage: pulse_store.rb append|append-system|disposition|notify|cursor|reserve --session ID'
     end
   end
 end
