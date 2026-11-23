@@ -9,6 +9,7 @@ require "open3"
 require "rbconfig"
 
 require_relative "../install"
+require_relative "../scripts/cf_state"
 require_relative "../scripts/change_lane_a11y"
 require_relative "../scripts/walkthrough_diagram"
 require_relative "../scripts/walkthrough_render"
@@ -133,7 +134,7 @@ class InstallerTest < Minitest::Test
     key_paste_guard.rb secrets_read_guard.rb prod_approval_guard.rb model_role_guard.rb
     resource_floor_guard.rb
   ].freeze
-  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd SubagentStart].freeze
+  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd SubagentStart SubagentStop].freeze
 
   def setup
     @home = Dir.mktmpdir
@@ -333,8 +334,65 @@ class InstallerTest < Minitest::Test
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 5, 14, 4, 4, 1, 2, 1 ], counts
+    assert_equal [ 5, 14, 5, 4, 2, 2, 2, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
+  end
+
+  def test_wires_the_pulse_stamp_for_claude_on_its_four_events
+    hooks = JSON.parse(File.read(install.settings))["hooks"]
+    %w[PostToolUse SubagentStart SubagentStop Stop].each do |event|
+      commands = hooks.fetch(event).flat_map { |group| group["hooks"].map { |hook| hook["command"] } }
+      assert_equal 1, commands.count { |command| command.end_with?("/pulse_stamp.rb") }, event
+    end
+    adapter = hooks["SubagentStart"].flat_map { |group| group["hooks"].map { |hook| hook["command"] } }
+    assert adapter.any? { |command| command.include?("cf_host_hook.rb") }, "the adapter entry survives"
+  end
+
+  # Landing the stamp installs it, it does not turn pulse on. Every engage
+  # trigger present, run through the installed hook, prints nothing.
+  def pulse_hook(paths, event, extra = {})
+    project = File.join(@home, "proj")
+    FileUtils.mkdir_p(project)
+    payload = { "hook_event_name" => event, "session_id" => "s-c8", "cwd" => project }.merge(extra)
+    out, = Open3.capture2({ "HOME" => @home, "CF_STATE_HOME" => nil }, RbConfig.ruby, File.join(paths.runtime_bin, "pulse_stamp.rb"),
+                          stdin_data: JSON.generate(payload))
+    out
+  end
+
+  def engage_every_trigger(paths)
+    project = File.join(@home, "proj")
+    FileUtils.mkdir_p(project)
+    record = CfState.new(host: "claude", project: project, session_id: "s-c8", root: File.join(@home, ".local", "state", "change-fabric"), home: @home)
+    record.update({ "mode" => "admin-bypass", "availability" => "away" })
+    plan = File.join(@home, ".claude", "cf", "plans", "a", "b")
+    FileUtils.mkdir_p(plan)
+    File.write(File.join(plan, "goal.md"), "Goal.\n")
+    outputs = [ pulse_hook(paths, "SubagentStart", "agent_id" => "a1"), pulse_hook(paths, "SubagentStart", "agent_id" => "a2"),
+                pulse_hook(paths, "PostToolUse", "tool_name" => "Workflow", "tool_input" => { "script" => "#{plan}/workflow.js" }),
+                pulse_hook(paths, "PostToolUse", "tool_name" => "Bash", "tool_input" => { "run_in_background" => true }) ]
+    [ outputs, record.pulse ]
+  end
+
+  def test_install_with_every_trigger_never_dispatches
+    paths = install
+    outputs, record = engage_every_trigger(paths)
+    assert_equal [ "" ] * 4, outputs
+    assert record["detected_trigger"], "the trigger is recorded"
+    refute record["engaged_at"]
+    refute record["arm_requested_at"]
+    refute File.exist?(File.join(@home, ".claude", "cf", "sessions", "s-c8", "pulse_cursor.json"))
+    assert_includes File.read(File.join(paths.runtime_bin, "pulse_store.rb")), "ACTIVATED = false"
+  end
+
+  def test_upgrade_to_a_later_phase_install_still_does_not_dispatch
+    paths = install
+    # ACTIVATED stays false even when these later parts are present.
+    %w[pulse_integrity.rb pulse_act.rb].each { |name| File.write(File.join(paths.runtime_bin, name), "") }
+    FileUtils.mkdir_p(File.join(@home, ".claude", "skills", "pulse"))
+    File.write(File.join(@home, ".claude", "skills", "pulse", "SKILL.md"), "")
+    outputs, record = engage_every_trigger(install)
+    assert_equal [ "" ] * 4, outputs
+    refute record["engaged_at"]
   end
 
   def test_reinstall_leaves_an_unmanaged_file_in_bin_alone

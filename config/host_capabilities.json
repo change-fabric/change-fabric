@@ -18,7 +18,8 @@
         "tool_guard": "adapter-tested",
         "mode_persistence": "adapter-tested",
         "child_inheritance": "adapter-tested",
-        "completion_gate": "documented"
+        "completion_gate": "documented",
+        "pulse": "documented"
       },
       "live_verification": "not-run",
       "adapter_contract": "test/agent_contract_test.rb",
@@ -43,7 +44,8 @@
         "tool_guard": "adapter-tested",
         "mode_persistence": "adapter-tested",
         "child_inheritance": "adapter-tested",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "passed",
       "adapter_contract": "test/agent_contract_test.rb",
@@ -65,7 +67,8 @@
         "tool_guard": "adapter-tested",
         "mode_persistence": "adapter-tested",
         "child_inheritance": "adapter-tested",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run",
       "adapter_contract": "test/agent_contract_test.rb",
@@ -86,7 +89,8 @@
         "tool_guard": "adapter-tested",
         "mode_persistence": "adapter-tested",
         "child_inheritance": "adapter-tested",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run",
       "adapter_contract": "test/agent_contract_test.rb",
@@ -109,7 +113,8 @@
         "tool_guard": "adapter-tested",
         "mode_persistence": "adapter-tested",
         "child_inheritance": "instructions-only",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run",
       "adapter_contract": "test/agent_contract_test.rb",
@@ -130,7 +135,8 @@
         "tool_guard": "instructions-only",
         "mode_persistence": "instructions-only",
         "child_inheritance": "instructions-only",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run"
     },
@@ -149,7 +155,8 @@
         "tool_guard": "instructions-only",
         "mode_persistence": "instructions-only",
         "child_inheritance": "instructions-only",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run"
     },
@@ -168,7 +175,8 @@
         "tool_guard": "instructions-only",
         "mode_persistence": "instructions-only",
         "child_inheritance": "instructions-only",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run"
     },
@@ -187,7 +195,8 @@
         "tool_guard": "instructions-only",
         "mode_persistence": "instructions-only",
         "child_inheritance": "instructions-only",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run"
     },
@@ -206,7 +215,8 @@
         "tool_guard": "instructions-only",
         "mode_persistence": "instructions-only",
         "child_inheritance": "instructions-only",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run"
     },
@@ -225,7 +235,8 @@
         "tool_guard": "instructions-only",
         "mode_persistence": "instructions-only",
         "child_inheritance": "instructions-only",
-        "completion_gate": "instructions-only"
+        "completion_gate": "instructions-only",
+        "pulse": "unavailable"
       },
       "live_verification": "not-run"
     }

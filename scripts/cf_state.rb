@@ -50,6 +50,22 @@ class CfState
     end
   end
 
+  # Pulse's C6 stamp fields live under one key of the session record. A
+  # session with no record yet is left alone (unknown, not active), so the
+  # stamp never seeds a record ahead of the runtime's own defaults.
+  def pulse = locked { own(@session_id)['pulse'] || {} }
+
+  def update_pulse
+    locked do
+      data = own(@session_id)
+      next({}) if data.empty?
+
+      data['pulse'] = (data['pulse'].is_a?(Hash) ? data['pulse'] : {}).tap { |pulse| yield pulse }
+      write(data)
+      data['pulse']
+    end
+  end
+
   private
 
   def locked
