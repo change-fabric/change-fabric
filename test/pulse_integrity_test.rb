@@ -152,6 +152,11 @@ class PulseIntegrityTest < Minitest::Test
     assert_equal [ "narrowed-comprehensive" ], checks(%({"id":"s","verdict":"PASS","expected":100,"judged":10,"rows":10,"scope_label":"comprehensive",#{GATED}}))
   end
 
+  def test_passed_beyond_an_explicit_judged_count_is_skipped_counted_as_pass
+    assert_includes checks(%({"id":"s","verdict":"PASS","expected":100,"ran":10,"skipped":5,"judged":5,"passed":10,"rows":10,"scope_label":"smoke subset",#{GATED}})), "skipped-as-pass"
+    assert_empty checks(%({"id":"s","verdict":"PASS","expected":100,"ran":10,"skipped":5,"judged":5,"passed":5,"rows":10,#{GATED}}))
+  end
+
   def test_a_non_string_scope_label_still_reads_as_comprehensive
     assert_equal [ "narrowed-comprehensive" ], checks(%({"id":"s","verdict":"PASS","expected":10,"ran":5,"judged":5,"passed":5,"rows":5,"scope_label":["full"],#{GATED}}))
   end

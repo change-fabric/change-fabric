@@ -166,15 +166,15 @@ class PulseIntegrity
   # skipped units must not count as passed: passed can reach at most
   # ran - skipped - failed.
   def skipped_as_pass(id, data, counts)
-    skipped, ran, passed = counts.values_at('skipped', 'ran', 'passed')
-    return unless passing?(data) && [ skipped, ran, passed ].none?(&:nil?) && skipped.positive?
+    skipped, ran, passed, judged = counts.values_at('skipped', 'ran', 'passed', 'judged')
+    return unless passing?(data) && skipped&.positive? && passed && (ran || judged)
 
-    total = counts['expected'] || ran
     failed = counts['failed'].to_i
-    return unless passed > total - skipped - failed || passed + failed > ran
+    over = judged ? passed > judged : passed > (counts['expected'] || ran) - skipped - failed || passed + failed > ran
+    return unless over
 
     finding(id, 'skipped-as-pass', 'P0', "skipped counted as pass: #{id} skipped #{skipped} and counted them in passed",
-            "skipped: #{skipped}, ran: #{ran}, passed: #{passed}, verdict: #{verdict(data)}")
+            "skipped: #{skipped}, ran: #{ran.inspect}, judged: #{judged.inspect}, passed: #{passed}, verdict: #{verdict(data)}")
   end
 
   def narrowed(id, data, counts)

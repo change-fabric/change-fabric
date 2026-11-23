@@ -47,16 +47,17 @@ nudge; the watcher exit is the dispatch path.
    before that leaves the result uncommitted, so the next pass appends and
    notifies it again.
 4. `ruby ~/.claude/cf/bin/pulse_store.rb reserve --project <root>` (add
-   `--critic true` for an integrity event). Reserved: spawn the reviewer in the
-   background with the pass limits, record it with
-   `pulse_store.rb pass-start --session <id> --task-id <task>`, and run
-   `pass-end --task-id <task>` when it completes (a start while another pass is
-   running returns `busy`; do not spawn). A `pass_overrun` event means the pass is past
-   its wall clock: TaskStop it, then run `pass-end --task-id <task>`. Exhausted: say `[cf] pulse budget
-   exhausted` once and go report-only; step 3 keeps running. Either way, once
-   the spawn succeeded or exhaustion is handled, commit the pre-check with
-   `pulse_precheck.rb --session <id> --commit-result true --json` (step 2's
-   JSON on stdin).
+   `--critic true` for an integrity event). Reserved: claim the pass slot
+   first with `pulse_store.rb pass-start --session <id> --task-id <pass-id>`
+   (a fresh id such as `pulse-<epoch>`); `busy` means a pass is running, so
+   do not spawn. Then spawn the reviewer in the background with the pass
+   limits, named `<pass-id>`, and run `pass-end --task-id <pass-id>` when it
+   completes or if the spawn fails. A `pass_overrun` event means the pass is
+   past its wall clock: TaskStop `<pass-id>`, then run `pass-end`. Exhausted:
+   say `[cf] pulse budget exhausted` once and go report-only; step 3 keeps
+   running. Either way, once the spawn succeeded or exhaustion is handled,
+   commit the pre-check with `pulse_precheck.rb --session <id>
+   --commit-result true --json` (step 2's JSON on stdin).
 5. Every finding, deterministic or from the reviewer, goes through
    `pulse_store.rb append --session <id>` (JSON on stdin; a deterministic finding
    with no `serves` because no scope resolved uses `append-system`). An integrity P0 whose append returned
