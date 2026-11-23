@@ -63,13 +63,45 @@ nudge; the watcher exit is the dispatch path.
    with no `serves` because no scope resolved uses `append-system`). An integrity P0 whose append returned
    `stored` or `duplicate` goes to `pulse_store.rb notify --session <id>
    --finding <id>` (the id is in the result), which queues the delivery once. Actionable findings are applied only as the action policy
-   allows. Everything else is a proposal.
+   allows, through the `pulse-exec` adapter below. Everything else is a
+   proposal. Then deliver P0s:
+   `pulse_act.rb notify --session <id>` files each queued P0 in the cf:inbox
+   store (`inbox_store.rb announce`) and returns a `doorbell` line. Surface
+   that line to the human, then run `pulse_act.rb delivered --session <id>
+   --finding <fid>`. A filed P0 comes back each pass until then, and a failed
+   filing is retried once.
 6. Re-arm the watcher (`pulse_watch.rb --session <id>`, background). Re-arm is
    the last step of every handling turn, success or failure.
 
-The executor, delivery and grants arrive in later phases. Until
-`pulse_act.rb` is installed, no finding is applied: the coordinator records
-proposals and reports.
+## The pulse-exec adapter (C3)
+
+`pulse_act.rb` never touches a worker. It authorizes and returns a typed
+command; the coordinator runs it through this one adapter. Allowed actions,
+each one tool call: `nudge_worker` (SendMessage), `stop_runaway` (TaskStop).
+Reordering phases through the resource gate stays a proposal until the C6
+record carries a phase signal to validate a target against. A
+run authorizes them in its plan.md with a line such as
+`pulse-allow: nudge_worker, stop_runaway`; without it every action is a
+proposal.
+
+1. `pulse_act.rb authorize --session <id> --finding <fid> --action <type>
+   --target <id> --observed-at <ts> [--text T]`. `denied` queues a proposal
+   (`pulse_proposals.jsonl`, counted in the status line, read at the next
+   natural boundary; in away mode ask-class items stay queued). `authorized`
+   returns `{command, key, expires_at}`, valid 5 minutes.
+2. `pulse_act.rb begin --session <id> --key <key>`, immediately before the
+   tool call. It rechecks expiry, mode, scope and target freshness. Run the
+   command only on `executing`.
+3. Make exactly that tool call.
+4. `pulse_act.rb ack --session <id> --key <key> --result ok|error`.
+5. A key stuck in `executing` (the coordinator died) is never retried:
+   `pulse_act.rb reconcile --session <id> --key <key> [--transcript F]` acks
+   it if the effect is visible, else fails it and a new authorization is
+   needed.
+
+Run `pulse_store.rb pass-end --task-id <pass-id> --findings <n>` when a pass
+ends: an empty pass doubles the interval (to 60 minutes), a pass with findings
+resets it. Grants arrive in a later phase.
 
 ## Lenses
 

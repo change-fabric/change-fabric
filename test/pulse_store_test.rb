@@ -164,7 +164,22 @@ class PulseStoreTest < Minitest::Test
     assert_equal "started", @store.start_pass("t2")["status"]
   end
 
-  def test_activation_stays_off
+  def test_activation_stays_off_and_every_ready_part_ships_in_the_repo
     refute Pulse::ACTIVATED
+    root = File.expand_path("..", __dir__)
+    Pulse::READY_PARTS.each do |part|
+      assert File.file?(File.join(root, part.end_with?(".md") ? part : "scripts/#{part}.rb")), part
+    end
+  end
+
+  def test_pass_end_backs_off_on_empty_passes_and_resets_on_findings
+    2.times do |i|
+      @store.start_pass("t#{i}")
+      @store.finish_pass("t#{i}", findings: 0)
+    end
+    assert_equal 2, @store.cursor["empty_passes"]
+    @store.start_pass("t9")
+    @store.finish_pass("t9", findings: 1)
+    assert_equal 0, @store.cursor["empty_passes"]
   end
 end

@@ -10,7 +10,7 @@ require 'yaml'
 
 # Pulse is the background acceleration and integrity review. Landing code does
 # not turn it on: ACTIVATED stays false until the phase that ships the watcher
-# events and the action executor (C8).
+# events (C8).
 module Pulse
   ACTIVATED = false
   READY_PARTS = %w[pulse_store pulse_precheck pulse_stamp pulse_scope pulse_integrity pulse_watch pulse_act
@@ -128,20 +128,23 @@ class PulseStore
   end
 
   # Closes only the named pass, so a late pass-end never closes a newer one.
-  def finish_pass(task_id)
+  # `findings` (a count) drives the backoff: an empty pass doubles the interval
+  # (up to 60 minutes), a pass with findings resets it.
+  def finish_pass(task_id, findings: nil)
     locked do
       current = pass_record
       next { 'status' => 'none' } unless current
       next { 'status' => 'stale', 'task_id' => current['task_id'] } unless current['task_id'] == task_id
 
       atomic_write(pass_path, JSON.generate(current.merge('finished_at' => now)))
+      advance_cursor('empty_passes' => findings.to_i.positive? ? 0 : cursor['empty_passes'].to_i + 1) unless findings.nil?
       { 'status' => 'finished' }
     end
   end
 
-  # P0 delivery is queued here for the phase that ships the executor (C3
-  # `pulse_act.rb notify`), which writes the inbox item and the phone push.
-  # A finding is queued once; nothing is delivered from this call.
+  # P0 delivery is queued here; `pulse_act.rb notify` consumes the queue and
+  # writes the inbox item. A finding is queued once; nothing is delivered from
+  # this call.
   def queue_notify(finding_id)
     found = findings[finding_id]
     return { 'status' => 'rejected', 'reason' => 'unknown finding' } unless found
@@ -159,6 +162,9 @@ class PulseStore
       { 'status' => 'queued', 'finding' => finding_id }
     end
   end
+
+  # C7 at act time: the finding's `serves` must still match the current scope.
+  def serves_current?(finding) = serves_verdict(finding['serves']) == :ok
 
   def cursor = (JSON.parse(File.read(cursor_path)) if File.file?(cursor_path)) || {}
 
@@ -310,7 +316,7 @@ class PulseStoreCLI
     when 'disposition' then store.disposition(opts.fetch('fingerprint'), opts.fetch('value'))
     when 'append-system' then store.append_system(JSON.parse(input.read))
     when 'pass-start' then store.start_pass(opts.fetch('task-id'))
-    when 'pass-end' then store.finish_pass(opts.fetch('task-id'))
+    when 'pass-end' then store.finish_pass(opts.fetch('task-id'), findings: opts['findings']&.to_i)
     when 'notify' then store.queue_notify(opts.fetch('finding'))
     when 'cursor' then store.cursor
     when 'advance' then store.advance_cursor(JSON.parse(input.read)) || store.cursor

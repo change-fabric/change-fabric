@@ -32,9 +32,9 @@ class PulseSkillTest < Minitest::Test
     end
   end
 
-  def test_names_only_scripts_that_exist_or_are_deferred
+  def test_names_only_scripts_that_exist
     named = BRIEF.scan(/\b(pulse_\w+)\.rb/).flatten.uniq
     missing = named.reject { |name| File.file?(File.expand_path("../scripts/#{name}.rb", __dir__)) }
-    assert_equal [ "pulse_act" ], missing
+    assert_empty missing
   end
 end
