@@ -6,7 +6,7 @@ require 'rubygems/version'
 # Evidence is distinct from availability. Unknown versions never inherit a
 # tested claim, and unknown surfaces never inherit another surface's hooks.
 class HostCapabilities
-  FEATURES = %w[skill_discovery startup_context prompt_context tool_guard mode_persistence child_inheritance completion_gate].freeze
+  FEATURES = %w[skill_discovery startup_context prompt_context tool_guard mode_persistence child_inheritance completion_gate pulse].freeze
   LEVELS = %w[documented adapter-tested instructions-only unavailable].freeze
 
   def initialize(path: File.expand_path('../config/host_capabilities.json', __dir__))

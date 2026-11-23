@@ -4,6 +4,7 @@
 require 'json'
 require 'fileutils'
 require_relative 'pulse_store'
+require_relative 'cf_state'
 
 # C7: the coordinator resolves the allowed scope sources before any review and
 # persists them to pulse_scope.json. The reviewer never nominates a source.
@@ -13,8 +14,8 @@ class PulseScope
   def initialize(session:, project:, plan_dir: nil, home: Dir.home)
     @session = session
     @project = project
-    @plan_dir = plan_dir
     @home = home
+    @plan_dir = plan_dir || recorded_plan_dir
   end
 
   def resolve
@@ -29,6 +30,15 @@ class PulseScope
   end
 
   private
+
+  # plan_path is stamped into the session record when a Workflow or plan run
+  # starts (pulse_stamp.rb), so the coordinator needs no --plan-dir.
+  def recorded_plan_dir
+    path = CfState.new(host: 'claude', project: @project, session_id: @session, root: CfState.root(home: @home), home: @home).pulse['plan_path']
+    path if path.is_a?(String) && File.directory?(path)
+  rescue StandardError
+    nil
+  end
 
   def run_sources
     return [] unless @plan_dir
