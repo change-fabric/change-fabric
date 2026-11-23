@@ -113,8 +113,8 @@ class PulseAct
   # only.
   def notify(only: nil)
     path = File.join(@dir, 'pulse_notifications.jsonl')
-    latest = read(path).group_by { |row| row['finding'] }.transform_values(&:last)
-    latest.filter_map do |id, row|
+    newest = read(path).group_by { |row| row['finding'] }.transform_values(&:last)
+    newest.filter_map do |id, row|
       next if only && id != only
       next if row['state'] == 'delivered' || (row['state'] == 'failed' && row['attempts'].to_i >= MAX_ATTEMPTS)
 
@@ -266,7 +266,7 @@ class PulseActCLI
     act = PulseAct.new(opts.fetch('session'), project: opts['project'] || Dir.pwd, now: opts['now'] ? Time.parse(opts['now']) : Time.now)
     out.puts(JSON.generate(dispatch(act, cmd, opts)))
     0
-  rescue KeyError, ArgumentError, StandardError => e
+  rescue StandardError => e
     out.puts(JSON.generate('error' => e.message))
     2
   end
