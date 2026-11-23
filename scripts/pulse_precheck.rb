@@ -126,10 +126,12 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   opts = ARGV.reject { |arg| arg == '--json' }.each_slice(2).to_h { |flag, value| [ flag.delete_prefix('--'), value ] }
-  abort 'usage: pulse_precheck.rb --session ID [--now ISO8601] [--commit true] --json' unless opts['session']
+  abort 'usage: pulse_precheck.rb --session ID [--now ISO8601] [--commit true | --commit-result true] --json' unless opts['session']
   now = opts['now'] ? Time.parse(opts['now']) : Time.now
   check = PulsePrecheck.new(opts['session'], now: now)
-  result = check.run
-  check.commit(result) if result['due'] && opts['commit'] == 'true'
+  # `--commit-result true` applies the cursor of an earlier run (its JSON on
+  # stdin), so events and deadlines that arrived since are not consumed unseen.
+  result = opts['commit-result'] == 'true' ? JSON.parse($stdin.read) : check.run
+  check.commit(result) if result['due'] && (opts['commit'] == 'true' || opts['commit-result'] == 'true')
   puts JSON.generate(result)
 end

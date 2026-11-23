@@ -87,6 +87,15 @@ class PulseIntegrationTest < Minitest::Test
     assert_empty cli("pulse_integrity.rb", "--session", @session, "--json")
   end
 
+  def test_commit_result_consumes_only_what_the_check_saw
+    write_events({ "event" => "run_result", "at" => t(0).iso8601 })
+    seen = cli("pulse_precheck.rb", "--session", @session, "--now", t(1).iso8601, "--json")
+    write_events({ "event" => "run_result", "at" => t(0).iso8601 }, { "event" => "gate_verdict", "at" => t(1).iso8601 })
+    cli("pulse_precheck.rb", "--session", @session, "--now", t(2).iso8601, "--commit-result", "true", "--json", input: JSON.generate(seen))
+    later = cli("pulse_precheck.rb", "--session", @session, "--now", t(2).iso8601, "--json")
+    assert_equal [ "event:gate_verdict" ], later["reasons"]
+  end
+
   def test_nothing_due_skips_integrity
     _, check, stored, = run_sequence(@session)
     refute check["due"]

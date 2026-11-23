@@ -35,7 +35,9 @@ nudge; the watcher exit is the dispatch path.
    allowed scope sources. The reviewer never nominates a source.
 2. `ruby ~/.claude/cf/bin/pulse_precheck.rb --session <id> --json`. Not due:
    go to step 6. Elapsed deadlines and unconsumed watcher events count as
-   change.
+   change. The check is read-only. Keep its JSON: step 4 pipes it back with
+   `--commit-result true`, which consumes exactly what this check saw, so a
+   failed reservation or spawn leaves them due and later arrivals are not lost.
 3. `ruby ~/.claude/cf/bin/pulse_integrity.rb --session <id> --json`, always,
    with or without model budget. It makes no model call. After its findings
    are appended, pipe only the findings whose append returned `stored`,
@@ -45,7 +47,10 @@ nudge; the watcher exit is the dispatch path.
 4. `ruby ~/.claude/cf/bin/pulse_store.rb reserve --project <root>` (add
    `--critic true` for an integrity event). Reserved: spawn the reviewer in the
    background with the pass limits. Exhausted: say `[cf] pulse budget
-   exhausted` once and go report-only; step 3 keeps running.
+   exhausted` once and go report-only; step 3 keeps running. Either way, once
+   the spawn succeeded or exhaustion is handled, commit the pre-check with
+   `pulse_precheck.rb --session <id> --commit-result true --json` (step 2's
+   JSON on stdin).
 5. Every finding, deterministic or from the reviewer, goes through
    `pulse_store.rb append --session <id>` (JSON on stdin; a deterministic finding
    with no `serves` because no scope resolved uses `append-system`). A stored integrity P0 then

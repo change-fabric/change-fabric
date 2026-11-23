@@ -92,7 +92,8 @@ class PulseIntegrity
     return unless passing?(data) && [ skipped, ran, passed ].all?(Numeric) && skipped.positive?
 
     total = data['expected'].is_a?(Numeric) ? data['expected'] : ran
-    return unless passed > total - skipped - data['failed'].to_i
+    failed = data['failed'].to_i
+    return unless passed > total - skipped - failed || passed + failed > ran
 
     finding(id, 'skipped-as-pass', 'P0', "skipped counted as pass: #{id} skipped #{skipped} and counted them in passed",
             "skipped: #{skipped}, ran: #{ran}, passed: #{passed}, verdict: #{data['verdict']}")

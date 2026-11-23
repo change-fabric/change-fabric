@@ -53,6 +53,10 @@ class PulseIntegrityTest < Minitest::Test
     assert_empty checks(%({"id":"s","verdict":"PASS","expected":40,"ran":36,"skipped":4,"passed":36,"rows":36,#{GATED}}))
   end
 
+  def test_passed_beyond_the_executed_subset_is_skipped_counted_as_pass
+    assert_equal [ "skipped-as-pass" ], checks(%({"id":"s","verdict":"PASS","expected":100,"ran":10,"skipped":5,"passed":15,"rows":10,"scope_label":"smoke subset",#{GATED}}))
+  end
+
   def test_verdict_vocabulary_and_whitespace_do_not_evade_the_checks
     [ "pass ", "OK", "success", "green", "Passing" ].each do |verdict|
       assert_equal [ "vacuous-pass" ], checks(%({"id":"s","verdict":"#{verdict}","rows":0,"expected":3,#{GATED}}))
