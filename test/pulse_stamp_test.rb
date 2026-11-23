@@ -61,6 +61,14 @@ class PulseStampTest < Minitest::Test
     assert_empty PulseStore.new(@session).cursor
   end
 
+  def test_plan_path_is_found_under_a_plans_root_not_named_plans
+    plan = File.join(@home, "notes", "roadmaps", "slug")
+    FileUtils.mkdir_p(plan)
+    File.write(File.join(plan, "plan.md"), "Plan.\n")
+    stamp("PostToolUse", **workflow_event(plan))
+    assert_equal plan, state.pulse["plan_path"]
+  end
+
   def test_two_open_subagents_trigger_and_stop_closes_them
     stamp("SubagentStart", agent_id: "a1")
     assert_nil state.pulse["detected_trigger"]

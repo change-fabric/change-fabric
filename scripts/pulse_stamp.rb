@@ -28,7 +28,7 @@ class PulseStamp
   MISSING_LOG_S = 3600
   AGENT_TTL_S = 86_400
   BACKGROUND_S = 3600
-  PLAN_FILE = %r{([^\s"'\\]*?/plans/[^\s"'\\]+?)/(?:workflow\.js|plan\.md|goal\.md)}
+  PLAN_FILE = %r{([^\s"'\\]+?)/(?:workflow\.js|plan\.md|goal\.md)(?=[\s"'\\]|\z)}
   SAFE_ID = /\A\w[\w.-]*\z/
   ARM = '[cf] pulse engaged: arm watcher (run pulse_watch.rb --session %s with run_in_background)'
   REARM = '[cf] pulse watcher stale: re-arm (run pulse_watch.rb --session %s with run_in_background)'
@@ -93,12 +93,14 @@ class PulseStamp
     pulse['plan_path'] = dir if dir
   end
 
+  # Any path ending in a plan file whose directory holds goal.md or plan.md.
+  # The plans root is configurable, so no directory name is assumed.
   def plan_dir(input)
-    dir = JSON.generate(input)[PLAN_FILE, 1]&.gsub('\\/', '/')
-    return unless dir
-
-    dir = File.expand_path(dir.sub(/\A~/, @home))
-    dir if %w[goal.md plan.md].any? { |name| File.file?(File.join(dir, name)) }
+    JSON.generate(input).scan(PLAN_FILE).flatten.each do |raw|
+      dir = File.expand_path(raw.sub(/\A~/, @home))
+      return dir if %w[goal.md plan.md].any? { |name| File.file?(File.join(dir, name)) }
+    end
+    nil
   end
 
   def active_work?(pulse)
