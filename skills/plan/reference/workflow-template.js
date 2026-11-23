@@ -45,6 +45,11 @@
 //     scripts/resource_gate_lint.rb and fails a script whose gate is missing,
 //     late, commented out or after a return.
 //
+// Pulse: pulseLine() tells each phase agent to emit a phase_boundary event so the
+// cf:pulse watcher can review at the boundary. A plan that lets pulse act on its
+// own adds a line `pulse-allow: nudge_worker, stop_runaway` to plan.md; without
+// it every pulse action is a queued proposal.
+//
 // Model roles: pick per call. The classifier role for high-volume mechanically
 // bounded classification, the critic role for the low volume, high stakes calls
 // that gate everything downstream, the worker role for an agent that executes a
@@ -142,6 +147,15 @@ const GATE_LINE = "Before any heavy step (test suite, docker build, change boot 
   "resource gate: ruby ~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe. If it " +
   "reports ok false, stop, set landed false, and put the gate JSON in notes."
 
+// One line per phase boundary for cf:pulse. Pass the orchestrating session id as
+// args.pulseSession; the emit is harmless when pulse is off, and skipped if the
+// script is missing.
+function pulseLine(phaseName) {
+  return "At the end of this phase run: ruby ~/.claude/cf/bin/pulse_watch.rb emit --session " +
+    (input.pulseSession ?? "<orchestrating session id>") + " --event phase_boundary --detail \"" +
+    phaseName + "\". Skip it silently if the script is missing."
+}
+
 // Common preamble for every phase agent. The plan is the source of truth, so
 // each agent reads it rather than trusting a paraphrase in this script.
 function preamble(phaseName) {
@@ -152,7 +166,7 @@ function preamble(phaseName) {
     " first, in full, then do only the phase named below. The plan's " +
     "\"Decisions (settled, do not re-litigate)\" section records answers the user " +
     "already gave; treat those as fixed and do not reopen them.\n\n" +
-    GATE_LINE + "\n\n" +
+    GATE_LINE + "\n\n" + pulseLine(phaseName) + "\n\n" +
     "Repository: " + REPO_PATH + "\n" +
     "Phase: " + phaseName + "\n\n"
 }
