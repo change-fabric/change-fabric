@@ -179,13 +179,11 @@ class PulseIntegrity
 
   def narrowed(id, data, counts)
     expected, ran = counts.values_at('expected', 'ran')
-    return unless passing?(data) && expected && ran && label(data).match?(COMPREHENSIVE)
-
-    judged = counts['judged'] || ran - counts['skipped'].to_i
-    return unless judged < expected
+    judged = counts['judged'] || (ran && ran - counts['skipped'].to_i)
+    return unless passing?(data) && expected && judged && label(data).match?(COMPREHENSIVE) && judged < expected
 
     finding(id, 'narrowed-comprehensive', 'P0', "narrowed run claims comprehensive coverage: #{id} judged #{judged} of #{expected}",
-            "expected: #{expected}, ran: #{ran}, skipped: #{counts['skipped'].to_i}, scope_label: #{label(data)}")
+            "expected: #{expected}, ran: #{ran.inspect}, skipped: #{counts['skipped'].to_i}, scope_label: #{label(data)}")
   end
 
   def stale_head(id, data)

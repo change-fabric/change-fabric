@@ -148,6 +148,10 @@ class PulseIntegrityTest < Minitest::Test
     assert_empty checks(%({"id":"s","verdict":"FAIL","rows":0,"expected":3,"ran":0,"passed":0}))
   end
 
+  def test_an_explicit_judged_count_is_checked_without_ran
+    assert_equal [ "narrowed-comprehensive" ], checks(%({"id":"s","verdict":"PASS","expected":100,"judged":10,"rows":10,"scope_label":"comprehensive",#{GATED}}))
+  end
+
   def test_a_non_string_scope_label_still_reads_as_comprehensive
     assert_equal [ "narrowed-comprehensive" ], checks(%({"id":"s","verdict":"PASS","expected":10,"ran":5,"judged":5,"passed":5,"rows":5,"scope_label":["full"],#{GATED}}))
   end

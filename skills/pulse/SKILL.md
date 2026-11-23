@@ -40,11 +40,12 @@ nudge; the watcher exit is the dispatch path.
    `--commit-result true`, which consumes exactly what this check saw, so a
    failed reservation or spawn leaves them due and later arrivals are not lost.
 3. `ruby ~/.claude/cf/bin/pulse_integrity.rb --session <id> --json`, always,
-   with or without model budget. It makes no model call. After its findings
-   are appended, pipe only the findings whose append returned `stored`,
-   `duplicate` or `suppressed` to `pulse_integrity.rb --session <id> --commit
-   true`, so unchanged results are skipped next pass and a failed append is
-   retried.
+   with or without model budget. It makes no model call. Commit its digests
+   only after step 5: pipe the findings whose append returned `stored`,
+   `duplicate` or `suppressed`, and whose notify (P0s) returned `queued` or
+   `duplicate`, to `pulse_integrity.rb --session <id> --commit true`. A crash
+   before that leaves the result uncommitted, so the next pass appends and
+   notifies it again.
 4. `ruby ~/.claude/cf/bin/pulse_store.rb reserve --project <root>` (add
    `--critic true` for an integrity event). Reserved: spawn the reviewer in the
    background with the pass limits, record it with
@@ -60,8 +61,7 @@ nudge; the watcher exit is the dispatch path.
    `pulse_store.rb append --session <id>` (JSON on stdin; a deterministic finding
    with no `serves` because no scope resolved uses `append-system`). An integrity P0 whose append returned
    `stored` or `duplicate` goes to `pulse_store.rb notify --session <id>
-   --finding <id>` (the id is in the result), which queues the delivery once, so
-   a notify lost to a crash is repeated on the next pass. Actionable findings are applied only as the action policy
+   --finding <id>` (the id is in the result), which queues the delivery once. Actionable findings are applied only as the action policy
    allows. Everything else is a proposal.
 6. Re-arm the watcher (`pulse_watch.rb --session <id>`, background). Re-arm is
    the last step of every handling turn, success or failure.
