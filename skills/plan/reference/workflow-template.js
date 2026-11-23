@@ -147,13 +147,13 @@ const GATE_LINE = "Before any heavy step (test suite, docker build, change boot 
   "resource gate: ruby ~/.claude/cf/bin/resource_gate.rb check --json --reclaim-safe. If it " +
   "reports ok false, stop, set landed false, and put the gate JSON in notes."
 
-// One line per phase boundary for cf:pulse. Pass the orchestrating session id as
-// args.pulseSession; the emit is harmless when pulse is off, and skipped if the
-// script is missing.
+// One line per phase boundary for cf:pulse. Needs args.pulseSession (the handoff
+// passes it); without it no line is emitted rather than a placeholder command.
 function pulseLine(phaseName) {
+  if (!input.pulseSession) return ""
   return "At the end of this phase run: ruby ~/.claude/cf/bin/pulse_watch.rb emit --session " +
-    (input.pulseSession ?? "<orchestrating session id>") + " --event phase_boundary --detail \"" +
-    phaseName + "\". Skip it silently if the script is missing."
+    input.pulseSession + " --event phase_boundary --detail \"" + phaseName +
+    "\". Skip it silently if the script is missing.\n\n"
 }
 
 // Common preamble for every phase agent. The plan is the source of truth, so
@@ -166,7 +166,7 @@ function preamble(phaseName) {
     " first, in full, then do only the phase named below. The plan's " +
     "\"Decisions (settled, do not re-litigate)\" section records answers the user " +
     "already gave; treat those as fixed and do not reopen them.\n\n" +
-    GATE_LINE + "\n\n" + pulseLine(phaseName) + "\n\n" +
+    GATE_LINE + "\n\n" + pulseLine(phaseName) +
     "Repository: " + REPO_PATH + "\n" +
     "Phase: " + phaseName + "\n\n"
 }
