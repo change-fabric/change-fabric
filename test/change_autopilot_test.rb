@@ -166,6 +166,30 @@ class ChangeAutopilotTest < Minitest::Test
     ALL.each { |gate| refute autopilot.covers?(gate), gate }
   end
 
+  def test_end_marks_the_runner_end_pending_until_it_is_told
+    id = record
+    reader = autopilot
+    assert_empty reader.unannounced
+    reader.end!(by: "agent", reason: "pilot")
+    assert_equal [ id ], autopilot.unannounced.map { |row| row["id"] }
+    assert_equal "pilot", autopilot.unannounced.first["reason"]
+    # Another repo does not see it.
+    assert_empty ChangeAutopilot.new(project: File.join(@home, "other"), store: @store, now: @now, pins: authoritative_pins,
+                                     project_id: "repo:github.com/acme/other").unannounced
+    autopilot.told!(id)
+    assert_empty autopilot.unannounced
+  end
+
+  def test_the_real_end_cli_keeps_failing_until_the_runner_confirms
+    record
+    ok = ChangeProdAutopilotRef::Outcome
+    results = [ ok.new(ok: false, note: "down"), ok.new(ok: true, note: "told") ]
+    ender = ->(**) { results.shift }
+    codes = Array.new(2) { ChangeAutopilotCLI.run(%w[end], out: StringIO.new, err: StringIO.new, autopilot: autopilot, root: @project, ender: ender) }
+    assert_equal [ 1, 0 ], codes
+    assert_empty autopilot.unannounced
+  end
+
   def test_status_cli_lists_gates_and_end
     record
     out = StringIO.new

@@ -146,11 +146,18 @@ module ChangeProdSql
     kept
   end
 
+  # A WITH statement is scanned in full, CTE bodies included: parentheses
+  # hide a data-modifying CTE (`WITH x AS (DELETE ... RETURNING *) SELECT ...`)
+  # from the top-level view, so any DML or DDL keyword in one counts.
+  DATA_CHANGING = /\b(?:delete|update|insert|merge|truncate|drop)\b/
+
   def classify(pair)
     original, blanked = pair
+    full = blanked.downcase.gsub(NOT_A_STATEMENT, ' ')
     text = top_level(blanked).downcase.gsub(NOT_A_STATEMENT, ' ')
-    kind = kind_of(text)
-    Statement.new(sql_sha256: Digest::SHA256.hexdigest(original.strip.b), kind: kind, destructive: destructive_kind?(kind, text))
+    cte = full.match?(/\A\s*with\b/) && full.match?(DATA_CHANGING)
+    kind = cte ? 'with_dml' : kind_of(text)
+    Statement.new(sql_sha256: Digest::SHA256.hexdigest(original.strip.b), kind: kind, destructive: cte || destructive_kind?(kind, text))
   end
 
   def kind_of(text)

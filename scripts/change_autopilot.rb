@@ -99,12 +99,18 @@ class ChangeAutopilot
   # Tombstones every active autopilot for this repo; returns their ids.
   def end!(by:, reason:)
     active.map do |autopilot|
+      @autopilots.mark_pending(autopilot.id, repo: project_id, by: by, reason: reason)
       @autopilots.end!(autopilot_id: autopilot.id, by: by, reason: reason, at: @now)
       autopilot.id
     end
   end
 
   def ledger(autopilot_id) = @autopilots.ledger(autopilot_id)
+
+  # Ended here, but the prod runner has not confirmed its end marker.
+  def unannounced = @autopilots.pending(repo: project_id)
+
+  def told!(autopilot_id) = @autopilots.clear_pending(autopilot_id)
 
   private
 
@@ -159,12 +165,13 @@ class ChangeAutopilotCLI
   def self.status(autopilot, out, json)
     active = autopilot.active
     rows = active.map { |a| { 'id' => a.id, 'gates' => a.scope_list, 'ends_at' => a.expires_at.utc.iso8601 } }
+    waiting = autopilot.unannounced.map { |row| row['id'] }
     if json
-      out.puts JSON.generate('autopilot' => rows, 'rejected' => autopilot.rejected)
-    elsif rows.empty?
-      out.puts 'no autopilot is active for this repo'
+      out.puts JSON.generate('autopilot' => rows, 'rejected' => autopilot.rejected, 'ended_runner_not_told' => waiting)
     else
+      out.puts 'no autopilot is active for this repo' if rows.empty?
       rows.each { |row| out.puts "autopilot #{row['id'][0, 12]}: #{row['gates'].join(', ')} until #{row['ends_at']}" }
+      waiting.each { |id| out.puts "autopilot #{id[0, 12]}: ended locally, runner not yet told (run `end` to retry)" }
     end
     0
   end
@@ -174,7 +181,10 @@ class ChangeAutopilotCLI
   def self.finish(autopilot, out, err, by, reason, root, ender)
     ids = autopilot.end!(by: by, reason: reason)
     out.puts(ids.empty? ? 'no autopilot was active' : "ended autopilot #{ids.map { |id| id[0, 12] }.join(', ')}")
-    ids.map { |id| ender.call(root: root, id: id, by: by, reason: reason) }.reduce(0) do |status, outcome|
+    # Includes ones ended by an earlier `end` whose runner marker never landed.
+    autopilot.unannounced.reduce(0) do |status, row|
+      outcome = ender.call(root: root, id: row['id'], by: row['by'] || by, reason: row['reason'] || reason)
+      autopilot.told!(row['id']) if outcome.ok?
       (outcome.ok? ? out : err).puts("change_autopilot: #{outcome.note}") if outcome.note
       outcome.ok? ? status : 1
     end

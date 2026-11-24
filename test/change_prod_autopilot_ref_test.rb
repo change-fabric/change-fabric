@@ -95,11 +95,29 @@ end
 class ChangeAutopilotEndPublishTest < Minitest::Test
   Outcome = ChangeProdAutopilotRef::Outcome
 
-  def fake_autopilot(ids)
-    Class.new do
-      define_method(:end!) { |**| ids }
-    end.new
+  # Stands in for ChangeAutopilot: `end!` moves active ids to pending, `told!` clears them.
+  class FakeAutopilot
+    attr_reader :pending
+
+    def initialize(active = [], pending = [])
+      @active = active
+      @pending = pending.map { |id| { "id" => id, "by" => "earlier", "reason" => "earlier reason" } }
+    end
+
+    def end!(by:, reason:)
+      ended = @active
+      @pending += ended.map { |id| { "id" => id, "by" => by, "reason" => reason } }
+      @active = []
+      ended
+    end
+
+    def active = @active.map { |id| Struct.new(:id, :scope_list, :expires_at).new(id, %w[prod], Time.utc(2026, 11, 24, 23)) }
+    def rejected = {}
+    def unannounced = @pending
+    def told!(id) = @pending = @pending.reject { |row| row["id"] == id }
   end
+
+  def fake_autopilot(ids) = FakeAutopilot.new(ids)
 
   def finish(ids, ender)
     out = StringIO.new
@@ -122,6 +140,42 @@ class ChangeAutopilotEndPublishTest < Minitest::Test
     code, _, err = finish([ "a" * 64 ], ender)
     assert_equal 1, code
     assert_match(/NOT told/, err)
+  end
+
+  def test_a_failed_publish_is_retried_by_the_next_end_until_the_runner_is_told
+    fake = FakeAutopilot.new([ "a" * 64 ])
+    results = [ Outcome.new(ok: false, note: "NOT told"), Outcome.new(ok: true, note: "told") ]
+    calls = []
+    ender = ->(root:, id:, by:, reason:) { calls << [ id, by, reason ]; results.shift }
+    run = -> { ChangeAutopilotCLI.run(%w[end --reason done], out: StringIO.new, err: StringIO.new, autopilot: fake, root: "/r", ender: ender, by: "me") }
+    assert_equal 1, run.call
+    assert_equal [ "a" * 64 ], fake.unannounced.map { |row| row["id"] }
+    # Nothing is active now, yet the retry still publishes, with the original by and reason.
+    assert_equal 0, run.call
+    assert_empty fake.unannounced
+    assert_equal [ [ "a" * 64, "me", "done" ], [ "a" * 64, "me", "done" ] ], calls
+    assert_equal 0, run.call
+    assert_equal 2, calls.size
+  end
+
+  def test_an_earlier_pending_end_is_retried_even_when_nothing_is_active
+    fake = FakeAutopilot.new([], [ "b" * 64 ])
+    calls = []
+    ender = ->(root:, id:, by:, reason:) { calls << [ id, by, reason ]; Outcome.new(ok: false, note: "still down") }
+    code = ChangeAutopilotCLI.run(%w[end], out: StringIO.new, err: StringIO.new, autopilot: fake, root: "/r", ender: ender)
+    assert_equal 1, code
+    assert_equal [ [ "b" * 64, "earlier", "earlier reason" ] ], calls
+    assert_equal 1, fake.unannounced.size
+  end
+
+  def test_status_says_when_the_runner_has_not_been_told
+    fake = FakeAutopilot.new([], [ "c" * 64 ])
+    out = StringIO.new
+    ChangeAutopilotCLI.run(%w[status], out: out, autopilot: fake)
+    assert_match(/autopilot cccccccccccc: ended locally, runner not yet told/, out.string)
+    json = StringIO.new
+    ChangeAutopilotCLI.run(%w[status --json], out: json, autopilot: fake)
+    assert_equal [ "c" * 64 ], JSON.parse(json.string)["ended_runner_not_told"]
   end
 
   def test_ending_nothing_announces_nothing

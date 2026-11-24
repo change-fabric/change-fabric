@@ -23,6 +23,28 @@ class ChangeProdSqlTest < Minitest::Test
     assert Sql.destructive?("UPDATE users SET a = (SELECT 1 WHERE true)")
   end
 
+  def test_a_data_modifying_cte_is_destructive
+    [ "WITH x AS (DELETE FROM t WHERE id = 1 RETURNING *) SELECT * FROM x",
+      "with x as (update t set a = 1 where id = 1 returning *) select * from x",
+      "WITH x AS (INSERT INTO t VALUES (1) RETURNING *) SELECT * FROM x",
+      "WITH x AS (MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE RETURNING *) SELECT 1",
+      "WITH a AS (SELECT 1), b AS (TRUNCATE t) SELECT * FROM a",
+      "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+      "WITH RECURSIVE r AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3), d AS (DELETE FROM t RETURNING *) SELECT * FROM d" ].each do |sql|
+      statement = Sql.analyze(sql).first
+      assert statement.destructive, sql
+      assert_equal "with_dml", statement.kind, sql
+    end
+  end
+
+  def test_a_read_only_cte_is_not_destructive
+    refute Sql.destructive?("WITH x AS (SELECT * FROM t WHERE id = 1) SELECT * FROM x")
+    refute Sql.destructive?("WITH x AS (SELECT * FROM t FOR UPDATE) SELECT * FROM x")
+    refute Sql.destructive?("WITH x AS (SELECT 'delete from t') SELECT * FROM x")
+    refute Sql.destructive?("WITH x AS (SELECT 1 /* drop */) SELECT * FROM x")
+    refute Sql.destructive?("SELECT 1; WITH x AS (SELECT 2) SELECT * FROM x")
+  end
+
   def test_plain_reads_and_inserts_are_not_destructive
     refute Sql.destructive?("SELECT * FROM users")
     refute Sql.destructive?("INSERT INTO users (a) VALUES (1)")

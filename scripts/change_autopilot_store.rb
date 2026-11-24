@@ -40,6 +40,26 @@ class ChangeAutopilotStore < ChangeReceiptStore
     File.write(file_for(autopilot_id, 'ended'), JSON.generate('ended_at' => at.utc.iso8601, 'by' => by.to_s, 'reason' => reason.to_s))
   end
 
+  # An ended autopilot whose end the prod runner has not been told about yet.
+  # Written before the tombstone and cleared only once the runner confirms, so
+  # a failed publish is retried by the next `end`.
+  def mark_pending(autopilot_id, repo:, by:, reason:)
+    FileUtils.mkdir_p(@root)
+    File.write(file_for(autopilot_id, 'pending'), JSON.generate('repo' => repo, 'by' => by.to_s, 'reason' => reason.to_s))
+  end
+
+  def clear_pending(autopilot_id) = FileUtils.rm_f(file_for(autopilot_id, 'pending'))
+
+  # [{'id', 'by', 'reason'}] for one repo.
+  def pending(repo:)
+    Dir.glob(File.join(@root, '*.pending')).filter_map do |file|
+      row = JSON.parse(File.read(file))
+      { 'id' => File.basename(file, '.pending'), 'by' => row['by'], 'reason' => row['reason'] } if row.is_a?(Hash) && row['repo'] == repo
+    rescue JSON::ParserError, SystemCallError
+      nil
+    end
+  end
+
   # A tombstone of any content ends it; an unreadable id counts as ended.
   def ended?(autopilot_id)
     File.exist?(file_for(autopilot_id, 'ended'))
