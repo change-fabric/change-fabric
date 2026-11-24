@@ -70,6 +70,7 @@ class ApprovalConsolePreview
     now = @now.call
     body = fixture(type).merge("created_at" => now.iso8601, "expires_at" => (now + LIFETIME).iso8601, "request_id" => SecureRandom.uuid)
     body["grant_expires_at"] = (now + 8 * 3600).iso8601 if type == "grant"
+    body["autopilot_expires_at"] = (now + 8 * 3600).iso8601 if type == "autopilot"
     Canonical.build(body)
   end
 

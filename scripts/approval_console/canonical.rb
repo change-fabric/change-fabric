@@ -15,7 +15,7 @@ module ApprovalConsole
     class Invalid < StandardError; end
 
     VERSION = 1
-    TYPES = %w[step override prod-op carve-out money release run-script grant].freeze
+    TYPES = %w[step override prod-op carve-out money release run-script grant autopilot].freeze
     SCOPES = %w[merge tag].freeze
     MAX_LIFETIME = 3600
     # A carve-out signs its whole file list. The client and the Lambda share
@@ -40,7 +40,8 @@ module ApprovalConsole
       'carve-out' => %w[summary pr_url pr_title base files],
       'release' => %w[tag commit],
       'run-script' => %w[script_sha256 script_path script_text title account],
-      'grant' => %w[summary scope_list grant_expires_at]
+      'grant' => %w[summary scope_list grant_expires_at],
+      'autopilot' => %w[summary scope_list autopilot_expires_at]
     }.freeze
     # A grant is a standing permission, not a one-shot act: the request window
     # stays short (MAX_LIFETIME) but the signed grant_expires_at may run up to
@@ -48,6 +49,11 @@ module ApprovalConsole
     GRANT_MAX_LIFETIME = 72 * 3600
     GRANT_MAX_SCOPES = 16
     GRANT_SCOPE = /\A[a-z][a-z0-9_]{0,39}\z/
+    # Autopilot is a standing receipt like a grant, bound to one repo and one
+    # machine: until its signed end it relaxes the listed approval gates, never
+    # the locked core (change_autopilot.rb). It is not a merge mode.
+    AUTOPILOT_MAX_LIFETIME = GRANT_MAX_LIFETIME
+    AUTOPILOT_GATES = %w[carve_out host_daemon prod review run_script sensitive_term].freeze
     # A run-script receipt is single-use and good for 15 minutes; the body
     # carries the whole script so the phone shows exactly the bytes that run.
     RUN_SCRIPT_LIFETIME = 900
@@ -183,6 +189,7 @@ module ApprovalConsole
       when 'release' then release_errors(body)
       when 'run-script' then run_script_errors(body)
       when 'grant' then grant_errors(body)
+      when 'autopilot' then autopilot_errors(body)
       else summary_errors(body) + argv_errors(body['argv'])
       end
     end
@@ -228,17 +235,27 @@ module ApprovalConsole
       ok = scopes.is_a?(Array) && !scopes.empty? && scopes.size <= GRANT_MAX_SCOPES &&
            scopes.all? { |scope| scope.is_a?(String) && scope.match?(GRANT_SCOPE) } && scopes == scopes.uniq.sort
       errors << "scope_list must be a sorted, unique array of 1 to #{GRANT_MAX_SCOPES} lowercase action names" unless ok
-      errors.concat(grant_expiry_errors(body))
+      errors.concat(standing_expiry_errors(body, 'grant_expires_at', GRANT_MAX_LIFETIME, 'a grant'))
     end
 
-    def grant_expiry_errors(body)
+    def autopilot_errors(body)
+      errors = summary_errors(body)
+      gates = body['scope_list']
+      ok = gates.is_a?(Array) && !gates.empty? && gates.all? { |gate| AUTOPILOT_GATES.include?(gate) } && gates == gates.uniq.sort
+      errors << "scope_list must be a sorted, unique, non-empty subset of #{AUTOPILOT_GATES.join(', ')}" unless ok
+      errors.concat(standing_expiry_errors(body, 'autopilot_expires_at', AUTOPILOT_MAX_LIFETIME, 'an autopilot'))
+    end
+
+    # The signed end of a standing receipt (grant or autopilot): after the
+    # request window closes and at most `max` seconds after creation.
+    def standing_expiry_errors(body, field, max, noun)
       created = parse_time(body['created_at'])
       expires = parse_time(body['expires_at'])
-      expiry = parse_time(body['grant_expires_at'])
-      return [ 'grant_expires_at must be UTC ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)' ] unless expiry
+      expiry = parse_time(body[field])
+      return [ "#{field} must be UTC ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)" ] unless expiry
       return [] unless created && expires
-      return [ 'grant_expires_at must be after the request expires_at' ] unless expiry > expires
-      return [ "a grant lifetime exceeds #{GRANT_MAX_LIFETIME} seconds" ] if expiry - created > GRANT_MAX_LIFETIME
+      return [ "#{field} must be after the request expires_at" ] unless expiry > expires
+      return [ "#{noun} lifetime exceeds #{max} seconds" ] if expiry - created > max
 
       []
     end

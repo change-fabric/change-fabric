@@ -10,6 +10,8 @@ require_relative 'change_override_store'
 require_relative 'guarded_command'
 require_relative 'change_pr_facts'
 require_relative 'change_carve_out_store'
+require_relative 'change_autopilot'
+require_relative 'cf_project_identity'
 require_relative 'approval_console/canonical'
 require_relative 'approval_console/local_store'
 require_relative 'approval_console/proof_check'
@@ -121,6 +123,7 @@ class ChangeMergeGuard
   def carve_out_problem(policy, base, sha, url, files)
     return "a carve-out must merge now, not with --auto: auto-merge lands a later head than the one approved." if GuardedCommand.tokens(command).include?('--auto')
     return "the merge must carry --match-head-commit #{sha} (the head the approval binds)." unless match_head_commit(command) == sha
+    return nil if autopilot_waives?(files, sha, url)
 
     repo = ChangePrFacts.repo_id(url)
     number = ChangePrFacts.parse_url(url).last
@@ -140,6 +143,23 @@ class ChangeMergeGuard
     return nil if ApprovalConsole::ProofCheck.fresh?(proof, at: Time.now)
 
     'the carve-out receipt is 24h old or older (or dated in the future); request a new approval.'
+  end
+
+  # An active autopilot naming carve_out stands in for the per-head tap, but
+  # only for this repo's own PR and never when any changed file is a locked
+  # path (the guards, the autopilot code, CHANGE.md, ...). --auto and
+  # --match-head-commit were already enforced above; cf:change still gates.
+  def autopilot_waives?(files, sha, url)
+    return false if files.any? { |file| ChangeAutopilot.locked_path?(file) }
+
+    root = repo_root or return false
+    return false unless ChangePrFacts.repo_id(url) == CfProjectIdentity.for(root).id
+
+    !autopilot_waive('carve_out', root, "PR #{url} at #{sha}").nil?
+  end
+
+  def autopilot_waive(gate, root, detail)
+    ChangeAutopilot.waive!(gate, project: root, guard: 'change_merge_guard', detail: detail, command: command, session: @event['session_id'])
   end
 
   def changed_files(url) = ChangePrFacts.files(url)

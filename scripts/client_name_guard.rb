@@ -4,6 +4,7 @@
 require 'json'
 require_relative 'hook_event'
 require_relative 'sensitive_terms'
+require_relative 'change_autopilot'
 
 # PreToolUse hook: denies a tool call whose authored text carries a name the
 # user flagged as sensitive. The name is a client, customer, or
@@ -58,6 +59,8 @@ class ClientNameGuard
     found = offenders(terms)
     return if found.empty?
     return unless cf_toolkit_repo?
+    # An autopilot naming sensitive_term acts like CF_ALLOW_SENSITIVE_TERM=1.
+    return if autopilot_waives?(found)
 
     io.puts(JSON.generate(deny(found)))
   rescue StandardError
@@ -65,6 +68,12 @@ class ClientNameGuard
   end
 
   private
+
+  # The ledger keeps only the count, never the matched terms.
+  def autopilot_waives?(found)
+    !ChangeAutopilot.waive!('sensitive_term', guard: 'client_name_guard', detail: "#{found.size} term(s) in #{@event['tool_name']}",
+                                              session: @event['session_id']).nil?
+  end
 
   # Checked only once a term has actually matched, so the common case (no
   # match) never pays for a git shell-out.

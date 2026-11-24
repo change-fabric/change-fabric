@@ -1,17 +1,10 @@
 # Principles
 
-The rules this repo holds itself to. Each one names its enforcer: a file that
-fails, denies, or tests when the rule is broken, or `advisory` when nothing
-does and the rule rests on review. `scripts/docs_check.rb` fails if a principle
-lacks an `Enforcer:` line or names a path that does not exist. Add a principle
-only with its enforcer; prefer a rule that a machine checks.
+The rules this repo holds itself to. Each one names its enforcer: a file that fails, denies, or tests when the rule is broken, or `advisory` when nothing does and the rule rests on review. `scripts/docs_check.rb` fails if a principle lacks an `Enforcer:` line or names a path that does not exist. Add a principle only with its enforcer; prefer a rule that a machine checks.
 
 ## Hooks fail silent
 
-A hook parses stdin through `HookEvent.read` and never crashes the session. A
-missing gem, file, or credential means the hook does nothing, not that it
-raises. `cf_team_*` tools raise instead. Resource gates fail closed; the spawn
-hook only warns.
+A hook parses stdin through `HookEvent.read` and never crashes the session. A missing gem, file, or credential means the hook does nothing, not that it raises. `cf_team_*` tools raise instead. Resource gates fail closed; the spawn hook only warns.
 
 Enforcer: scripts/hook_event.rb, scripts/resource_gate.rb
 
@@ -198,6 +191,12 @@ gesture, and a UI fix ships with a suite case whose measured read fails on the
 base and passes on the head.
 
 Enforcer: site/test/media-slot.test.ts, test/change_measured_shapes_docker_test.rb
+
+## Autopilot relaxes gates, never the core; force-push to trunk is denied in every mode
+
+Autopilot is a phone-approved receipt for one repo and machine with a signed end at most 72h out; until that end or `change_autopilot.rb end` it waives only the gates it lists (carve-out taps off locked paths, review rounds, host-daemon, sensitive-term), logging each waiver, and it never reads or changes the merge mode. Secrets, release tags, change_override, CF_ALLOW_UNGATED_MERGE, cf:change passes and trunk force-push, rewrite or deletion stay locked; the force-push guard has no escape hatch.
+
+Enforcer: scripts/change_autopilot.rb, scripts/force_push_guard.rb
 
 ## Skills name roles, not tiers
 

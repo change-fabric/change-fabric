@@ -5,8 +5,10 @@ require "json"
 require "stringio"
 
 require_relative "../scripts/docker_doctrine_guard"
+require_relative "support/autopilot_stub"
 
 class DockerDoctrineGuardTest < Minitest::Test
+  include AutopilotStub
   def setup
     @prev = ENV.delete("CF_ALLOW_HOSTDAEMON")
   end
@@ -91,5 +93,17 @@ class DockerDoctrineGuardTest < Minitest::Test
     assert_includes reason, "brew install redis"
     assert_includes reason, "Docker container"
     assert_includes reason, "CF_ALLOW_HOSTDAEMON=1"
+  end
+
+  def test_an_autopilot_naming_host_daemon_allows_and_logs
+    with_autopilot do |calls|
+      assert_nil decision("brew services start caddy")
+      assert_equal [ "host_daemon", "brew services start caddy" ], [ calls.first.first, calls.first.last[:detail] ]
+    end
+    assert_equal "deny", decision("brew services start caddy")
+  end
+
+  def test_no_autopilot_means_deny
+    with_autopilot(nil) { assert_equal "deny", decision("brew install redis") }
   end
 end
