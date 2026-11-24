@@ -24,7 +24,7 @@ class ChangeProdSqlTest < Minitest::Test
   end
 
   def test_only_the_allowlist_is_non_destructive
-    [ "SELECT 1", "select * from t where a = 1", "SHOW search_path", "EXPLAIN SELECT * FROM t", "EXPLAIN DELETE FROM t",
+    [ "SELECT 1", "select * from t where a = 1", "SHOW search_path",
       "INSERT INTO t (a) VALUES (1), (2)", "UPDATE t SET a = 1 WHERE id = 1", "DELETE FROM t WHERE id = 1",
       "BEGIN", "COMMIT", "ROLLBACK", "SET statement_timeout = 5000", "SET LOCAL lock_timeout = '2s'",
       "BEGIN; UPDATE t SET a = 1 WHERE id = 2; COMMIT" ].each { |sql| refute Sql.destructive?(sql), sql }
@@ -36,8 +36,9 @@ class ChangeProdSqlTest < Minitest::Test
       "CREATE TABLE t (id int)", "CREATE OR REPLACE FUNCTION f() RETURNS void AS $$ DELETE FROM t $$ LANGUAGE sql",
       "VACUUM FULL t", "REINDEX TABLE t", "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE",
       "INSERT INTO t SELECT * FROM s", "INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET a = 2",
-      "SELECT * INTO backup FROM t", "EXPLAIN ANALYZE DELETE FROM t", "EXPLAIN (ANALYZE, BUFFERS) UPDATE t SET a = 1 WHERE b",
-      "EXPLAIN (analyse) DELETE FROM t WHERE b", "SET ROLE admin", "SET SESSION AUTHORIZATION admin", "RESET ALL",
+      "SELECT * INTO backup FROM t",
+      "EXPLAIN SELECT * FROM t", "EXPLAIN DELETE FROM t", "EXPLAIN ANALYZE DELETE FROM t", "EXPLAIN (ANALYZE, BUFFERS) UPDATE t SET a = 1 WHERE b",
+      "EXPLAIN (analyse) DELETE FROM t WHERE b", %(EXPLAIN ("analyze" true) DELETE FROM t), "explain (analyze) select 1", "SET ROLE admin", "SET SESSION AUTHORIZATION admin", "RESET ALL",
       "LOCK TABLE t", "REFRESH MATERIALIZED VIEW v", "NOTIFY c", "LISTEN c", "SAVEPOINT s", "frobnicate t", "(SELECT 1)" ].each do |sql|
       assert Sql.destructive?(sql), sql
     end
@@ -78,8 +79,18 @@ class ChangeProdSqlTest < Minitest::Test
     assert_equal %w[select delete], Sql.analyze("SELECT 1 -- a\n; DELETE FROM t WHERE a = 1").map(&:kind)
   end
 
+  def test_any_double_quote_makes_the_whole_batch_destructive
+    [ %(EXPLAIN ("analyze" true) DELETE FROM t), %(SELECT "a" FROM t), %(SELECT * FROM "t"), %(SELECT 1 AS "x"), %(SELECT "a""b" FROM t),
+      %(SELECT "drop" FROM t), %(SELECT 1; SELECT "x"), %(SELECT 1 /* " */ ; DELETE FROM t) ].each do |sql|
+      assert Sql.destructive?(sql), sql
+    end
+    assert_equal [ "unparseable" ], Sql.analyze(%(SELECT "a" FROM t)).map(&:kind)
+    refute Sql.destructive?(%(SELECT 'a"b' FROM t))
+    refute Sql.destructive?(%(SELECT 1 -- a "quote" in a comment))
+  end
+
   def test_plain_standard_quoting_is_still_read
-    refute Sql.destructive?("SELECT 'it''s' , \"a\"\"b\" FROM t")
+    refute Sql.destructive?("SELECT 'it''s' FROM t")
     refute Sql.destructive?("SELECT * FROM t WHERE a IN ('x', 'y') -- c")
     refute Sql.destructive?("SELECT 1 /* flat */")
     refute Sql.destructive?("SELECT $1, $2")
@@ -122,11 +133,10 @@ class ChangeProdSqlTest < Minitest::Test
     refute Sql.destructive?("  ;  ")
   end
 
-  def test_keywords_in_strings_comments_and_quoted_identifiers_do_not_count
+  def test_keywords_in_strings_and_comments_do_not_count
     refute Sql.destructive?("SELECT 'drop table users; delete from t'")
     refute Sql.destructive?("SELECT 1 -- drop table users")
     refute Sql.destructive?("SELECT 1 /* truncate users */")
-    refute Sql.destructive?(%(SELECT "drop" FROM t))
     refute Sql.destructive?("SELECT 'it''s a drop'")
   end
 

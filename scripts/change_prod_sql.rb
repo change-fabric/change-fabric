@@ -5,10 +5,11 @@ require 'digest'
 # Classifies prod SQL for the autopilot recovery precondition. A statement is
 # non-destructive only when it is on a short allowlist (see `classify`); every
 # other statement is destructive, as is any statement whose estimated row count
-# passes the threshold. Comments and quoted text are blanked first, so a keyword
-# inside a string or a comment neither hides nor fakes a statement. Anything the
-# scanner cannot read (an unterminated quote, comment or dollar quote, or a
-# non-integer estimate) counts as destructive: this fails closed.
+# passes the threshold. Comments and '...' strings are blanked first, so a
+# keyword inside either neither hides nor fakes a statement. Anything the
+# scanner cannot read (an unterminated quote or comment, any double quote, any
+# other quoting form, or a non-integer estimate) counts as destructive: this
+# fails closed.
 module ChangeProdSql
   DEFAULT_THRESHOLD = 1000
   Statement = Struct.new(:sql_sha256, :kind, :destructive, keyword_init: true)
@@ -60,13 +61,15 @@ module ChangeProdSql
     parts.reject { |_, text| text.strip.empty? }
   end
 
-  # The same length as the input: comments and the inside of quotes become
-  # spaces (a quoted span keeps its quotes), so offsets line up.
+  # The same length as the input: comments and the inside of '...' strings
+  # become spaces (a string keeps its quotes), so offsets line up.
+  #
   # Only the plain forms are read: standard '...' strings (with '' doubling),
-  # "..." identifiers, -- comments and flat /* */ comments. Anything that needs
-  # more care to tokenize is refused as unreadable, which makes the whole batch
-  # destructive: E'' escape strings, U& strings and identifiers, B'' and X''
-  # literals, any character outside printable ASCII, tab and LF, any `$` that is not a positional parameter, any backslash, and
+  # -- comments and flat /* */ comments. Anything that needs more care to
+  # tokenize is refused as unreadable, which makes the whole batch destructive:
+  # every double quote (a quoted name can smuggle a keyword), E'' and U&
+  # strings, B'' and X'' literals, any character outside printable ASCII, tab
+  # and LF, any `$` that is not a positional parameter, any backslash, and
   # nested comments. Dollar-quote grammar is deliberately not parsed.
   def blank(sql)
     raise Unreadable, 'character outside printable ASCII, tab and newline' unless plain_ascii?(sql)
@@ -92,7 +95,9 @@ module ChangeProdSql
       stop
     elsif sql[i] == '$' && !positional_param?(sql, i)
       raise Unreadable, 'dollar sign outside a positional parameter'
-    elsif sql[i] == "'" || sql[i] == '"'
+    elsif sql[i] == '"'
+      raise Unreadable, 'double quote'
+    elsif sql[i] == "'"
       raise Unreadable, 'prefixed quote' if prefixed_quote?(sql, i)
 
       quoted(sql, i, sql[i], out)
@@ -166,13 +171,13 @@ module ChangeProdSql
   # one extra verified snapshot, the cost of a miss is lost data.
   #
   #   SELECT (not SELECT INTO), including a WITH with no data-changing keyword
-  #   SHOW, EXPLAIN without ANALYZE
+  #   SHOW
   #   INSERT ... VALUES with no ON CONFLICT ... DO UPDATE
   #   UPDATE or DELETE with a top-level WHERE (still subject to the row threshold)
   #   BEGIN, COMMIT, ROLLBACK, SET (but not SET ROLE or SESSION AUTHORIZATION)
   #
-  # DO blocks, CALL, COPY, ALTER, GRANT, CREATE, MERGE, VACUUM and every unknown
-  # verb are destructive, as is a WITH holding DML in a CTE body.
+  # EXPLAIN (any form), DO blocks, CALL, COPY, ALTER, GRANT, CREATE, MERGE, VACUUM
+  # and every unknown verb are destructive, as is a WITH holding DML in a CTE body.
   DATA_CHANGING = /\b(?:delete|update|insert|merge|truncate|drop)\b/
   CONTROL = %w[begin commit rollback].freeze
 
@@ -183,13 +188,12 @@ module ChangeProdSql
     full = blanked.downcase.gsub(NOT_A_STATEMENT, ' ')
     verb = text.split.first.to_s[/\A[a-z_]+/] || 'other'
     kind = verb == 'with' ? (full.match?(DATA_CHANGING) ? 'with_dml' : 'with') : verb
-    Statement.new(sql_sha256: Digest::SHA256.hexdigest(original.strip.b), kind: kind, destructive: !allowed?(kind, raw, text, blanked.downcase))
+    Statement.new(sql_sha256: Digest::SHA256.hexdigest(original.strip.b), kind: kind, destructive: !allowed?(kind, raw, text))
   end
 
-  def allowed?(kind, raw, text, full)
+  def allowed?(kind, raw, text)
     case kind
     when 'select', 'show', 'with' then kind != 'select' || !text.match?(/\binto\b/)
-    when 'explain' then !full.match?(/\banaly[sz]e\b/)
     when 'insert' then text.match?(/\bvalues\b/) && !text.match?(/\bselect\b/) && !raw.match?(/\bon\s+conflict\b.*\bdo\s+update\b/m)
     when 'update', 'delete' then text.match?(/\bwhere\b/)
     when 'set' then !text.match?(/\b(?:role|authorization)\b/)
