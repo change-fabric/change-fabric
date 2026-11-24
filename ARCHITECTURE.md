@@ -41,7 +41,7 @@ Wired by `install.rb` per lifecycle event (Claude Code names shown):
 | Event | Scripts |
 | --- | --- |
 | SessionStart | `skill_detect.rb`, `ctx_session_start.rb`, `doctrine_digest.rb`, `secret_alert_poll.rb` |
-| PreToolUse | `secrets_read_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `approval_watch_remind.rb`, `presence_probe.rb`, `prod_approval_guard.rb`, `model_role_guard.rb`, `resource_floor_guard.rb` |
+| PreToolUse | `secrets_read_guard.rb`, `force_push_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `approval_watch_remind.rb`, `presence_probe.rb`, `prod_approval_guard.rb`, `model_role_guard.rb`, `resource_floor_guard.rb` |
 | PostToolUse | `skill_inject.rb`, `secret_ack.rb`, `change_post_merge_check.rb`, `pulse_stamp.rb` |
 | UserPromptSubmit | `key_paste_guard.rb`, `prune_remind.rb`, `inbox_prompt_hook.rb` |
 | SessionEnd | `telemetry_emit.rb`, `inbox_session_end.rb` |
@@ -59,6 +59,15 @@ permits pulse's own acts with a `pulse-allow: nudge_worker, stop_runaway` line
 in plan.md, and `/cf:pulse off` opts a session out. Deterministic integrity
 checks (`pulse_integrity.rb`) run with no model and keep running after the
 budget is spent; only a P0 integrity finding interrupts the human.
+
+`scripts/force_push_guard.rb` denies force-push, history rewrite and deletion of trunk
+or a protected branch in every mode and fails closed. Autopilot
+(`scripts/change_autopilot.rb`, receipts in `scripts/change_autopilot_store.rb` under
+`~/.claude/cf/change/autopilot/`) is a phone-approved, time-boxed receipt for
+one repo and machine; on a would-deny path the merge (carve-out), review,
+host-daemon and sensitive-term guards ask `ChangeAutopilot.waive!` and log a
+ledger row. It is not a merge mode. `scripts/approval_console/standing_receipt.rb`
+holds the checks it shares with pulse grants.
 
 Every hook reads its event through `scripts/hook_event.rb` and fails silent.
 SessionStart hooks state rules up front (`doctrine_digest.rb` holds the

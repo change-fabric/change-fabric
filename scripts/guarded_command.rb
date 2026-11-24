@@ -48,6 +48,38 @@ class GuardedCommand
     rest.any? { |token| !token.start_with?('-') }
   end
 
+  FORCE_FLAGS = %w[-f --force --force-with-lease --force-if-includes --mirror].freeze
+  SEPARATORS = %w[&& || ; | &].freeze
+
+  # The argument lists after `push` of every `git ... push` in the command,
+  # one per shell segment (split on && || ; | &).
+  def self.push_args(command)
+    segments(tokens(command)).filter_map do |segment|
+      git = segment.index('git') or next
+      push = segment.index('push') or next
+      segment[(push + 1)..] if push > git
+    end
+  end
+
+  def self.segments(toks)
+    toks.slice_when { |a, b| SEPARATORS.include?(a) || SEPARATORS.include?(b) }.reject { |seg| SEPARATORS.include?(seg.first) }
+  end
+
+  # A push argument that forces: a force flag (or `--force-with-lease=...`),
+  # a bundle of short flags containing f (`-fu`), or a `+refspec`.
+  def self.force_arg?(arg)
+    return true if FORCE_FLAGS.include?(arg) || arg.start_with?('--force-with-lease=', '--force-if-includes=')
+    return true if arg.match?(/\A-[a-zA-Z]*f[a-zA-Z]*\z/)
+
+    arg.start_with?('+')
+  end
+
+  def self.force_push?(command) = push_args(command).any? { |args| args.any? { |arg| force_arg?(arg) } }
+
+  def self.delete_push?(command)
+    push_args(command).any? { |args| args.include?('--delete') || args.include?('-d') || args.any? { |arg| arg.start_with?(':') } }
+  end
+
   # `gh release create <tag>`, the other door to publishing a tag: it creates
   # and pushes the tag in one step.
   def self.release_create?(command) = invokes?(command, 'gh', 'release', 'create')

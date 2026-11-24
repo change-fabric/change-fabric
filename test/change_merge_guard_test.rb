@@ -9,6 +9,7 @@ require "yaml"
 require_relative "../scripts/change_merge_guard"
 require_relative "../scripts/change_gate_store"
 require_relative "../scripts/change_override_store"
+require_relative "support/autopilot_stub"
 
 # A guard with the two shell-backed lookups stubbed, so the decision logic can be
 # exercised without a real repo or gh. The CHANGE.md policy read and the gate
@@ -364,6 +365,7 @@ require_relative "support/phone_console"
 # process mints the passkey receipts; gh is a fake runner.
 class ChangeMergeGuardCarveOutTest < Minitest::Test
   include PhoneConsole
+  include AutopilotStub
 
   PR_URL = "https://github.com/acme/widgets/pull/612"
   REPO = "repo:github.com/acme/widgets"
@@ -534,5 +536,76 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
 
   def test_the_denial_hint_carries_the_summary_the_request_needs
     assert_match(/--type carve-out --pr-url #{Regexp.escape(PR_URL)} --summary /, verdict)
+  end
+
+  # Autopilot: stands in for the carve-out tap on this repo's own PR, never on
+  # a locked path, never for --auto or a missing --match-head-commit, and never
+  # for a missing cf:change pass.
+  def with_repo_identity
+    original = CfProjectIdentity.method(:for)
+    CfProjectIdentity.define_singleton_method(:for) { |_dir| CfProjectIdentity::Identity.new(id: REPO, slug: "s", root: "/r") }
+    yield
+  ensure
+    CfProjectIdentity.define_singleton_method(:for, original)
+  end
+
+  def test_an_autopilot_merges_a_carve_out_with_no_tap_and_logs_it
+    with_repo_identity do
+      with_autopilot do |calls|
+        assert_nil locked_verdict([ "scripts/pulse_watch.rb" ])
+        assert_equal "carve_out", calls.first.first
+        assert_equal "change_merge_guard", calls.first.last[:guard]
+      end
+    end
+  end
+
+  def locked_policy = policy(paths: [ "scripts/**", "CHANGE.md" ])
+
+  def locked_verdict(files, command = "gh pr merge 612 --squash --match-head-commit #{HEAD}")
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    Guard.new(event, root: @root, pr: [ "main", HEAD, PR_URL ], base_policy: locked_policy, files: files, proof_store: @store).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason")
+  end
+
+  def test_an_autopilot_never_covers_a_locked_path
+    with_repo_identity do
+      with_autopilot do |calls|
+        assert_match(/no phone-approved carve-out/, locked_verdict([ "scripts/change_autopilot.rb" ]))
+        assert_match(/no phone-approved carve-out/, locked_verdict([ "CHANGE.md", "scripts/x.rb" ]))
+        assert_match(/no phone-approved carve-out/, verdict(files: CARVE))
+        assert_empty calls
+      end
+    end
+  end
+
+  def test_an_autopilot_still_refuses_auto_and_a_missing_head_match
+    with_repo_identity do
+      with_autopilot do
+        assert_match(/not with --auto/, locked_verdict([ "scripts/pulse.rb" ], "gh pr merge 612 --squash --auto --match-head-commit #{HEAD}"))
+        assert_match(/must carry --match-head-commit/, locked_verdict([ "scripts/pulse.rb" ], "gh pr merge 612 --squash"))
+      end
+    end
+  end
+
+  def test_an_autopilot_for_another_repo_does_not_apply
+    with_autopilot do |calls|
+      assert_match(/no phone-approved carve-out/, locked_verdict([ "scripts/pulse.rb" ]))
+      assert_empty calls
+    end
+  end
+
+  def test_an_autopilot_still_needs_the_cf_change_pass
+    gated = ChangePolicy.new({ "approval_pins" => authoritative_pins, "admin_bypass" => { "allowed" => true, "carve_out_paths" => [ "scripts/**" ] },
+                               "protected_branches" => [ "main" ], "promotion" => { "main" => { "require_change_pass" => true } },
+                               "gate" => { "require_on" => "every_merge" } }, nil)
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "gh pr merge 612 --squash --admin --match-head-commit #{HEAD}" } }
+    with_repo_identity do
+      with_autopilot do
+        io = StringIO.new
+        Guard.new(event, root: @root, pr: [ "main", HEAD, PR_URL ], base_policy: gated, files: [ "scripts/pulse.rb" ], proof_store: @store).emit(io)
+        assert_match(/no passing .*cf:change run/, io.string)
+      end
+    end
   end
 end

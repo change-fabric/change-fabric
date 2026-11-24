@@ -25,7 +25,7 @@ require_relative 'cf_project_identity'
 #
 #   totp-enroll  generate this machine's seed and show it once on /dev/tty
 #   enroll       register this machine with a deployed console and pin it
-#   request      ask the console for a prod-op, carve-out, money, release, override, run-script or grant approval
+#   request      ask the console for a prod-op, carve-out, money, release, override, run-script, grant or autopilot approval
 #   wait         resume waiting on a request made with --no-wait
 #   record       wait for a request this machine made, then record its receipt
 #   sync         upload offline terminal approvals for console receipts
@@ -74,14 +74,14 @@ module ApprovalConsoleCli
 
   def usage(stderr)
     stderr.puts 'usage: approval_console.rb totp-enroll | enroll --url URL --profile NAME | ' \
-                'request --type prod-op|carve-out|money|release|override|run-script|grant [--summary TEXT] [--expires 8h|ISO --scope a,b (grant)] [--script PATH --title TEXT [--account ID]] [--pr-url URL] [--tag TAG] ' \
+                'request --type prod-op|carve-out|money|release|override|run-script|grant|autopilot [--summary TEXT] [--expires 8h|ISO --scope a,b (grant, autopilot)] [--script PATH --title TEXT [--account ID]] [--pr-url URL] [--tag TAG] ' \
                 '[--reason TEXT] [--scope merge|tag] [--profile NAME] [--sha SHA] [--no-wait] [-- argv...] | ' \
                 'wait <request_id> | record <request_id> [--repo PATH] | sync | verify <sha> [--repo PATH] [--profile NAME] | status | unlock'
     1
   end
 
-  REQUEST_TYPES = %w[prod-op carve-out money release override run-script grant].freeze
-  SUMMARY_TYPES = %w[prod-op carve-out money grant].freeze
+  REQUEST_TYPES = %w[prod-op carve-out money release override run-script grant autopilot].freeze
+  SUMMARY_TYPES = %w[prod-op carve-out money grant autopilot].freeze
 
   # Asks the console to approve one high-risk action, bound to this repo, its
   # HEAD and the exact argv or PR URL. Prints the verified proof as one line of
@@ -149,7 +149,7 @@ module ApprovalConsoleCli
   # An override scope is one of merge|tag; a grant's is read by `grant_scopes`.
   def scope_ok?(opts)
     case opts[:type]
-    when 'grant' then true
+    when 'grant', 'autopilot' then true
     when 'override' then opts[:scope].nil? || ApprovalConsole::Canonical::SCOPES.include?(opts[:scope])
     else opts[:scope].nil?
     end
@@ -170,6 +170,7 @@ module ApprovalConsoleCli
     when 'release' then 'release needs --tag' if opts[:tag].to_s.strip.empty?
     when 'run-script' then run_script_refusal(opts)
     when 'grant' then grant_refusal(opts)
+    when 'autopilot' then autopilot_refusal(opts)
     when 'override'
       min = ApprovalConsole::Recorder::MIN_REASON
       "override needs a --reason of at least #{min} characters" if opts[:reason].to_s.strip.length < min
@@ -189,6 +190,21 @@ module ApprovalConsoleCli
     return 'grant --expires must be later than the request window (--ttl, default 15 minutes)' unless expiry > opts[:now] + opts[:ttl]
 
     "grant --expires is over #{ApprovalConsole::Canonical::GRANT_MAX_LIFETIME / 3600} hours away" if expiry - opts[:now] > ApprovalConsole::Canonical::GRANT_MAX_LIFETIME
+  end
+
+  # An autopilot needs gates from AUTOPILOT_GATES and an end no more than 72h
+  # out. Nothing here writes one: only a phone-tapped receipt recorded by
+  # ApprovalConsole::Recorder does.
+  def autopilot_refusal(opts)
+    gates = ApprovalConsole::Canonical::AUTOPILOT_GATES
+    return "autopilot needs --scope with gates from #{gates.join(',')}" if grant_scopes(opts).empty?
+    return "autopilot --scope entries must be among #{gates.join(', ')}" unless (grant_scopes(opts) - gates).empty?
+
+    expiry = grant_expiry(opts)
+    return 'autopilot needs --expires: a duration such as 2h or a UTC time like 2026-11-24T23:00:00Z' unless expiry
+    return 'autopilot --expires must be later than the request window (--ttl, default 15 minutes)' unless expiry > opts[:now] + opts[:ttl]
+
+    "autopilot --expires is over #{ApprovalConsole::Canonical::AUTOPILOT_MAX_LIFETIME / 3600} hours away" if expiry - opts[:now] > ApprovalConsole::Canonical::AUTOPILOT_MAX_LIFETIME
   end
 
   def grant_scopes(opts) = opts[:scope].to_s.split(',').map(&:strip).reject(&:empty?).uniq.sort
@@ -211,6 +227,7 @@ module ApprovalConsoleCli
     return run_script_attrs(opts, root) if opts[:type] == 'run-script'
     return carve_out_attrs(opts, gh || ChangePrFacts.method(:gh)) if opts[:type] == 'carve-out'
     return grant_attrs(opts, root) if opts[:type] == 'grant'
+    return autopilot_attrs(opts, root) if opts[:type] == 'autopilot'
 
     attrs = { 'type' => opts[:type], 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root),
               'profile' => opts[:profile] }
@@ -226,6 +243,12 @@ module ApprovalConsoleCli
   def grant_attrs(opts, root)
     { 'type' => 'grant', 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root), 'profile' => opts[:profile],
       'summary' => opts[:summary], 'scope_list' => grant_scopes(opts), 'grant_expires_at' => grant_expiry(opts).utc.iso8601 }
+  end
+
+  # Bound to this repo and this machine (machine_id is filled in by Remote).
+  def autopilot_attrs(opts, root)
+    { 'type' => 'autopilot', 'repo' => CfProjectIdentity.for(root).id, 'sha' => opts[:sha] || git_head(root), 'profile' => opts[:profile],
+      'summary' => opts[:summary], 'scope_list' => grant_scopes(opts), 'autopilot_expires_at' => grant_expiry(opts).utc.iso8601 }
   end
 
   def run_script_refusal(opts)

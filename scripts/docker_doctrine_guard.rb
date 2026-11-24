@@ -3,6 +3,7 @@
 
 require 'json'
 require_relative 'hook_event'
+require_relative 'change_autopilot'
 
 # PreToolUse hook: denies a Bash command that stands up a project service as a
 # host or system-level daemon. That means Homebrew or a bare daemon binary, the
@@ -61,6 +62,8 @@ class DockerDoctrineGuard
 
     offender = offending_snippet(command)
     return unless offender
+    # An autopilot naming host_daemon acts like CF_ALLOW_HOSTDAEMON=1.
+    return if autopilot_waives?(offender)
 
     io.puts(JSON.generate(deny(offender)))
   rescue StandardError
@@ -72,6 +75,10 @@ class DockerDoctrineGuard
   def command
     input = @event['tool_input']
     input.is_a?(Hash) ? input['command'].to_s : ''
+  end
+
+  def autopilot_waives?(offender)
+    !ChangeAutopilot.waive!('host_daemon', guard: 'docker_doctrine_guard', detail: offender, command: command, session: @event['session_id']).nil?
   end
 
   # The offending command (capture group 1, without the leading separator) of the

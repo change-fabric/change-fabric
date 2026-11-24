@@ -1,0 +1,13 @@
+{
+  "type": "autopilot",
+  "machine_id": "4f2a91c0-7b3d-4e58-9a16-2c8d5e0f7b34",
+  "repo": "repo:github.com/example-org/billing-api",
+  "sha": "9f1c2ab4d8e03a76b15c9e2f40d37a8c6b1e5d90",
+  "profile": null,
+  "request_id": "6e2f8b13-0d55-4c1f-9a42-8b7c3d0e1f29",
+  "created_at": "2026-11-20T21:28:04Z",
+  "expires_at": "2026-11-20T21:43:04Z",
+  "summary": "Autopilot for this repo until the end of the day",
+  "scope_list": ["carve_out", "host_daemon", "review", "run_script", "sensitive_term"],
+  "autopilot_expires_at": "2026-11-21T23:00:00Z"
+}

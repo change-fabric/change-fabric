@@ -10,6 +10,7 @@ require_relative 'review_prompt'
 require_relative 'skill_compiler'
 require_relative 'review_scope'
 require_relative 'guarded_command'
+require_relative 'change_autopilot'
 
 # PreToolUse hook: denies a push or PR when files changed this session lack a
 # review verdict, and hands back the review prompt. The verdict must be for
@@ -41,11 +42,18 @@ class ReviewGate
     by_key = pending_by_key
     pending = by_key.values.flatten
     return if pending.empty?
+    # An autopilot naming review allows the push and leaves the queue intact.
+    return if autopilot_waives?(pending)
 
     io.puts(JSON.generate(response(ReviewQueue.new(@event['session_id']), pending, by_key.keys)))
   end
 
   private
+
+  def autopilot_waives?(pending)
+    !ChangeAutopilot.waive!('review', guard: 'review_gate', detail: "#{pending.size} unreviewed file(s)", command: command,
+                                      session: @event['session_id']).nil?
+  end
 
   def registry = @skills ||= SkillRegistry.load
 

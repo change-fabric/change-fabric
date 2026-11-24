@@ -11,6 +11,7 @@ require_relative '../change_carve_out_store'
 require_relative '../change_release_store'
 require_relative '../change_run_script_store'
 require_relative '../change_grant_store'
+require_relative '../change_autopilot_store'
 
 module ApprovalConsole
   # The one writer of every phone approval record. Given a console proof and
@@ -26,6 +27,7 @@ module ApprovalConsole
   #   release   ChangeReleaseStore    repo + tag + sha
   #   run-script ChangeRunScriptStore repo + script sha256 + sha
   #   grant     ChangeGrantStore      repo + body sha256 (this is the only grant writer)
+  #   autopilot ChangeAutopilotStore  repo + body sha256 (the only autopilot writer)
   #
   # `authority` is a ChangePolicy::Authority (policy and policy_sha) from the
   # base or default branch, never the working tree.
@@ -94,6 +96,7 @@ module ApprovalConsole
       when 'release' then 'release needs a tag' if expected['tag'].to_s.strip.empty?
       when 'run-script' then run_script_problem(expected)
       when 'grant' then grant_problem(expected)
+      when 'autopilot' then autopilot_problem(expected)
       end
     end
 
@@ -103,6 +106,14 @@ module ApprovalConsole
       return 'the grant has no valid grant_expires_at' unless expiry && expected['scope_list'].is_a?(Array) && !expected['scope_list'].empty?
 
       'the grant is already expired' unless expiry > @clock.call
+    end
+
+    # An autopilot already past its signed end is never recorded.
+    def autopilot_problem(expected)
+      expiry = Canonical.parse_time(expected['autopilot_expires_at'])
+      return 'the autopilot has no valid autopilot_expires_at' unless expiry && expected['scope_list'].is_a?(Array) && !expected['scope_list'].empty?
+
+      'the autopilot has already ended' unless expiry > @clock.call
     end
 
     def run_script_problem(expected)
@@ -158,6 +169,12 @@ module ApprovalConsole
       store(:grant, ChangeGrantStore).record(repo: expected['repo'], grant_id: Canonical.body_sha256(proof['body']), proof: proof,
                                              policy_sha: policy_sha, recorded_by: @recorded_by)
       "grant of #{expected['scope_list'].join(', ')} until #{expected['grant_expires_at']}"
+    end
+
+    def write_autopilot(proof, expected)
+      store(:autopilot, ChangeAutopilotStore).record(repo: expected['repo'], autopilot_id: Canonical.body_sha256(proof['body']), proof: proof,
+                                                     policy_sha: policy_sha, recorded_by: @recorded_by)
+      "autopilot for #{expected['scope_list'].join(', ')} until #{expected['autopilot_expires_at']}"
     end
 
     def approvals(sha) = @stores[:approval]&.call(sha) || ChangeApprovalStore.new(sha)

@@ -2,10 +2,12 @@
 
 require_relative "test_helpers"
 require_relative "../scripts/review_gate"
+require_relative "support/autopilot_stub"
 
 class ReviewGateTest < Minitest::Test
   include SkillTempHome
   include SkillFactory
+  include AutopilotStub
 
   def setup
     super
@@ -121,5 +123,15 @@ class ReviewGateTest < Minitest::Test
     stop = StringIO.new
     SkillReview.new({ "session_id" => "s1" }, skills: SkillRegistry.load(@skills)).emit(stop)
     assert_empty stop.string, "Stop sees an empty queue after the same ack"
+  end
+
+  def test_an_autopilot_naming_review_allows_the_push_and_keeps_the_queue
+    enqueue
+    with_autopilot do |calls|
+      assert_nil gate("git push -u origin feat/x")
+      assert_equal "review", calls.first.first
+    end
+    refute_empty ReviewQueue.new("s1").pending
+    assert_equal "deny", decision(gate("git push -u origin feat/x")), "without the autopilot the gate is back"
   end
 end

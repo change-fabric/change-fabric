@@ -145,6 +145,29 @@ class ApprovalConsoleCanonicalTest < Minitest::Test
     assert Canonical.build(base.merge(grant_attrs(grant_expires_at: "2026-11-21T12:00:00Z")))
   end
 
+  def autopilot_attrs(**over)
+    { type: "autopilot", summary: "pilot", scope_list: %w[carve_out review], autopilot_expires_at: "2026-11-18T20:00:00Z",
+      expires_at: "2026-11-18T12:15:00Z" }.merge(over)
+  end
+
+  def test_an_autopilot_signs_known_gates_and_an_end_within_72h
+    base = step_attrs.reject { |key, _| key == :items }
+    body = Canonical.parse(Canonical.build(base.merge(autopilot_attrs)))
+    assert_equal [ %w[carve_out review], "2026-11-18T20:00:00Z" ], body.values_at("scope_list", "autopilot_expires_at")
+    assert Canonical.build(base.merge(autopilot_attrs(scope_list: Canonical::AUTOPILOT_GATES, autopilot_expires_at: "2026-11-21T12:00:00Z")))
+    { "over 72h" => { autopilot_expires_at: "2026-11-21T12:00:01Z" },
+      "unknown gate" => { scope_list: %w[carve_out secrets] },
+      "unsorted" => { scope_list: %w[review carve_out] },
+      "duplicate" => { scope_list: %w[review review] },
+      "empty" => { scope_list: [] },
+      "before request end" => { autopilot_expires_at: "2026-11-18T12:15:00Z" },
+      "not a time" => { autopilot_expires_at: "later" },
+      "no summary" => { summary: " " } }.each do |why, bad|
+      assert_raises(Canonical::Invalid, why) { Canonical.build(base.merge(autopilot_attrs(**bad))) }
+    end
+    assert_raises(Canonical::Invalid) { Canonical.build(base.merge(autopilot_attrs.except(:autopilot_expires_at))) }
+  end
+
   def test_release_signs_the_tag_and_the_commit_it_points_at
     base = step_attrs.reject { |key, _| key == :items }
     body = Canonical.parse(Canonical.build(base.merge(type: "release", tag: "skills/v1.2.3", commit: base[:sha])))

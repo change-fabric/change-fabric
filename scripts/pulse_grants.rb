@@ -8,6 +8,7 @@ require_relative 'approval_console/local_store'
 require_relative 'approval_console/proof_check'
 require_relative 'approval_console/recorder'
 require_relative 'approval_console/remote'
+require_relative 'approval_console/standing_receipt'
 require_relative 'change_policy'
 require_relative 'change_grant_store'
 require_relative 'cf_project_identity'
@@ -68,16 +69,7 @@ class PulseGrants
     nil
   end
 
-  def parse_body(record)
-    proof = record['proof']
-    text = proof.is_a?(Hash) ? proof['body'] : nil
-    return nil unless text.is_a?(String)
-
-    body = ApprovalConsole::Canonical.parse(text)
-    body if body['type'] == 'grant'
-  rescue ApprovalConsole::Canonical::Invalid
-    nil
-  end
+  def parse_body(record) = ApprovalConsole::StandingReceipt.body_of(record, 'grant')
 
   def problem(record, body, id)
     return 'wrong-project' unless body['repo'] == (@project_id || CfProjectIdentity.for(@project).id) && record['repo'] == body['repo']
@@ -87,43 +79,12 @@ class PulseGrants
     window_problem(record['proof'], body)
   end
 
-  def verification_problem(proof)
-    return true unless proof['kind'] == ApprovalConsole::ProofCheck::PASSKEY_KIND
+  def verification_problem(proof) = receipts.verification_problem(proof)
 
-    # The verifier fills in this machine's id, so a receipt for another machine is refused.
-    expected = ApprovalConsole::Remote.expected_from_body(proof['body']).except('machine_id')
-    # The passkey level checks the local pins against the repository's own
-    # approval_pins, so replaced local keys cannot vouch for a hand-made grant.
-    ApprovalConsole::ProofCheck.new(level: 'passkey', store: @store, pins: authoritative_pins, now: @now).receipt_problem(proof, expected)
-  rescue StandardError
-    true # a malformed proof is unverified, never an abort of the scan
-  end
+  def window_problem(proof, body) = receipts.time_problem(proof, body, 'grant_expires_at')
 
-  # The default branch's approval_pins for this project, resolved once and
-  # fail-closed: an unreadable policy leaves no pins, so nothing verifies.
-  def authoritative_pins
-    return @pins unless @pins == :authoritative
-
-    return @authoritative_pins if defined?(@authoritative_pins) # a failed lookup is cached too
-
-    @authoritative_pins = begin
-      ApprovalConsole::Recorder.authority_for(CfProjectIdentity.for(@project).root).policy&.approval_pins
-    rescue StandardError
-      nil
-    end
-  end
-
-  def window_problem(proof, body)
-    accepted = ApprovalConsole::ProofCheck.accepted_at(proof)
-    return 'unverified' unless accepted
-
-    skew = ApprovalConsole::ProofCheck::MAX_SKEW
-    created = Time.iso8601(body['created_at'])
-    request_end = Time.iso8601(body['expires_at'])
-    return 'expired' unless @now < Time.iso8601(body['grant_expires_at'])
-    return 'receipt-outside-window' if accepted > @now + skew || accepted < created - skew || accepted > request_end + skew
-
-    nil
+  def receipts
+    @receipts ||= ApprovalConsole::StandingReceipt.new(project: @project, store: @store, now: @now, pins: @pins)
   end
 
   def accepted(record) = ApprovalConsole::ProofCheck.accepted_at(record['proof'])

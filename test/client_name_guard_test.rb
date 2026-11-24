@@ -6,8 +6,10 @@ require "stringio"
 require "tmpdir"
 
 require_relative "../scripts/client_name_guard"
+require_relative "support/autopilot_stub"
 
 class ClientNameGuardTest < Minitest::Test
+  include AutopilotStub
   def setup
     @prev = ENV.delete("CF_ALLOW_SENSITIVE_TERM")
   end
@@ -144,5 +146,16 @@ class ClientNameGuardTest < Minitest::Test
       assert_nil decision(path, "Write", { "content" => "plain generic text" }, remote_v: probe)
     end
     refute called, "the repo remote should only be checked once a term actually matches"
+  end
+
+  def test_an_autopilot_naming_sensitive_term_allows_and_logs_no_term
+    with_terms_file("acme corp\n") do |path|
+      with_autopilot do |calls|
+        assert_nil decision(path, "Write", { "content" => "Acme Corp" })
+        assert_equal "sensitive_term", calls.first.first
+        refute_match(/acme/i, calls.first.last.to_s)
+      end
+      assert_equal "deny", decision(path, "Write", { "content" => "Acme Corp" })
+    end
   end
 end
