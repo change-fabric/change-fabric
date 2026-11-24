@@ -9,6 +9,7 @@ require 'fileutils'
 begin
   require_relative 'hook_event'
   require_relative 'cf_state'
+require_relative 'cf_project_identity'
   require_relative 'pulse_store'
   require_relative 'pulse_precheck'
   require_relative 'pulse_watch'
@@ -81,6 +82,9 @@ class PulseStamp
 
   def stamp(pulse)
     pulse['last_activity'] = iso
+    # Set once, from the first event's cwd and the git remote (CfProjectIdentity), so
+    # a grant is bound to the project the session started in, never a caller flag.
+    pulse['project_id'] ||= CfProjectIdentity.for(@event['cwd']).id
     agents = Array(pulse['open_subagents']).select { |a| a.is_a?(Hash) && @now - Time.parse(a['started_at']) < AGENT_TTL_S }
     id = @event['agent_id'].to_s
     agents = agents.reject { |a| a['id'] == id } if @name == 'SubagentStop'

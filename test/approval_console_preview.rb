@@ -68,7 +68,9 @@ class ApprovalConsolePreview
   # by accident. Rebuilt through Canonical, the same as the real request path.
   def body_for(type)
     now = @now.call
-    Canonical.build(fixture(type).merge("created_at" => now.iso8601, "expires_at" => (now + LIFETIME).iso8601, "request_id" => SecureRandom.uuid))
+    body = fixture(type).merge("created_at" => now.iso8601, "expires_at" => (now + LIFETIME).iso8601, "request_id" => SecureRandom.uuid)
+    body["grant_expires_at"] = (now + 8 * 3600).iso8601 if type == "grant"
+    Canonical.build(body)
   end
 
   def inject(html, nonce)

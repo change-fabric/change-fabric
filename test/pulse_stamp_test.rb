@@ -4,6 +4,7 @@ require_relative "pulse_helper"
 require "open3"
 require "rbconfig"
 require_relative "../scripts/pulse_stamp"
+require_relative "../scripts/cf_project_identity"
 require_relative "../scripts/native_hook_install"
 require_relative "../scripts/pulse_scope"
 
@@ -49,6 +50,7 @@ class PulseStampTest < Minitest::Test
     5.times { |i| assert_nil stamp("PostToolUse", at: i, tool_name: "Bash", tool_input: { command: "ls" }) }
     assert_nil state.pulse["detected_trigger"]
     assert state.pulse["last_activity"]
+    assert_equal CfProjectIdentity.for(@project).id, state.pulse["project_id"]
   end
 
   def test_workflow_start_records_the_trigger_and_plan_path_without_dispatch

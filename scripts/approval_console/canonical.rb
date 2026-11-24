@@ -15,7 +15,7 @@ module ApprovalConsole
     class Invalid < StandardError; end
 
     VERSION = 1
-    TYPES = %w[step override prod-op carve-out money release run-script].freeze
+    TYPES = %w[step override prod-op carve-out money release run-script grant].freeze
     SCOPES = %w[merge tag].freeze
     MAX_LIFETIME = 3600
     # A carve-out signs its whole file list. The client and the Lambda share
@@ -39,8 +39,15 @@ module ApprovalConsole
       'money' => %w[summary argv],
       'carve-out' => %w[summary pr_url pr_title base files],
       'release' => %w[tag commit],
-      'run-script' => %w[script_sha256 script_path script_text title account]
+      'run-script' => %w[script_sha256 script_path script_text title account],
+      'grant' => %w[summary scope_list grant_expires_at]
     }.freeze
+    # A grant is a standing permission, not a one-shot act: the request window
+    # stays short (MAX_LIFETIME) but the signed grant_expires_at may run up to
+    # three days past creation. The expiry is signed, so it cannot be widened.
+    GRANT_MAX_LIFETIME = 72 * 3600
+    GRANT_MAX_SCOPES = 16
+    GRANT_SCOPE = /\A[a-z][a-z0-9_]{0,39}\z/
     # A run-script receipt is single-use and good for 15 minutes; the body
     # carries the whole script so the phone shows exactly the bytes that run.
     RUN_SCRIPT_LIFETIME = 900
@@ -175,6 +182,7 @@ module ApprovalConsole
       when 'carve-out' then carve_out_errors(body)
       when 'release' then release_errors(body)
       when 'run-script' then run_script_errors(body)
+      when 'grant' then grant_errors(body)
       else summary_errors(body) + argv_errors(body['argv'])
       end
     end
@@ -212,6 +220,27 @@ module ApprovalConsole
       errors << 'title is empty' unless nonempty?(body['title'])
       errors << 'account must be a 12-digit AWS account id or null' unless body['account'].nil? || body['account'].to_s.match?(ACCOUNT)
       errors.concat(script_lifetime_errors(body))
+    end
+
+    def grant_errors(body)
+      errors = summary_errors(body)
+      scopes = body['scope_list']
+      ok = scopes.is_a?(Array) && !scopes.empty? && scopes.size <= GRANT_MAX_SCOPES &&
+           scopes.all? { |scope| scope.is_a?(String) && scope.match?(GRANT_SCOPE) } && scopes == scopes.uniq.sort
+      errors << "scope_list must be a sorted, unique array of 1 to #{GRANT_MAX_SCOPES} lowercase action names" unless ok
+      errors.concat(grant_expiry_errors(body))
+    end
+
+    def grant_expiry_errors(body)
+      created = parse_time(body['created_at'])
+      expires = parse_time(body['expires_at'])
+      expiry = parse_time(body['grant_expires_at'])
+      return [ 'grant_expires_at must be UTC ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)' ] unless expiry
+      return [] unless created && expires
+      return [ 'grant_expires_at must be after the request expires_at' ] unless expiry > expires
+      return [ "a grant lifetime exceeds #{GRANT_MAX_LIFETIME} seconds" ] if expiry - created > GRANT_MAX_LIFETIME
+
+      []
     end
 
     def script_lifetime_errors(body)

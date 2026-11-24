@@ -250,11 +250,12 @@ module ConsolePages
 
   TYPE_TITLES = {
     'step' => 'Approve a gated step', 'override' => 'Override a merge or tag gate', 'prod-op' => 'Run a production operation',
-    'money' => 'Spend money', 'carve-out' => 'Merge a carve-out PR', 'release' => 'Publish a release', 'run-script' => 'Run a script on this machine'
+    'money' => 'Spend money', 'carve-out' => 'Merge a carve-out PR', 'release' => 'Publish a release', 'run-script' => 'Run a script on this machine',
+    'grant' => 'Grant pulse a standing permission'
   }.freeze
   DEFAULT_TITLE = 'Approve a request'
   # Risk comes from the signed type only, never from agent text or argv.
-  RISK = { 'step' => :standard, 'override' => :high, 'prod-op' => :high, 'money' => :high, 'carve-out' => :elevated, 'release' => :elevated, 'run-script' => :high }.freeze
+  RISK = { 'step' => :standard, 'override' => :high, 'prod-op' => :high, 'money' => :high, 'carve-out' => :elevated, 'release' => :elevated, 'run-script' => :high, 'grant' => :high }.freeze
   RISK_WORDS = { standard: 'Standard', high: 'High risk', elevated: 'Elevated risk' }.freeze
   CONSEQUENCE = {
     'override' => 'Lifts a safety guard for this commit.',
@@ -262,7 +263,8 @@ module ConsolePages
     'money' => 'Spends real money. The console shows the command, not the cost.',
     'carve-out' => 'Skips the normal review gates for this merge.',
     'release' => 'Publishes a release that others can install.',
-    'run-script' => 'Runs the script below, once, with no further prompt. Read all of it.'
+    'run-script' => 'Runs the script below, once, with no further prompt. Read all of it.',
+    'grant' => 'Lets an agent take the listed actions on its own until the grant expires. It cannot be revoked early.'
   }.freeze
 
   HIDDEN = /[​-‏‪-‮⁦-⁩﻿]/
@@ -292,15 +294,15 @@ module ConsolePages
   TECHNICAL_KEYS = %w[machine_id request_id profile v pr_url].freeze
   TYPED_VERIFIED = {
     'override' => %w[scope], 'prod-op' => %w[argv], 'money' => %w[argv], 'carve-out' => %w[base files], 'release' => %w[tag commit],
-    'run-script' => %w[script_sha256 script_path script_text account]
+    'run-script' => %w[script_sha256 script_path script_text account], 'grant' => %w[scope_list grant_expires_at]
   }.freeze
-  VERIFIED_ORDER = %w[repo sha tag commit base scope account script_path script_sha256 script_text items argv type created_at expires_at files].freeze
+  VERIFIED_ORDER = %w[repo sha tag commit base scope scope_list grant_expires_at account script_path script_sha256 script_text items argv type created_at expires_at files].freeze
   AGENT_ORDER = %w[pr_title title summary reason items].freeze
   LABELS = {
     'repo' => 'Repo', 'sha' => 'Commit', 'tag' => 'Tag', 'commit' => 'Release commit', 'base' => 'Base', 'scope' => 'Scope',
     'type' => 'Type', 'created_at' => 'Created', 'expires_at' => 'Expires', 'pr_title' => 'PR title', 'summary' => 'Summary',
     'reason' => 'Reason', 'title' => 'Title', 'account' => 'AWS account', 'script_path' => 'Script path',
-    'script_sha256' => 'Script SHA-256', 'script_text' => 'Script'
+    'script_sha256' => 'Script SHA-256', 'script_text' => 'Script', 'scope_list' => 'Allowed actions', 'grant_expires_at' => 'Grant expires'
   }.freeze
 
   # The zone that holds a body leaf. Anything not named as signed and
@@ -482,6 +484,7 @@ module ConsolePages
     when 'carve-out' then "Merge #{pr_number(body) ? "PR ##{pr_number(body)}" : 'a PR'} into #{body['base']} at #{sha7} (#{plural(Array(body['files']).size, 'file')})"
     when 'release' then "Publish #{body['tag']} at #{body['commit'].to_s[0, 7]}"
     when 'run-script' then "Run #{File.basename(body['script_path'].to_s)} (#{body['script_sha256'].to_s[0, 12]}) at #{sha7} against #{account_text(body)} (#{repo})"
+    when 'grant' then "Grant #{Array(body['scope_list']).join(', ')} until #{body['grant_expires_at']} (#{repo})"
     else "Approve a #{body['type']} request at #{sha7}"
     end
   end
@@ -495,6 +498,7 @@ module ConsolePages
     when 'carve-out' then "Carve-out · PR ##{pr_number(body) || '?'} · #{sha7}"
     when 'release' then "Release · #{body['tag']}"
     when 'run-script' then "Run script · #{body['account'] || 'no account'} · #{sha7}"
+    when 'grant' then "Grant · #{Array(body['scope_list']).join(', ')} · #{sha7}"
     else "Request · #{sha7}"
     end
   end

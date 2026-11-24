@@ -10,6 +10,8 @@ require 'rbconfig'
 require_relative 'pulse_store'
 require_relative 'pulse_precheck'
 require_relative 'cf_state'
+require_relative 'pulse_grants'
+require_relative 'cf_project_identity'
 
 # C3: an authorization and reservation service. It never touches a worker: it
 # returns a typed command, the coordinator runs it through the one `pulse-exec`
@@ -35,8 +37,10 @@ class PulseAct
   end
   prepend Serialized
 
-  def initialize(session, project: Dir.pwd, now: Time.now, inbox: nil)
+  def initialize(session, project: Dir.pwd, now: Time.now, inbox: nil, wall_clock: false, grant_pins: :authoritative)
+    @grant_pins = grant_pins
     @session = session
+    @wall_clock = wall_clock
     @project = project
     @now = now
     @dir = Pulse.session_dir(session)
@@ -163,13 +167,14 @@ class PulseAct
   def denial(req)
     return 'action-not-allowed' unless TOOLS.key?(req['action'])
     return 'local-only' if merge_mode == 'local-only'
+    return 'wrong-project' if session_project_id && session_project_id != CfProjectIdentity.for(@project).id
 
     finding = @store.findings[req['finding']]
     return 'unknown-finding' unless finding
     return 'not-authorizable' unless finding['authorizable'] && finding['action_class'] == 'auto'
     return 'finding-closed' if %w[rejected parked].include?(@store.disposition_of(finding['fingerprint']) || finding['disposition'])
     return 'out-of-scope' unless @store.serves_current?(finding)
-    return 'not-in-protocol' unless protocol.include?(req['action'])
+    return not_allowed_reason(req['action']) unless protocol.include?(req['action']) || grants.allows?(req['action'])
     return 'hard-limit' if HARD_LIMIT.match?(req['text'].to_s) || HARD_LIMIT.match?(req['target'].to_s)
     return 'no-text' if req['action'] == 'nudge_worker' && req['text'].to_s.strip.empty?
     current = state_at(req['target'], req['action'])
@@ -199,8 +204,33 @@ class PulseAct
     'local-only' # unreadable state fails closed
   end
 
+  # The plan protocol failed, and so did every grant. A grant that covers the
+  # action but was refused (expired, tampered, wrong project, unverified) is
+  # named; plain absence stays `not-in-protocol`.
+  def not_allowed_reason(action)
+    why = grants.refusal_for(action)
+    why ? "grant-#{why}" : 'not-in-protocol'
+  end
+
+  # The CLI passes wall_clock: its `--now` is caller-set, and a caller must not
+  # be able to back-date a grant's expiry.
+  # Phone-approved console receipts only (pulse_grants.rb); re-verified on
+  # every call, so authorize and begin both see an expiry the moment it lands.
+  def grants
+    @grants ||= PulseGrants.new(project: @project, now: @wall_clock ? Time.now : @now, project_id: session_project_id.to_s, pins: @grant_pins)
+  end
+
+  # The project the session was stamped with (pulse_stamp.rb, from the first
+  # event's cwd). A caller's --project can never change it; a session with no
+  # stamp has no project, so no grant applies to it.
+  def session_project_id
+    @session_project_id ||= CfState.new(host: 'claude', project: @project, session_id: @session, root: CfState.root).pulse['project_id']
+  rescue StandardError
+    nil
+  end
+
   # The run's plan.md lists the acts it authorizes: `pulse-allow: nudge_worker, stop_runaway`.
-  # Before grants (a later phase) only this protocol counts.
+  # A verified, unexpired grant (`grants`) widens this list.
   def protocol
     scope = File.join(@dir, 'pulse_scope.json')
     sources = File.file?(scope) ? Array(JSON.parse(File.read(scope))['sources']) : []
@@ -288,7 +318,7 @@ class PulseActCLI
   def self.run(argv, out: $stdout)
     cmd, *rest = argv
     opts = rest.each_slice(2).to_h { |flag, value| [ flag.delete_prefix('--'), value ] }
-    act = PulseAct.new(opts.fetch('session'), project: opts['project'] || Dir.pwd, now: opts['now'] ? Time.parse(opts['now']) : Time.now)
+    act = PulseAct.new(opts.fetch('session'), project: opts['project'] || Dir.pwd, now: opts['now'] ? Time.parse(opts['now']) : Time.now, wall_clock: true)
     out.puts(JSON.generate(dispatch(act, cmd, opts)))
     0
   rescue StandardError => e
