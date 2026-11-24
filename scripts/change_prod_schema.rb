@@ -27,7 +27,7 @@ module ChangeProdSchema
   PROBE_KEYS = %w[schedule argv timeout_s max_age_days oidc_roles].freeze
   MAINTENANCE_KEYS = %w[windows enter verify exit].freeze
   WINDOW_KEYS = %w[cron duration_minutes tz].freeze
-  OPERATION_KEYS = %w[class runner argv cwd params backup maintenance online_safe verify timeout_s estimate staging_first].freeze
+  OPERATION_KEYS = %w[class runner argv cwd params backup maintenance online_safe verify timeout_s estimate staging_first row_threshold].freeze
   CLASSES = %w[destructive_data contracts_and_auth money_and_sends gate_config routine].freeze
   # The request envelope validator carries string params only.
   PARAM_TYPES = %w[string].freeze
@@ -316,6 +316,7 @@ module ChangeProdSchema
       add("#{where}.cwd must be repo") unless op['cwd'].nil? || op['cwd'] == 'repo'
       check_window_choice(op, where)
       check_estimate(op['estimate'], "#{where}.estimate") if op.key?('estimate')
+      add("#{where}.row_threshold must be a positive integer") unless op['row_threshold'].nil? || (op['row_threshold'].is_a?(Integer) && op['row_threshold'].positive?)
       add("#{where}.staging_first must be true or false") unless op['staging_first'].nil? || [ true, false ].include?(op['staging_first'])
       add("#{where} is not a valid op name") unless name.match?(OP)
     end

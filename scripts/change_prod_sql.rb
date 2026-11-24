@@ -3,10 +3,10 @@
 require 'digest'
 
 # Classifies prod SQL for the autopilot recovery precondition. A statement is
-# destructive when it is DROP, TRUNCATE, ALTER ... DROP, DELETE or UPDATE with
-# no top-level WHERE, or when its estimated row count passes the threshold.
-# Comments and quoted text are blanked first, so a keyword inside a string or
-# a comment neither hides nor fakes a destructive statement. Anything the
+# non-destructive only when it is on a short allowlist (see `classify`); every
+# other statement is destructive, as is any statement whose estimated row count
+# passes the threshold. Comments and quoted text are blanked first, so a keyword
+# inside a string or a comment neither hides nor fakes a statement. Anything the
 # scanner cannot read (an unterminated quote, comment or dollar quote, or a
 # non-integer estimate) counts as destructive: this fails closed.
 module ChangeProdSql
@@ -146,34 +146,38 @@ module ChangeProdSql
     kept
   end
 
-  # A WITH statement is scanned in full, CTE bodies included: parentheses
-  # hide a data-modifying CTE (`WITH x AS (DELETE ... RETURNING *) SELECT ...`)
-  # from the top-level view, so any DML or DDL keyword in one counts.
+  # Anything outside this list is destructive: the cost of a false positive is
+  # one extra verified snapshot, the cost of a miss is lost data.
+  #
+  #   SELECT (not SELECT INTO), including a WITH with no data-changing keyword
+  #   SHOW, EXPLAIN without ANALYZE
+  #   INSERT ... VALUES with no ON CONFLICT ... DO UPDATE
+  #   UPDATE or DELETE with a top-level WHERE (still subject to the row threshold)
+  #   BEGIN, COMMIT, ROLLBACK, SET (but not SET ROLE or SESSION AUTHORIZATION)
+  #
+  # DO blocks, CALL, COPY, ALTER, GRANT, CREATE, MERGE, VACUUM and every unknown
+  # verb are destructive, as is a WITH holding DML in a CTE body.
   DATA_CHANGING = /\b(?:delete|update|insert|merge|truncate|drop)\b/
+  CONTROL = %w[begin commit rollback].freeze
 
   def classify(pair)
     original, blanked = pair
+    raw = top_level(blanked).downcase
+    text = raw.gsub(NOT_A_STATEMENT, ' ')
     full = blanked.downcase.gsub(NOT_A_STATEMENT, ' ')
-    text = top_level(blanked).downcase.gsub(NOT_A_STATEMENT, ' ')
-    cte = full.match?(/\A\s*with\b/) && full.match?(DATA_CHANGING)
-    kind = cte ? 'with_dml' : kind_of(text)
-    Statement.new(sql_sha256: Digest::SHA256.hexdigest(original.strip.b), kind: kind, destructive: cte || destructive_kind?(kind, text))
+    verb = text.split.first.to_s[/\A[a-z_]+/] || 'other'
+    kind = verb == 'with' ? (full.match?(DATA_CHANGING) ? 'with_dml' : 'with') : verb
+    Statement.new(sql_sha256: Digest::SHA256.hexdigest(original.strip.b), kind: kind, destructive: !allowed?(kind, raw, text, blanked.downcase))
   end
 
-  def kind_of(text)
-    return 'truncate' if text.match?(/\btruncate\b/)
-    return 'drop' if text.match?(/\bdrop\b/)
-    return 'delete' if text.match?(/\bdelete\b/)
-    return 'update' if text.match?(/\bupdate\b/)
-
-    text.split.first.to_s[/\A[a-z]+/] || 'other'
-  end
-
-  def destructive_kind?(kind, text)
+  def allowed?(kind, raw, text, full)
     case kind
-    when 'truncate', 'drop' then true
-    when 'delete', 'update' then !text.match?(/\bwhere\b/)
-    else false
+    when 'select', 'show', 'with' then kind != 'select' || !text.match?(/\binto\b/)
+    when 'explain' then !full.match?(/\banaly[sz]e\b/)
+    when 'insert' then text.match?(/\bvalues\b/) && !text.match?(/\bselect\b/) && !raw.match?(/\bon\s+conflict\b.*\bdo\s+update\b/m)
+    when 'update', 'delete' then text.match?(/\bwhere\b/)
+    when 'set' then !text.match?(/\b(?:role|authorization)\b/)
+    else CONTROL.include?(kind)
     end
   end
 end

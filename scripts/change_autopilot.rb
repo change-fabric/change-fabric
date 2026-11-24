@@ -110,6 +110,9 @@ class ChangeAutopilot
   # Ended here, but the prod runner has not confirmed its end marker.
   def unannounced = @autopilots.pending(repo: project_id)
 
+  # Where it was published to the prod runner from, or nil if it never was.
+  def published_root(autopilot_id) = @autopilots.published_root(autopilot_id)
+
   def told!(autopilot_id) = @autopilots.clear_pending(autopilot_id)
 
   private
@@ -183,7 +186,9 @@ class ChangeAutopilotCLI
     out.puts(ids.empty? ? 'no autopilot was active' : "ended autopilot #{ids.map { |id| id[0, 12] }.join(', ')}")
     # Includes ones ended by an earlier `end` whose runner marker never landed.
     autopilot.unannounced.reduce(0) do |status, row|
-      outcome = ender.call(root: root, id: row['id'], by: row['by'] || by, reason: row['reason'] || reason)
+      published = autopilot.published_root(row['id'])
+      outcome = ender.call(root: published.nil? || published.empty? ? root : published, id: row['id'], by: row['by'] || by,
+                           reason: row['reason'] || reason, published: !published.nil?)
       autopilot.told!(row['id']) if outcome.ok?
       (outcome.ok? ? out : err).puts("change_autopilot: #{outcome.note}") if outcome.note
       outcome.ok? ? status : 1

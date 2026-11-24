@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'approval_console/canonical'
+require_relative 'change_autopilot_store'
 require_relative 'change_prod_envelope'
 require_relative 'change_prod_gate'
 require_relative 'change_prod_store'
@@ -35,10 +36,12 @@ module ChangeProdAutopilotRef
   end
 
   # A note string, or nil when there is nothing to publish.
-  def publish(root:, proof:, expected:, store: nil)
+  def publish(root:, proof:, expected:, store: nil, receipts: ChangeAutopilotStore.new)
     return nil unless Array(expected['scope_list']).include?('prod') && prod_runner?(root)
 
     id = ApprovalConsole::Canonical.body_sha256(proof['body'])
+    # Recorded first: if the push half-fails, `end` still tells the runner.
+    receipts.mark_published(id, root: root)
     store ||= ChangeProdStore.new(root)
     store.create('autopilots', id, { 'protocol' => ChangeProdGate::AUTOPILOT_PROTOCOL, 'autopilot_id' => id, 'proof' => proof })
     "published to the prod runner (refs/cf-prod/autopilots/#{id[0, 12]})"
@@ -49,10 +52,12 @@ module ChangeProdAutopilotRef
     not_published(e)
   end
 
-  # Outcome. ok means the runner can no longer honor the autopilot (or there is
-  # no runner to tell).
-  def publish_end(root:, id:, by:, reason:, store: nil)
-    return Outcome.new(ok: true) unless prod_runner?(root)
+  # Outcome. ok means the runner can no longer honor the autopilot, or it was
+  # never published there. `published` is the persisted publish record, never
+  # the current CHANGE.md: with a record the marker is always written and a
+  # failure is never ok; with none there is nothing at the runner to end.
+  def publish_end(root:, id:, by:, reason:, published:, store: nil)
+    return Outcome.new(ok: true) unless published
 
     store ||= ChangeProdStore.new(root)
     store.create('autopilot-ends', id, { 'ended_by' => by.to_s, 'reason' => reason.to_s, 'ended_at' => Time.now.utc.iso8601 })

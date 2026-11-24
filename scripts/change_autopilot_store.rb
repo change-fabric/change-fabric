@@ -40,6 +40,24 @@ class ChangeAutopilotStore < ChangeReceiptStore
     File.write(file_for(autopilot_id, 'ended'), JSON.generate('ended_at' => at.utc.iso8601, 'by' => by.to_s, 'reason' => reason.to_s))
   end
 
+  # Written when an autopilot is first published to the prod runner, before the
+  # refs are pushed, with the checkout it was published from. `end` reads it to
+  # know the runner needs an end marker, whatever the current CHANGE.md says.
+  def mark_published(autopilot_id, root:)
+    FileUtils.mkdir_p(@root)
+    File.write(file_for(autopilot_id, 'published'), JSON.generate('root' => root.to_s))
+  end
+
+  # The checkout root it was published from, or nil when it never was.
+  def published_root(autopilot_id)
+    path = file_for(autopilot_id, 'published')
+    return nil unless File.file?(path)
+
+    JSON.parse(File.read(path))['root'].to_s
+  rescue JSON::ParserError, SystemCallError
+    ''
+  end
+
   # An ended autopilot whose end the prod runner has not been told about yet.
   # Written before the tombstone and cleared only once the runner confirms, so
   # a failed publish is retried by the next `end`.

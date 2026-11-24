@@ -25,9 +25,13 @@ class ChangeProdAutopilotRefTest < Minitest::Test
     GitFixture.git_init(@origin, "--bare", "-b", "main")
     GitFixture.git_init(@dir, "-b", "main")
     GitFixture.git(@dir, "remote", "add", "origin", @origin)
+    @receipts_dir = Dir.mktmpdir
+    @receipts = ChangeAutopilotStore.new(root: @receipts_dir)
   end
 
-  def teardown = [ @origin, @dir ].each { |path| FileUtils.remove_entry(path) }
+  def teardown = [ @origin, @dir, @receipts_dir ].each { |path| FileUtils.remove_entry(path) }
+
+  def publish(**opts) = Ref.publish(root: @dir, proof: PROOF, receipts: @receipts, **opts)
 
   def with_runner_config
     File.write(File.join(@dir, "CHANGE.md"), "---\n#{File.read(FIXTURE).sub(/\A---\n/, '')}---\n\n# CHANGE\n")
@@ -43,22 +47,22 @@ class ChangeProdAutopilotRefTest < Minitest::Test
 
   def test_nothing_is_published_without_prod_in_scope_or_a_prod_runner
     with_runner_config
-    assert_nil Ref.publish(root: @dir, proof: PROOF, expected: { "scope_list" => %w[review] })
+    assert_nil publish(expected: { "scope_list" => %w[review] })
     FileUtils.rm(File.join(@dir, "CHANGE.md"))
-    assert_nil Ref.publish(root: @dir, proof: PROOF, expected: { "scope_list" => %w[prod review] })
+    assert_nil publish(expected: { "scope_list" => %w[prod review] })
     assert_empty ChangeProdStore.new(@dir).list("autopilots")
   end
 
   def test_a_prod_autopilot_is_published_under_its_body_hash_once
     with_runner_config
     id = ApprovalConsole::Canonical.body_sha256(PROOF["body"])
-    note = Ref.publish(root: @dir, proof: PROOF, expected: { "scope_list" => %w[prod review] })
+    note = publish(expected: { "scope_list" => %w[prod review] })
     assert_match(/published to the prod runner/, note)
     store = ChangeProdStore.new(@dir)
     assert_equal [ id ], store.list("autopilots")
     record = store.read("autopilots", id)
     assert_equal({ "protocol" => "cf.prod.autopilot/1", "autopilot_id" => id, "proof" => PROOF }, record)
-    assert_equal "already published to the prod runner", Ref.publish(root: @dir, proof: PROOF, expected: { "scope_list" => %w[prod] })
+    assert_equal "already published to the prod runner", publish(expected: { "scope_list" => %w[prod] })
     # The ref reached the remote too.
     assert_match(/autopilots\/#{id}/, GitFixture.git(@origin, "for-each-ref", "refs/cf-prod/autopilots/"))
   end
@@ -66,26 +70,45 @@ class ChangeProdAutopilotRefTest < Minitest::Test
   def test_a_failed_publish_says_so_without_raising
     with_runner_config
     GitFixture.git(@dir, "remote", "set-url", "origin", File.join(@dir, "no-such-remote"))
-    note = Ref.publish(root: @dir, proof: PROOF, expected: { "scope_list" => %w[prod] })
+    note = publish(expected: { "scope_list" => %w[prod] })
     assert_match(/NOT published to the prod runner/, note)
     assert_empty ChangeProdStore.new(@dir).list("autopilots")
   end
 
-  def test_end_writes_the_marker_only_where_a_runner_exists
-    assert_predicate Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "x"), :ok?
-    assert_empty ChangeProdStore.new(@dir).list("autopilot-ends")
+  def test_publishing_records_where_it_was_published_from_before_pushing
     with_runner_config
-    outcome = Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "done")
+    id = ApprovalConsole::Canonical.body_sha256(PROOF["body"])
+    assert_nil @receipts.published_root(id)
+    GitFixture.git(@dir, "remote", "set-url", "origin", File.join(@dir, "no-such-remote"))
+    assert_match(/NOT published/, publish(expected: { "scope_list" => %w[prod] }))
+    assert_equal @dir, @receipts.published_root(id)
+  end
+
+  def test_nothing_is_recorded_when_nothing_is_published
+    with_runner_config
+    publish(expected: { "scope_list" => %w[review] })
+    assert_empty Dir.children(@receipts_dir)
+  end
+
+  def test_end_writes_nothing_for_an_autopilot_that_was_never_published
+    with_runner_config
+    outcome = Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "x", published: false)
+    assert_predicate outcome, :ok?
+    assert_empty ChangeProdStore.new(@dir).list("autopilot-ends")
+  end
+
+  def test_end_publishes_whenever_a_publish_record_exists_even_if_change_md_changed
+    refute Ref.prod_runner?(@dir)
+    outcome = Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "done", published: true)
     assert_predicate outcome, :ok?
     assert_equal [ ID ], ChangeProdStore.new(@dir).list("autopilot-ends")
     assert_equal "done", ChangeProdStore.new(@dir).read("autopilot-ends", ID)["reason"]
-    assert_match(/already told/, Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "again").note)
+    assert_match(/already told/, Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "again", published: true).note)
   end
 
   def test_a_failed_end_publish_is_not_ok_and_loud
-    with_runner_config
     GitFixture.git(@dir, "remote", "set-url", "origin", File.join(@dir, "no-such-remote"))
-    outcome = Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "x")
+    outcome = Ref.publish_end(root: @dir, id: ID, by: "agent", reason: "x", published: true)
     refute_predicate outcome, :ok?
     assert_match(/NOT told and honors the autopilot until its signed end/, outcome.note)
   end
@@ -99,7 +122,8 @@ class ChangeAutopilotEndPublishTest < Minitest::Test
   class FakeAutopilot
     attr_reader :pending
 
-    def initialize(active = [], pending = [])
+    def initialize(active = [], pending = [], published: {})
+      @published = published
       @active = active
       @pending = pending.map { |id| { "id" => id, "by" => "earlier", "reason" => "earlier reason" } }
     end
@@ -111,6 +135,7 @@ class ChangeAutopilotEndPublishTest < Minitest::Test
       ended
     end
 
+    def published_root(id) = @published.fetch(id, nil)
     def active = @active.map { |id| Struct.new(:id, :scope_list, :expires_at).new(id, %w[prod], Time.utc(2026, 11, 24, 23)) }
     def rejected = {}
     def unannounced = @pending
@@ -128,7 +153,7 @@ class ChangeAutopilotEndPublishTest < Minitest::Test
 
   def test_each_ended_autopilot_is_announced_to_the_runner
     calls = []
-    ender = ->(root:, id:, by:, reason:) { calls << [ root, id, by, reason ]; Outcome.new(ok: true, note: "told") }
+    ender = ->(root:, id:, by:, reason:, published:) { calls << [ root, id, by, reason ]; Outcome.new(ok: true, note: "told") }
     code, out, = finish([ "a" * 64, "b" * 64 ], ender)
     assert_equal 0, code
     assert_equal [ [ "/r", "a" * 64, "me", "done" ], [ "/r", "b" * 64, "me", "done" ] ], calls
@@ -146,7 +171,7 @@ class ChangeAutopilotEndPublishTest < Minitest::Test
     fake = FakeAutopilot.new([ "a" * 64 ])
     results = [ Outcome.new(ok: false, note: "NOT told"), Outcome.new(ok: true, note: "told") ]
     calls = []
-    ender = ->(root:, id:, by:, reason:) { calls << [ id, by, reason ]; results.shift }
+    ender = ->(root:, id:, by:, reason:, published:) { calls << [ id, by, reason ]; results.shift }
     run = -> { ChangeAutopilotCLI.run(%w[end --reason done], out: StringIO.new, err: StringIO.new, autopilot: fake, root: "/r", ender: ender, by: "me") }
     assert_equal 1, run.call
     assert_equal [ "a" * 64 ], fake.unannounced.map { |row| row["id"] }
@@ -161,7 +186,7 @@ class ChangeAutopilotEndPublishTest < Minitest::Test
   def test_an_earlier_pending_end_is_retried_even_when_nothing_is_active
     fake = FakeAutopilot.new([], [ "b" * 64 ])
     calls = []
-    ender = ->(root:, id:, by:, reason:) { calls << [ id, by, reason ]; Outcome.new(ok: false, note: "still down") }
+    ender = ->(root:, id:, by:, reason:, published:) { calls << [ id, by, reason ]; Outcome.new(ok: false, note: "still down") }
     code = ChangeAutopilotCLI.run(%w[end], out: StringIO.new, err: StringIO.new, autopilot: fake, root: "/r", ender: ender)
     assert_equal 1, code
     assert_equal [ [ "b" * 64, "earlier", "earlier reason" ] ], calls
@@ -176,6 +201,21 @@ class ChangeAutopilotEndPublishTest < Minitest::Test
     json = StringIO.new
     ChangeAutopilotCLI.run(%w[status --json], out: json, autopilot: fake)
     assert_equal [ "c" * 64 ], JSON.parse(json.string)["ended_runner_not_told"]
+  end
+
+  def test_end_uses_the_publish_record_not_the_current_checkout
+    fake = FakeAutopilot.new([ "a" * 64, "b" * 64 ], [], published: { "a" * 64 => "/where/it/was/published" })
+    calls = []
+    ender = ->(root:, id:, by:, reason:, published:) { calls << [ id[0], root, published ]; Outcome.new(ok: true) }
+    assert_equal 0, ChangeAutopilotCLI.run(%w[end], out: StringIO.new, err: StringIO.new, autopilot: fake, root: "/current", ender: ender, by: "me")
+    assert_equal [ [ "a", "/where/it/was/published", true ], [ "b", "/current", false ] ], calls
+  end
+
+  def test_a_published_autopilot_stays_pending_while_the_runner_cannot_be_told
+    fake = FakeAutopilot.new([ "a" * 64 ], [], published: { "a" * 64 => "/r" })
+    down = ->(**) { Outcome.new(ok: false, note: "down") }
+    2.times { assert_equal 1, ChangeAutopilotCLI.run(%w[end], out: StringIO.new, err: StringIO.new, autopilot: fake, root: "/c", ender: down) }
+    assert_equal [ "a" * 64 ], fake.unannounced.map { |row| row["id"] }
   end
 
   def test_ending_nothing_announces_nothing

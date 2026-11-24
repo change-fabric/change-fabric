@@ -23,6 +23,31 @@ class ChangeProdSqlTest < Minitest::Test
     assert Sql.destructive?("UPDATE users SET a = (SELECT 1 WHERE true)")
   end
 
+  def test_only_the_allowlist_is_non_destructive
+    [ "SELECT 1", "select * from t where a = 1", "SHOW search_path", "EXPLAIN SELECT * FROM t", "EXPLAIN DELETE FROM t",
+      "INSERT INTO t (a) VALUES (1), (2)", "UPDATE t SET a = 1 WHERE id = 1", "DELETE FROM t WHERE id = 1",
+      "BEGIN", "COMMIT", "ROLLBACK", "SET statement_timeout = 5000", "SET LOCAL lock_timeout = '2s'",
+      "BEGIN; UPDATE t SET a = 1 WHERE id = 2; COMMIT" ].each { |sql| refute Sql.destructive?(sql), sql }
+  end
+
+  def test_everything_else_is_destructive
+    [ "DO $$ BEGIN DELETE FROM t; END $$", "DO 'begin perform 1; end'", "CALL purge_all()", "COPY t FROM '/x'", "COPY t TO PROGRAM 'x'",
+      "ALTER TABLE t ADD COLUMN a int", "ALTER ROLE app SUPERUSER", "GRANT ALL ON t TO u", "REVOKE ALL ON t FROM u",
+      "CREATE TABLE t (id int)", "CREATE OR REPLACE FUNCTION f() RETURNS void AS $$ DELETE FROM t $$ LANGUAGE sql",
+      "VACUUM FULL t", "REINDEX TABLE t", "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE",
+      "INSERT INTO t SELECT * FROM s", "INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET a = 2",
+      "SELECT * INTO backup FROM t", "EXPLAIN ANALYZE DELETE FROM t", "EXPLAIN (ANALYZE, BUFFERS) UPDATE t SET a = 1 WHERE b",
+      "EXPLAIN (analyse) DELETE FROM t WHERE b", "SET ROLE admin", "SET SESSION AUTHORIZATION admin", "RESET ALL",
+      "LOCK TABLE t", "REFRESH MATERIALIZED VIEW v", "NOTIFY c", "LISTEN c", "SAVEPOINT s", "frobnicate t", "(SELECT 1)" ].each do |sql|
+      assert Sql.destructive?(sql), sql
+    end
+  end
+
+  def test_one_unlisted_statement_makes_a_batch_destructive
+    assert Sql.destructive?("SELECT 1; DO $$ BEGIN NULL; END $$; SELECT 2")
+    assert Sql.analyze("SELECT 1; CALL f()").map(&:destructive) == [ false, true ]
+  end
+
   def test_a_data_modifying_cte_is_destructive
     [ "WITH x AS (DELETE FROM t WHERE id = 1 RETURNING *) SELECT * FROM x",
       "with x as (update t set a = 1 where id = 1 returning *) select * from x",
@@ -48,9 +73,9 @@ class ChangeProdSqlTest < Minitest::Test
   def test_plain_reads_and_inserts_are_not_destructive
     refute Sql.destructive?("SELECT * FROM users")
     refute Sql.destructive?("INSERT INTO users (a) VALUES (1)")
-    refute Sql.destructive?("INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET a = 2")
+    refute Sql.destructive?("INSERT INTO t VALUES (1) ON CONFLICT (id) DO NOTHING")
+    refute Sql.destructive?("INSERT INTO t VALUES (1) RETURNING id")
     refute Sql.destructive?("SELECT * FROM users FOR UPDATE")
-    refute Sql.destructive?("CREATE TABLE t (id int REFERENCES u ON DELETE CASCADE ON UPDATE CASCADE)")
     refute Sql.destructive?("")
     refute Sql.destructive?("  ;  ")
   end
