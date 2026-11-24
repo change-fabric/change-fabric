@@ -53,6 +53,8 @@ class ChangeProdSqlTest < Minitest::Test
     [ "SELECT E'it\\'s'; DELETE FROM t", # the reviewer's example: the escaped quote hides the DELETE
       "SELECT e'a'", "SELECT E'a\\nb'", "SELECT U&'d\\0061t\\+000061'", "SELECT u&'x'", %(SELECT U&"x" FROM t),
       "SELECT B'101'", "SELECT X'1F'", "SELECT b'1'", "SELECT $$a$$", "SELECT $tag$a$tag$", "SELECT $$",
+      "SELECT $q1$x'; DELETE FROM t; --$q1$", "DO $q1$ BEGIN DELETE FROM t; END $q1$", "SELECT $a_1$a$a_1$", "SELECT $_$a$_$",
+      "SELECT $1$", "SELECT $1$a$1$", "SELECT 1$", "SELECT a$b FROM t", "SELECT $", "SELECT $1a", "SELECT x$1",
       "SELECT 'a\\b'", "SELECT 'a' \\g", %(SELECT "a\\b" FROM t),
       "SELECT 1 /* a /* b */ c */", "SELECT 1 /* open", "SELECT 'open" ].each do |sql|
       assert Sql.destructive?(sql), sql
@@ -65,6 +67,9 @@ class ChangeProdSqlTest < Minitest::Test
     refute Sql.destructive?("SELECT * FROM t WHERE a IN ('x', 'y') -- c")
     refute Sql.destructive?("SELECT 1 /* flat */")
     refute Sql.destructive?("SELECT $1, $2")
+    refute Sql.destructive?("SELECT * FROM t WHERE a = $1 AND b=$23")
+    refute Sql.destructive?("DELETE FROM t WHERE id = $1")
+    refute Sql.destructive?("SELECT ($1)")
     refute Sql.destructive?("INSERT INTO t VALUES ('a'),('b')")
     assert Sql.destructive?("SELECT 'it''s'; DELETE FROM t")
   end

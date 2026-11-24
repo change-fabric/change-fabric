@@ -66,7 +66,8 @@ module ChangeProdSql
   # "..." identifiers, -- comments and flat /* */ comments. Anything that needs
   # more care to tokenize is refused as unreadable, which makes the whole batch
   # destructive: E'' escape strings, U& strings and identifiers, B'' and X''
-  # literals, dollar quotes, any backslash, and nested comments.
+  # literals, any `$` that is not a positional parameter, any backslash, and
+  # nested comments. Dollar-quote grammar is deliberately not parsed.
   def blank(sql)
     raise Unreadable, 'backslash' if sql.include?('\\')
 
@@ -88,8 +89,8 @@ module ChangeProdSql
       stop = close_comment(sql, i)
       out << (' ' * (stop - i))
       stop
-    elsif rest.match?(/\A\$[A-Za-z_]*\$/)
-      raise Unreadable, 'dollar quote'
+    elsif sql[i] == '$' && !positional_param?(sql, i)
+      raise Unreadable, 'dollar sign outside a positional parameter'
     elsif sql[i] == "'" || sql[i] == '"'
       raise Unreadable, 'prefixed quote' if prefixed_quote?(sql, i)
 
@@ -124,6 +125,14 @@ module ChangeProdSql
       i += 1
     end
     raise Unreadable, 'unterminated quote'
+  end
+
+  # `$1`, `$23`: digits only, with no identifier character or `$` on either side.
+  # So `$$`, `$tag$`, `$q1$`, `$a_1$`, `$_$`, `$1$` and `a$b` are all refused.
+  def positional_param?(sql, index)
+    return false if index.positive? && sql[index - 1].match?(/[A-Za-z0-9_$]/)
+
+    sql[index..].match?(/\A\$\d+(?![A-Za-z0-9_$])/)
   end
 
   # A letter, digit or & glued to the quote: E'', U&'', B'', X'' and friends.
