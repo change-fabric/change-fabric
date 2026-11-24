@@ -48,6 +48,27 @@ class ChangeProdSqlTest < Minitest::Test
     assert Sql.analyze("SELECT 1; CALL f()").map(&:destructive) == [ false, true ]
   end
 
+  # Forms the scanner does not tokenize with certainty make the whole batch destructive.
+  def test_unusual_quoting_forms_make_the_whole_batch_destructive
+    [ "SELECT E'it\\'s'; DELETE FROM t", # the reviewer's example: the escaped quote hides the DELETE
+      "SELECT e'a'", "SELECT E'a\\nb'", "SELECT U&'d\\0061t\\+000061'", "SELECT u&'x'", %(SELECT U&"x" FROM t),
+      "SELECT B'101'", "SELECT X'1F'", "SELECT b'1'", "SELECT $$a$$", "SELECT $tag$a$tag$", "SELECT $$",
+      "SELECT 'a\\b'", "SELECT 'a' \\g", %(SELECT "a\\b" FROM t),
+      "SELECT 1 /* a /* b */ c */", "SELECT 1 /* open", "SELECT 'open" ].each do |sql|
+      assert Sql.destructive?(sql), sql
+      assert_equal [ "unparseable" ], Sql.analyze(sql).map(&:kind), sql
+    end
+  end
+
+  def test_plain_standard_quoting_is_still_read
+    refute Sql.destructive?("SELECT 'it''s' , \"a\"\"b\" FROM t")
+    refute Sql.destructive?("SELECT * FROM t WHERE a IN ('x', 'y') -- c")
+    refute Sql.destructive?("SELECT 1 /* flat */")
+    refute Sql.destructive?("SELECT $1, $2")
+    refute Sql.destructive?("INSERT INTO t VALUES ('a'),('b')")
+    assert Sql.destructive?("SELECT 'it''s'; DELETE FROM t")
+  end
+
   def test_a_data_modifying_cte_is_destructive
     [ "WITH x AS (DELETE FROM t WHERE id = 1 RETURNING *) SELECT * FROM x",
       "with x as (update t set a = 1 where id = 1 returning *) select * from x",
@@ -85,7 +106,6 @@ class ChangeProdSqlTest < Minitest::Test
     refute Sql.destructive?("SELECT 1 -- drop table users")
     refute Sql.destructive?("SELECT 1 /* truncate users */")
     refute Sql.destructive?(%(SELECT "drop" FROM t))
-    refute Sql.destructive?("SELECT $$drop table x$$")
     refute Sql.destructive?("SELECT 'it''s a drop'")
   end
 

@@ -62,7 +62,14 @@ module ChangeProdSql
 
   # The same length as the input: comments and the inside of quotes become
   # spaces (a quoted span keeps its quotes), so offsets line up.
+  # Only the plain forms are read: standard '...' strings (with '' doubling),
+  # "..." identifiers, -- comments and flat /* */ comments. Anything that needs
+  # more care to tokenize is refused as unreadable, which makes the whole batch
+  # destructive: E'' escape strings, U& strings and identifiers, B'' and X''
+  # literals, dollar quotes, any backslash, and nested comments.
   def blank(sql)
+    raise Unreadable, 'backslash' if sql.include?('\\')
+
     out = +''
     i = 0
     while i < sql.length
@@ -81,53 +88,46 @@ module ChangeProdSql
       stop = close_comment(sql, i)
       out << (' ' * (stop - i))
       stop
-    elsif (tag = rest[/\A\$[A-Za-z_]*\$/])
-      quoted(sql, i, tag, tag, out)
+    elsif rest.match?(/\A\$[A-Za-z_]*\$/)
+      raise Unreadable, 'dollar quote'
     elsif sql[i] == "'" || sql[i] == '"'
-      quoted(sql, i, sql[i], sql[i], out)
+      raise Unreadable, 'prefixed quote' if prefixed_quote?(sql, i)
+
+      quoted(sql, i, sql[i], out)
     else
       out << sql[i]
       i + 1
     end
   end
 
-  # Nested block comments, as Postgres reads them.
+  # A flat block comment; Postgres nests them, so a second opener is refused.
   def close_comment(sql, start)
-    depth = 0
-    i = start
-    while i < sql.length
-      pair = sql[i, 2]
-      if pair == '/*'
-        depth += 1
-        i += 2
-      elsif pair == '*/'
-        depth -= 1
-        i += 2
-        return i if depth.zero?
-      else
-        i += 1
-      end
-    end
-    raise Unreadable, 'unterminated comment'
+    stop = sql.index('*/', start + 2) || raise(Unreadable, 'unterminated comment')
+    raise Unreadable, 'nested comment' if sql[(start + 2)...stop].include?('/*')
+
+    stop + 2
   end
 
-  def quoted(sql, start, open, close, out)
-    i = start + open.length
+  # Blanks the inside of one quoted span, keeping the quotes. A doubled quote
+  # is an escaped quote, not the end.
+  def quoted(sql, start, quote, out)
+    i = start + 1
     while i < sql.length
-      if sql[i, close.length] == close
-        # A doubled quote is an escaped quote, not the end.
-        if close.length == 1 && sql[i + 1] == close
+      if sql[i] == quote
+        if sql[i + 1] == quote
           i += 2
           next
         end
-        stop = i + close.length
-        out << open << (' ' * (stop - start - open.length - close.length)) << close
-        return stop
+        out << quote << (' ' * (i - start - 1)) << quote
+        return i + 1
       end
       i += 1
     end
     raise Unreadable, 'unterminated quote'
   end
+
+  # A letter, digit or & glued to the quote: E'', U&'', B'', X'' and friends.
+  def prefixed_quote?(sql, index) = index.positive? && sql[index - 1].match?(/[A-Za-z0-9_&]/)
 
   # Parenthesized text collapsed to "()", so a WHERE inside a subquery does not
   # count as the statement's own.
