@@ -64,6 +64,7 @@ The workflow stops on its own when a phase fails verification; when it does,
 report and wait. If I ask to be checked in with, run one phase at a time
 instead by passing args {only: ["<phase title>"]}, and report after each.
 A check-in run skips the final Verify; add verify: true to the last one.
+Always pass pulseSession: your own session id in the args, so phase agents can emit pulse boundary events.
 
 Ground rules:
 

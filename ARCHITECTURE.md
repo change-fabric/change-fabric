@@ -53,6 +53,13 @@ through `cf_host_hook.rb`). It stamps activity into the session record and
 records engage triggers; it speaks only when `Pulse::ACTIVATED` is true and every
 `Pulse::READY_PARTS` entry is installed.
 
+Pulse reviews a long run for integrity as well as liveness. Phase agents in a
+cf:plan workflow emit `phase_boundary` events (`pulse_watch.rb emit`); a plan
+permits pulse's own acts with a `pulse-allow: nudge_worker, stop_runaway` line
+in plan.md, and `/cf:pulse off` opts a session out. Deterministic integrity
+checks (`pulse_integrity.rb`) run with no model and keep running after the
+budget is spent; only a P0 integrity finding interrupts the human.
+
 Every hook reads its event through `scripts/hook_event.rb` and fails silent.
 SessionStart hooks state rules up front (`doctrine_digest.rb` holds the
 session-global tenets as a Ruby constant, kept in sync with `PRINCIPLES.md` by

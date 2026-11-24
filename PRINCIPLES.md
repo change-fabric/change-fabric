@@ -211,3 +211,9 @@ Enforcer: scripts/docs_check.rb, test/docs_check_test.rb, scripts/incident_store
 A walkthrough has a hero the audience recognizes as themselves, and a before, turn and after spine anchored to scenes. `validate` warns; every paid call site refuses a missing or broken story block with exit 2 before its first paid call (`--estimate-only` only warns).
 
 Enforcer: scripts/walkthrough_story.rb, scripts/walkthrough_render.rb, scripts/elevenlabs.rb, test/walkthrough_story_test.rb, test/walkthrough_story_preflight_test.rb, scripts/walkthrough_roast.rb, test/walkthrough_roast_test.rb, scripts/key_project.rb, test/key_project_test.rb
+
+## A run is reviewed for integrity, not just liveness
+
+A long run is checked for a pass that proves nothing, not only for a worker that is alive. Deterministic checks flag a zero-row PASS, skipped counted as pass, a narrowed run called comprehensive, and a gate not bound to the head SHA, with no model call. A P0 integrity finding interrupts the human; everything else is queued. Pulse acts alone only inside the `pulse-allow:` line of the plan.
+
+Enforcer: test/pulse_integrity_test.rb, scripts/pulse_integrity.rb
