@@ -67,7 +67,13 @@ or a protected branch in every mode and fails closed. Autopilot
 one repo and machine; on a would-deny path the merge (carve-out), review,
 host-daemon and sensitive-term guards ask `ChangeAutopilot.waive!` and log a
 ledger row. It is not a merge mode. `scripts/approval_console/standing_receipt.rb`
-holds the checks it shares with pulse grants.
+holds the checks it shares with pulse grants. For prod, recording an
+autopilot that lists `prod` also publishes its receipt to
+`refs/cf-prod/autopilots/<id>` (`change_prod_autopilot_ref.rb`; `end` writes
+`autopilot-ends/<id>`), and `change_prod_gate.rb` accepts it in place of an
+approval ref after re-verifying the passkey receipt offline. The recovery
+precondition and the audit record live in `change_prod_recovery.rb`
+(statement classifier: `change_prod_sql.rb`).
 
 Every hook reads its event through `scripts/hook_event.rb` and fails silent.
 SessionStart hooks state rules up front (`doctrine_digest.rb` holds the

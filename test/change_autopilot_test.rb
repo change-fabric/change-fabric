@@ -47,6 +47,31 @@ class ChangeAutopilotTest < Minitest::Test
     ApprovalConsole::Canonical.body_sha256(proof["body"])
   end
 
+  def record_with(publisher, body = attrs)
+    proof = phone_proof(body)
+    ApprovalConsole::Recorder.new(authority: authority, store: @store, clock: -> { @now }, recorded_by: "t", autopilot_publisher: publisher)
+                             .record(proof, expected: ApprovalConsole::Remote.expected(body, mid))
+  end
+
+  def test_the_recorder_hands_a_recorded_autopilot_to_the_publisher_and_reports_its_note
+    seen = []
+    result = record_with(->(proof, expected) { seen << [ proof["kind"], expected["scope_list"] ]; "published somewhere" })
+    assert result.ok?, result.error
+    assert_equal [ [ "webauthn+totp", ALL ] ], seen
+    assert_match(/autopilot for .* \(published somewhere\)\z/, result.summary)
+  end
+
+  def test_a_refused_autopilot_is_never_published
+    seen = []
+    late = attrs(ends: T0 + 1000)
+    proof = phone_proof(late)
+    @now += 2000
+    result = ApprovalConsole::Recorder.new(authority: authority, store: @store, clock: -> { @now }, recorded_by: "t", autopilot_publisher: ->(*) { seen << true })
+                                      .record(proof, expected: ApprovalConsole::Remote.expected(late, mid))
+    refute result.ok?
+    assert_empty seen
+  end
+
   def autopilot(at: @now, pins: authoritative_pins, store: @store, autopilots: ChangeAutopilotStore.new)
     ChangeAutopilot.new(project: @project, store: store, now: at, pins: pins, autopilots: autopilots)
   end

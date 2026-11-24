@@ -13,6 +13,7 @@ require_relative 'approval_console/client'
 require_relative 'approval_console/local_store'
 require_relative 'approval_console/proof_check'
 require_relative 'approval_console/recorder'
+require_relative 'change_autopilot'
 require_relative 'change_policy'
 require_relative 'change_run_script_store'
 require_relative 'cf_project_identity'
@@ -35,6 +36,12 @@ require_relative 'cf_project_identity'
 #   5. the script runs with no tty and its output streams through; on success it
 #      moves to queue/done/.
 #
+# With no recorded approval for the script, an active autopilot for this repo
+# that lists `run_script` stands in (no receipt, so rules 1 to 4 do not apply).
+# The run is logged to the autopilot's ledger and to the run-ledger under the
+# autopilot id in place of a request id, and the script gets only the one AWS
+# profile it was given (--profile or AWS_PROFILE).
+#
 # Execution is local only. The hooks deny every other way to run a queued
 # script (prod_approval_guard.rb); this is the one permitted route. Break-glass:
 # approval_console/infra/redeploy.sh and the other manual scripts need no
@@ -45,7 +52,7 @@ class CfRunApproved
   Refused = Class.new(StandardError)
 
   def initialize(home: Dir.home, store: nil, client: nil, authority: nil, clock: -> { Time.now }, account: nil,
-                 profile: nil, env: ENV, out: $stdout, err: $stderr, runner: nil)
+                 profile: nil, env: ENV, out: $stdout, err: $stderr, runner: nil, autopilot: nil)
     @home = home
     @store = store
     @client = client
@@ -57,6 +64,7 @@ class CfRunApproved
     @out = out
     @err = err
     @runner = runner || method(:spawn_script)
+    @autopilot = autopilot || method(:autopilot_waiver)
   end
 
   # Exit status: 0 ran and succeeded, 1 refused, else the script's own status.
@@ -65,10 +73,9 @@ class CfRunApproved
     text = read_script(path)
     root = git_root(repo)
     sha = git_head(root)
-    proof = recorded_proof(root, sha, text)
-    verify(proof, root, sha, path, text)
-    consume(proof)
-    status = run_snapshot(path, text, root, sha, request_id(proof))
+    record = recorded(root, sha, text)
+    request = record ? approved_request(record['proof'], root, sha, path, text) : autopilot_request(root, sha, path, text)
+    status = run_snapshot(path, text, root, sha, request)
     finish(path, text, status)
   rescue Refused => e
     @err.puts "[cf_run_approved] refused: #{e.message}"
@@ -106,14 +113,39 @@ class CfRunApproved
     out.strip
   end
 
-  def recorded_proof(root, sha, text)
+  def recorded(root, sha, text)
     repo = CfProjectIdentity.for(root).id
-    record = ChangeRunScriptStore.new(root: File.join(@home, '.claude', 'cf', 'change', ChangeRunScriptStore::DIR))
-                                 .lookup(repo: repo, script_sha256: Digest::SHA256.hexdigest(text.b), sha: sha)
-    raise Refused, "no phone-approved run is recorded for this exact script at commit #{sha[0, 12]}; " \
-                   'request one (approval_console.rb request --type run-script --script <path> --title <t>) and record it' unless record
+    ChangeRunScriptStore.new(root: File.join(@home, '.claude', 'cf', 'change', ChangeRunScriptStore::DIR))
+                        .lookup(repo: repo, script_sha256: Digest::SHA256.hexdigest(text.b), sha: sha)
+  end
 
-    record['proof']
+  def approved_request(proof, root, sha, path, text)
+    verify(proof, root, sha, path, text)
+    consume(proof)
+    request_id(proof)
+  end
+
+  # No recorded approval: only an active autopilot that lists run_script runs it.
+  def autopilot_request(root, sha, path, text)
+    id = @autopilot.call(root, "run #{File.basename(path)} at #{sha[0, 12]}", text)
+    raise Refused, "no phone-approved run is recorded for this exact script at commit #{sha[0, 12]}; " \
+                   'request one (approval_console.rb request --type run-script --script <path> --title <t>) and record it' unless id
+
+    @verified_profile = @profile || @env['AWS_PROFILE']
+    ledger_row(id, text)
+    "autopilot:#{id}"
+  end
+
+  def autopilot_waiver(root, detail, text)
+    ChangeAutopilot.waive!('run_script', project: root, guard: 'cf_run_approved', detail: detail, command: text)
+  end
+
+  # The run-ledger names the autopilot where an approved run names a request id.
+  def ledger_row(autopilot_id, text)
+    FileUtils.mkdir_p(ledger_dir)
+    now = @clock.call
+    name = "autopilot-#{autopilot_id[0, 16]}-#{Digest::SHA256.hexdigest(text.b)[0, 16]}-#{now.to_i}"
+    File.write(File.join(ledger_dir, name), JSON.generate('autopilot' => autopilot_id, 'ran_at' => now.utc.iso8601))
   end
 
   def verify(proof, root, sha, path, text)

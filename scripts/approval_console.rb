@@ -19,6 +19,7 @@ require_relative 'change_approval_store'
 require_relative 'change_override_store'
 require_relative 'change_policy'
 require_relative 'change_pr_facts'
+require_relative 'change_prod_autopilot_ref'
 require_relative 'cf_project_identity'
 
 # The approval console CLI.
@@ -319,7 +320,9 @@ module ApprovalConsoleCli
                                                 sleeper: ctx.sleeper, clock: ctx.clock)
     return refuse(ctx.stderr, 'record', waited.error, code: wait_code(waited)) unless waited.ok?
 
-    result = ApprovalConsole::Recorder.new(authority: authority, store: ctx.store, clock: ctx.clock).record(waited.proof, expected: expected)
+    publisher = ctx.io[:autopilot_publisher] || ChangeProdAutopilotRef.publisher(root)
+    result = ApprovalConsole::Recorder.new(authority: authority, store: ctx.store, clock: ctx.clock, autopilot_publisher: publisher)
+                                      .record(waited.proof, expected: expected)
     return refuse(ctx.stderr, 'record', result.error) unless result.ok?
 
     ctx.stdout.puts "[approval_console] recorded #{result.summary}."

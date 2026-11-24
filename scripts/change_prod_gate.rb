@@ -33,7 +33,10 @@ module ChangeProdGate
   MAX_TTL_MINUTES = 60
   CLOCK_SKEW = 300
 
-  Result = Struct.new(:ok, :reason, :envelope, :level, keyword_init: true) do
+  AUTOPILOT_PROTOCOL = 'cf.prod.autopilot/1'
+  AUTOPILOT_KEYS = %w[autopilot_id proof protocol].freeze
+
+  Result = Struct.new(:ok, :reason, :envelope, :level, :autopilot_id, keyword_init: true) do
     def ok? = ok
   end
 
@@ -47,14 +50,17 @@ module ChangeProdGate
   def verify(store:, request_id:, config:, credentials:, allowed:, now: Time.now)
     envelope = load_request(store, request_id, config)
     refuse("environment #{envelope['environment']} has no job in this workflow") unless allowed.include?(envelope['environment'])
-    approval = load_approval(store, request_id, envelope)
     pinned = pinned(credentials)
+    # An approval ref for this request keeps today's rules, whatever else exists;
+    # only a request with no approval ref may fall back to an autopilot.
+    return verify_autopilot(store, envelope, pinned, config, now) unless store.exists?('approvals', request_id)
+
+    approval = load_approval(store, request_id, envelope)
     proof = approval['proof']
     body = parse_body(proof)
     refuse('approver machine is not pinned') unless pinned[:machine_ids].include?(body['machine_id'])
     result = check_proof(proof, envelope, body, pinned)
-    refuse(LOCAL_REFUSAL) unless %i[passkey receipt].include?(result.level)
-    refuse('the remote approval policy needs a console receipt: a passkey assertion alone does not prove the TOTP factor') if proof_policy(config) == 'remote' && result.level != :receipt
+    check_level(result, config)
     check_lifetime(body, config, now)
     Result.new(ok: true, envelope: envelope, level: result.level)
   rescue Refuse, ChangeProdEnvelope::Invalid, ChangeProdStore::Error => e
@@ -62,6 +68,88 @@ module ChangeProdGate
   end
 
   def refuse(reason) = raise(Refuse, reason)
+
+  def check_level(result, config)
+    refuse(LOCAL_REFUSAL) unless %i[passkey receipt].include?(result.level)
+    refuse('the remote approval policy needs a console receipt: a passkey assertion alone does not prove the TOTP factor') if proof_policy(config) == 'remote' && result.level != :receipt
+  end
+
+  # No per-action approval: an unexpired, unended, pinned autopilot for this
+  # repo that lists `prod` stands in for it. Any problem with every candidate is
+  # a refusal naming each reason. The runner then applies the recovery
+  # precondition (change_prod_recovery.rb) before any destructive statement.
+  def verify_autopilot(store, envelope, pinned, config, now)
+    ids = store.list('autopilots')
+    refuse('no approval ref and no autopilot ref') if ids.empty?
+    problems = []
+    ids.each do |id|
+      problem = autopilot_problem(store, id, pinned, config, now)
+      return Result.new(ok: true, envelope: envelope, level: :autopilot, autopilot_id: id) unless problem
+
+      problems << "#{id[0, 12]}: #{problem}"
+    end
+    refuse("no approval ref and no usable autopilot (#{problems.join('; ')})")
+  end
+
+  def autopilot_problem(store, id, pinned, config, now)
+    record = store.read('autopilots', id)
+    shape = autopilot_shape_problem(record, id)
+    return shape if shape
+
+    proof = record['proof']
+    body = parse_body(proof)
+    scope = autopilot_scope_problem(body, id, proof, pinned)
+    return scope if scope
+    return 'ended' if store.exists?('autopilot-ends', id)
+
+    check_level(check_autopilot_proof(proof, body, pinned), config)
+    autopilot_time_problem(body, now)
+  rescue Refuse, ChangeProdStore::Error => e
+    e.message
+  end
+
+  def autopilot_shape_problem(record, id)
+    return 'record is not an object' unless record.is_a?(Hash)
+    return "keys are not #{AUTOPILOT_KEYS.join(', ')}" unless record.keys.sort == AUTOPILOT_KEYS
+    return "protocol is not #{AUTOPILOT_PROTOCOL}" unless record['protocol'] == AUTOPILOT_PROTOCOL
+    return 'autopilot_id does not match its ref' unless record['autopilot_id'] == id
+    return 'proof is not an object' unless record['proof'].is_a?(Hash)
+
+    nil
+  end
+
+  def autopilot_scope_problem(body, id, proof, pinned)
+    return 'not an autopilot body' unless body['type'] == 'autopilot'
+    return 'id is not the body hash' unless ApprovalConsole::Canonical.body_sha256(proof['body']) == id
+    return 'for another repo' unless body['repo'] == pinned[:repo]
+    return 'machine is not pinned' unless pinned[:machine_ids].include?(body['machine_id'])
+    return 'prod is not in its scope' unless body['scope_list'].is_a?(Array) && body['scope_list'].include?('prod')
+
+    nil
+  end
+
+  # The signed body is bound as it is (the verifier re-derives every signed field
+  # from it); the repo is the pinned one, not the body's own claim.
+  def check_autopilot_proof(proof, body, pinned)
+    keys = %w[type machine_id repo sha profile] + ApprovalConsole::Canonical::PER_TYPE.fetch('autopilot')
+    expected = body.slice(*keys).merge('repo' => pinned[:repo])
+    verifier = ApprovalConsole::Verifier.new(rp_id: pinned[:rp_id], credentials: pinned[:credentials],
+                                             receipt_public_key: pinned[:receipt_public_key])
+    result = verifier.verify(proof, expected: expected)
+    refuse("autopilot proof refused: #{result.reason}") unless result.ok?
+
+    result
+  end
+
+  def autopilot_time_problem(body, now)
+    created = ApprovalConsole::Canonical.parse_time(body['created_at'])
+    ends = ApprovalConsole::Canonical.parse_time(body['autopilot_expires_at'])
+    return 'has no valid signed times' unless created && ends
+    return 'has expired' unless now < ends
+    return 'is dated in the future' if created - now > CLOCK_SKEW
+
+    nil
+  end
 
   def load_request(store, request_id, config)
     envelope = store.read('requests', request_id)
@@ -241,7 +329,9 @@ module ChangeProdGate
     _store, result = verified(opts, env, now)
     return fail_with(stderr, result) unless result.ok?
 
-    export(env, stdout, 'environment' => result.envelope['environment'], 'version' => result.envelope['version'])
+    pairs = { 'environment' => result.envelope['environment'], 'version' => result.envelope['version'] }
+    pairs['autopilot_id'] = result.autopilot_id if result.autopilot_id
+    export(env, stdout, pairs)
     stdout.puts "[cf-prod] verified #{result.envelope['digest'][0, 19]} (proof level #{result.level})"
     0
   end

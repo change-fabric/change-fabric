@@ -4,6 +4,7 @@
 require 'json'
 require 'open3'
 require 'optparse'
+require_relative 'change_autopilot'
 require_relative 'change_prod_classes'
 require_relative 'change_prod_envelope'
 require_relative 'change_prod_store'
@@ -23,12 +24,12 @@ require_relative 'change_prod_store'
 module ChangeProdRequest
   module_function
 
-  def run(argv, stdout: $stdout, stderr: $stderr, env: ENV, runner: method(:gh_dispatch))
+  def run(argv, stdout: $stdout, stderr: $stderr, env: ENV, runner: method(:gh_dispatch), waiver: method(:autopilot_waiver))
     verb = argv.shift
     opts = parse(argv, env)
     case verb
     when 'create' then create(opts, stdout)
-    when 'dispatch' then dispatch(opts, stdout, runner)
+    when 'dispatch' then dispatch(opts, stdout, runner, waiver)
     else usage(stderr)
     end
   rescue OptionParser::ParseError, ChangeProdEnvelope::Invalid, ChangeProdStore::Error => e
@@ -65,23 +66,45 @@ module ChangeProdRequest
     0
   end
 
-  def dispatch(opts, stdout, runner)
+  def dispatch(opts, stdout, runner, waiver)
     id = opts[:request_id].to_s
     config = ChangeProdEnvelope.load_config(opts[:config].to_s)
     store = ChangeProdStore.new(opts[:repo])
     store.fetch if opts[:push]
     envelope = ChangeProdEnvelope.validate(store.read('requests', id), config: config)
-    approval = store.read('approvals', id)
-    raise ChangeProdStore::Error, 'the approval does not name this request digest' unless approval.is_a?(Hash) && approval['digest'] == envelope['digest']
+    covered = store.exists?('approvals', id) ? check_approval(store, id, envelope) : autopilot_cover(waiver, opts, envelope)
 
     workflow = File.basename(config.dig('change_config', 'runners', operation_runner(config, envelope), 'workflow').to_s)
     raise ChangeProdStore::Error, 'the runner declares no workflow file' if workflow.empty?
     raise ChangeProdStore::Error, 'dispatch failed' unless runner.call(workflow, id, opts[:repo])
 
-    stdout.puts "[cf-prod] dispatched #{workflow} for #{id}"
+    stdout.puts "[cf-prod] dispatched #{workflow} for #{id}#{covered ? " under autopilot #{covered[0, 12]}" : ''}"
     0
   rescue ChangeProdStore::Missing => e
     raise ChangeProdStore::Error, "not approved yet: #{e.message}"
+  end
+
+  # nil: a per-action approval for exactly this digest, today's rules.
+  def check_approval(store, id, envelope)
+    approval = store.read('approvals', id)
+    raise ChangeProdStore::Error, 'the approval does not name this request digest' unless approval.is_a?(Hash) && approval['digest'] == envelope['digest']
+
+    nil
+  end
+
+  # With no approval ref, an active autopilot for this repo that lists `prod`
+  # stands in; the waiver writes a ledger row. The runner re-verifies the
+  # autopilot itself and applies the recovery precondition before any
+  # destructive statement. Returns the autopilot id or raises.
+  def autopilot_cover(waiver, opts, envelope)
+    id = waiver.call(opts[:repo], "dispatch #{envelope['op']} #{envelope['request_id']}")
+    raise ChangeProdStore::Error, 'not approved yet: no approval ref, and no active autopilot lists prod for this repo' unless id
+
+    id
+  end
+
+  def autopilot_waiver(repo, detail)
+    ChangeAutopilot.waive!('prod', project: repo, guard: 'change_prod_request', detail: detail)
   end
 
   def operation_runner(config, envelope) = config.dig('change_config', 'operations', envelope['op'], 'runner').to_s
