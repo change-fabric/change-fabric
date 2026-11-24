@@ -187,6 +187,22 @@ class CfRunApprovedTest < Minitest::Test
     refute_includes @out.string, "hello-from-script"
   end
 
+  def test_the_script_runs_as_the_verified_profile_with_ambient_credentials_removed
+    File.write(@script, "echo \"profile=$AWS_PROFILE key=${AWS_ACCESS_KEY_ID:-none} secret=${AWS_SECRET_ACCESS_KEY:-none} " \
+                        "token=${AWS_SESSION_TOKEN:-none} default=${AWS_DEFAULT_PROFILE:-none}\"\n")
+    approve(account: "123456789012", profile: "from-receipt")
+    ambient = { "AWS_ACCESS_KEY_ID" => "k", "AWS_SECRET_ACCESS_KEY" => "s", "AWS_SESSION_TOKEN" => "t", "AWS_DEFAULT_PROFILE" => "other",
+                "AWS_PROFILE" => "other" }
+    saved = ambient.keys.to_h { |name| [ name, ENV[name] ] }
+    ambient.each { |name, value| ENV[name] = value }
+    begin
+      assert_equal 0, go(account: "123456789012", profile: "from-flag")
+    ensure
+      saved.each { |name, value| ENV[name] = value }
+    end
+    assert_includes @out.string, "profile=from-flag key=none secret=none token=none default=none"
+  end
+
   def test_an_expired_receipt_is_refused
     approve
     assert_equal 1, go(at: @now + 901)

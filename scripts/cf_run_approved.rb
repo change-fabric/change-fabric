@@ -139,6 +139,7 @@ class CfRunApproved
     return if signed.nil?
 
     profile = @profile || signed_profile || @env['AWS_PROFILE']
+    @verified_profile = profile
     current = @account ? @account.call(profile) : current_account(profile)
     return if current == signed
 
@@ -208,12 +209,23 @@ class CfRunApproved
     when '.rb' then [ RbConfig.ruby, path ]
     else [ path ]
     end
-    env = { 'CF_APPROVED_COMMIT' => sha, 'CF_APPROVED_REQUEST' => request_id }
+    env = { 'CF_APPROVED_COMMIT' => sha, 'CF_APPROVED_REQUEST' => request_id }.merge(aws_identity_env)
     Open3.popen2e(env, *cmd, chdir: root) do |stdin, out, wait|
       stdin.close
       out.each_line { |line| @out.print(line) }
       wait.value.exitstatus || 1
     end
+  end
+
+  # The account check ran against the resolved profile, so the script gets that
+  # profile and no other credential source: ambient keys or another default
+  # profile could point it at a different account than the one verified.
+  AWS_AMBIENT = %w[AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_DEFAULT_PROFILE].freeze
+
+  def aws_identity_env
+    return {} unless @verified_profile
+
+    AWS_AMBIENT.to_h { |name| [ name, nil ] }.merge('AWS_PROFILE' => @verified_profile)
   end
 
   def finish(path, text, status)
