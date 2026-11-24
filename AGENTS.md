@@ -19,8 +19,11 @@ Read first:
    passed at head). Carve-out PRs and escalation triggers go to the maintainer.
    For `change_approve`, `change_override`, carve-outs and releases, only
    Patrick's phone approves: the agent starts the request (`--remote`, or
-   `approval_console.rb request`), posts the console link, and records the
-   receipt (`approval_console.rb record <id>` resumes). A release is the
+   `approval_console.rb request --no-wait`), posts the console link, then at
+   once starts `approval_console.rb record <id>` as a background task
+   (`run_in_background`), which blocks until the phone decides, records the
+   receipt, and wakes the session on exit (0 recorded, 3 denied, 4 expired).
+   Never ask the human to type "approved". A release is the
    same: request `--type release --tag <tag>`, wait for the phone, record it,
    then push the tag. Any queued manual script is the same: `request
    --type run-script`, record it, run it with `scripts/cf_run_approved.rb`.

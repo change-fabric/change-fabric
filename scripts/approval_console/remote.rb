@@ -17,7 +17,9 @@ module ApprovalConsole
     POLL = 3
     KIND = 'webauthn+totp'
 
-    Result = Struct.new(:proof, :error, keyword_init: true) do
+    # `outcome` is :denied or :expired when the wait ended without an approval
+    # for that reason (a timeout counts as expired), else nil.
+    Result = Struct.new(:proof, :error, :outcome, keyword_init: true) do
       def ok? = error.nil?
     end
 
@@ -90,9 +92,10 @@ module ApprovalConsole
         case data&.fetch('status', nil)
         when 'approved' then return verified(data['proof'], body, expected, store)
         when 'pending', nil then nil
-        else return Result.new(error: "the request is #{data['status']}")
+        when 'expired' then return Result.new(error: 'the request is expired', outcome: :expired)
+        else return Result.new(error: "the request is #{data['status']}", outcome: :denied)
         end
-        return Result.new(error: 'timed out waiting for the approval') if clock.call >= deadline
+        return Result.new(error: 'timed out waiting for the approval', outcome: :expired) if clock.call >= deadline
 
         sleeper.call(POLL)
       end

@@ -39,9 +39,10 @@ version.
 
    ```
    git tag -a skills/vX.Y.Z -m skills/vX.Y.Z
-   ruby scripts/approval_console.rb request --type release --tag skills/vX.Y.Z --sha "$(git rev-parse HEAD)"
-   # Patrick approves on the phone; then record it and push
-   ruby scripts/approval_console.rb record <request_id>
+   ruby scripts/approval_console.rb request --type release --tag skills/vX.Y.Z --sha "$(git rev-parse HEAD)" --no-wait
+   # post the link; start the next line at once as a background task so the
+   # session is woken when Patrick approves, then push
+   ruby scripts/approval_console.rb record <request_id>   # run as a background task; it blocks until the phone decides
    git push origin skills/vX.Y.Z
    ```
 
@@ -236,10 +237,13 @@ Any script Patrick would otherwise run by hand (a release, a console redeploy,
 a queued `~/.claude/cf/manual/queue/` script) is a phone-approved `run-script`:
 
 ```
-ruby scripts/approval_console.rb request --type run-script --script <queued-script> --title "<what it does>" [--account <12-digit id>]
-ruby scripts/approval_console.rb record <request_id>
-ruby scripts/cf_run_approved.rb <queued-script>
+ruby scripts/approval_console.rb request --type run-script --script <queued-script> --title "<what it does>" [--profile <aws-profile>] [--account <12-digit id>] --no-wait
+ruby scripts/approval_console.rb record <request_id>   # background task
+ruby scripts/cf_run_approved.rb [--profile <aws-profile>] <queued-script>
 ```
+
+`cf_run_approved.rb` asks AWS for the account with `--profile`, else the
+profile the request was made with, else `AWS_PROFILE`.
 
 The phone shows the whole script text, the commit and the AWS account. The
 runner refuses unless the script on disk hashes to the approved text, this

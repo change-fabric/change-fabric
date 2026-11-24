@@ -27,6 +27,10 @@ class DoctrineDigest
     'Author your own prose (commits, PRs, comments, docs) without AI-slop glyphs (no ' \
     'em-dash, bullet, ellipsis, or smart quotes) or agent attribution footers. Product ' \
     'copy inside a downstream repo follows the punctuation rules of that repo.',
+    'Every human gate you open (phone approval, CI wait, review request) is watched by a ' \
+    'background task that ends on approve, deny or timeout and wakes you; then record and ' \
+    'act. For approvals: request --no-wait, post the link, run record <id> with ' \
+    'run_in_background. Never block the turn or ask the human to type approved.',
     'PR titles <= 60 chars. PR descriptions <= 640 chars, unless a bona fide reason needs ' \
     'more (a code snippet, a test-plan checklist); the core description should still stay ' \
     'inside 640 chars even then.'

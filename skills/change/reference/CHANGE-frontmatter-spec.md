@@ -219,7 +219,8 @@ with every secret in the shell. Since 0.17.0 the base branch defines them:
   approves that exact definition for that exact commit. The agent starts it
   with `ruby ~/.claude/cf/bin/change_approve.rb <sha> --remote`, which needs no
   terminal, posts the console link, and records the passkey receipt once the
-  phone approves (`approval_console.rb record <request_id>` resumes). Without
+  phone approves (`approval_console.rb record <request_id>` resumes; run it as a background
+  task so the session is woken on the decision). Without
   `--remote` it refuses without a real terminal. It applies to every pull
   request, the maintainer's own included.
   Until then the run refuses to boot, says why, and records a failing gate.

@@ -86,6 +86,11 @@ module ApprovalConsoleCli
   # Asks the console to approve one high-risk action, bound to this repo, its
   # HEAD and the exact argv or PR URL. Prints the verified proof as one line of
   # JSON on stdout and exits 0 only when the console approved it.
+  # Exit codes of `request`, `wait` and `record`: 0 approved (and recorded),
+  # 2 refused or failed, 3 the phone denied it, 4 it expired or timed out.
+  EXIT_DENIED = 3
+  EXIT_EXPIRED = 4
+
   def request(args, ctx)
     opts = parse_request(args, ctx.stderr) or return 1
     opts[:now] = ctx.clock.call
@@ -97,7 +102,9 @@ module ApprovalConsoleCli
     body, url = ApprovalConsole::Remote.submit(attrs, store: ctx.store, client: client, now: opts[:now], ttl: opts[:ttl])
     ctx.stderr.puts "[approval_console] approve on your phone: #{url}"
     if opts[:no_wait]
-      ctx.stdout.puts JSON.generate('request_id' => ApprovalConsole::Canonical.parse(body)['request_id'], 'url' => url)
+      id = ApprovalConsole::Canonical.parse(body)['request_id']
+      ctx.stdout.puts JSON.generate('request_id' => id, 'url' => url)
+      ctx.stderr.puts "[approval_console] to be woken on the decision, run `approval_console.rb record #{id}` as a background task."
       return 0
     end
     finish(ApprovalConsole::Remote.wait(body, expected: ApprovalConsole::Remote.expected(attrs, ctx.store.machine_id),
@@ -287,7 +294,7 @@ module ApprovalConsoleCli
     expected = ApprovalConsole::Remote.expected_from_body(body)
     waited = ApprovalConsole::Remote.wait(body, expected: expected, store: ctx.store, client: ctx.client,
                                                 sleeper: ctx.sleeper, clock: ctx.clock)
-    return refuse(ctx.stderr, 'record', waited.error) unless waited.ok?
+    return refuse(ctx.stderr, 'record', waited.error, code: wait_code(waited)) unless waited.ok?
 
     result = ApprovalConsole::Recorder.new(authority: authority, store: ctx.store, clock: ctx.clock).record(waited.proof, expected: expected)
     return refuse(ctx.stderr, 'record', result.error) unless result.ok?
@@ -301,7 +308,7 @@ module ApprovalConsoleCli
   end
 
   def finish(result, ctx)
-    return refuse(ctx.stderr, 'the approval', result.error) unless result.ok?
+    return refuse(ctx.stderr, 'the approval', result.error, code: wait_code(result)) unless result.ok?
 
     ctx.stdout.puts JSON.generate(result.proof)
     0
@@ -453,9 +460,13 @@ module ApprovalConsoleCli
     AGENT_ENV.any? { |name| !env[name].to_s.empty? } || parents.call.any? { |name| name.match?(AGENT_PROCESS) }
   end
 
-  def refuse(stderr, verb, reason)
+  def refuse(stderr, verb, reason, code: 2)
     stderr.puts "[approval_console] refusing #{verb}: #{reason}."
-    2
+    code
+  end
+
+  def wait_code(result)
+    { denied: EXIT_DENIED, expired: EXIT_EXPIRED }.fetch(result.outcome, 2)
   end
 
   def open_tty

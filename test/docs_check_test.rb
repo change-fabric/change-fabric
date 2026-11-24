@@ -72,7 +72,8 @@ class DocsCheckTest < Minitest::Test
   TENET_PRINCIPLES = {
     "Containerize project services" => "## Containers, not host daemons",
     "AI-slop glyphs" => "## No slop glyphs in authored prose",
-    "PR titles <= 60 chars" => "## Short PRs"
+    "PR titles <= 60 chars" => "## Short PRs",
+    "Every human gate you open" => "## Human gates are watched by a background task"
   }.freeze
 
   def test_every_doctrine_tenet_has_a_principle
