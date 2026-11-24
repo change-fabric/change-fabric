@@ -10,7 +10,7 @@ require_relative 'plan_check'
 # runs and reports, so one invocation names everything wrong at once.
 module DocsCheck
   LIVING = %w[ARCHITECTURE.md PRINCIPLES.md AGENTS.md].freeze
-  CAPS = { 'ARCHITECTURE.md' => 250, 'PRINCIPLES.md' => 220, 'AGENTS.md' => 80 }.freeze
+  CAPS = { 'ARCHITECTURE.md' => 250, 'PRINCIPLES.md' => 240, 'AGENTS.md' => 80 }.freeze
   SHIM = "@AGENTS.md\n"
 
   # A new markdown file has to be added here on purpose. Skill and walkthrough

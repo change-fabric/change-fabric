@@ -112,7 +112,7 @@ class ChangeMergeGuard
 
     "this PR is a carve-out (#{hits.first(3).join(', ')}#{hits.size > 3 ? ", and #{hits.size - 3} more" : ''}): #{problem} " \
       "Request Patrick's phone approval of the exact head with approval_console.rb request " \
-      "--type carve-out --pr-url #{url || '<pr-url>'} --summary <what and why>, record it with approval_console.rb record <id>, then merge with " \
+      "--type carve-out --pr-url #{url || '<pr-url>'} --summary <what and why>, add --no-wait, post the link, then start approval_console.rb record <id> as a background task (run_in_background) so the session is woken on the decision (never ask the human to type approved), then merge with " \
       "--match-head-commit #{sha}. #{escape_note}"
   rescue StandardError => e
     "this repo lists carve-out paths and the PR could not be classified (#{e.message}); the guard fails closed. #{escape_note}"

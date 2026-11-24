@@ -48,8 +48,8 @@ class CfRunApprovedTest < Minitest::Test
     out
   end
 
-  def attrs(path: @script, account: nil, sha: @sha, text: File.read(@script))
-    { "type" => "run-script", "repo" => REPO, "sha" => sha, "profile" => nil, "title" => "say hello", "account" => account,
+  def attrs(path: @script, account: nil, sha: @sha, text: File.read(@script), profile: nil)
+    { "type" => "run-script", "repo" => REPO, "sha" => sha, "profile" => profile, "title" => "say hello", "account" => account,
       "script_sha256" => Digest::SHA256.hexdigest(text.b), "script_path" => path, "script_text" => text }
   end
 
@@ -62,11 +62,14 @@ class CfRunApprovedTest < Minitest::Test
     proof
   end
 
-  def runner(at: @now, account: nil, run: nil)
+  def runner(at: @now, account: nil, run: nil, profile: nil, env: {})
     @out = StringIO.new
     @err = StringIO.new
     opts = { home: @home, store: @store, client: client, authority: authority, clock: -> { at }, out: @out, err: @err }
-    opts[:account] = -> { account } if account
+    @profiles = []
+    opts[:account] = ->(used) { @profiles << used; account } if account
+    opts[:profile] = profile
+    opts[:env] = env
     opts[:runner] = run if run
     CfRunApproved.new(**opts)
   end
@@ -155,6 +158,33 @@ class CfRunApprovedTest < Minitest::Test
   def test_the_right_account_runs
     approve(account: "123456789012")
     assert_equal 0, go(account: "123456789012")
+  end
+
+  def test_the_account_is_asked_of_the_flag_profile_first
+    approve(account: "123456789012", profile: "from-receipt")
+    assert_equal 0, go(account: "123456789012", profile: "from-flag", env: { "AWS_PROFILE" => "from-env" })
+    assert_equal [ "from-flag" ], @profiles
+  end
+
+  def test_the_account_falls_back_to_the_receipt_profile_then_aws_profile
+    approve(account: "123456789012", profile: "from-receipt")
+    assert_equal 0, go(account: "123456789012", env: { "AWS_PROFILE" => "from-env" })
+    assert_equal [ "from-receipt" ], @profiles
+  end
+
+  def test_the_account_falls_back_to_aws_profile_without_a_receipt_profile
+    approve(account: "123456789012")
+    assert_equal 0, go(account: "123456789012", env: { "AWS_PROFILE" => "from-env" })
+    assert_equal [ "from-env" ], @profiles
+  end
+
+  def test_an_unresolvable_identity_names_the_profile_flag
+    approve(account: "123456789012")
+    runner_obj = runner
+    runner_obj.define_singleton_method(:current_account) { |_profile| nil }
+    assert_equal 1, runner_obj.run(@script, repo: @repo)
+    assert_match(/no AWS identity could be resolved \(profile: none\); pass --profile NAME/, @err.string)
+    refute_includes @out.string, "hello-from-script"
   end
 
   def test_an_expired_receipt_is_refused

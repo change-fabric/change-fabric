@@ -112,6 +112,18 @@ also when used. Only step approvals never expire (bound to sha and step digest).
 
 Enforcer: scripts/change_policy.rb, scripts/approval_console/local_store.rb, scripts/approval_console/proof_check.rb, scripts/change_trust.rb
 
+## Human gates are watched by a background task
+
+Every human gate an agent opens (phone approval, CI wait, review request) is
+watched by a background task that ends on approve, deny or expire and wakes the
+agent, which then records and acts. No fire-and-forget, no blocking the turn,
+no asking the human to type "approved". For approvals the watcher is the
+agent's own `approval_console.rb record <id>` run with `run_in_background`: it
+records on approval and exits 3 (denied) or 4 (expired). `request` never
+spawns a detached watcher; that would be a host daemon.
+
+Enforcer: scripts/approval_watch_remind.rb, scripts/doctrine_digest.rb, scripts/approval_console.rb, test/approval_watch_remind_test.rb, test/approval_console_cli_test.rb
+
 ## Local guards are friction against an admin token
 
 An admin token can call the merge API directly; off-machine enforcement is a

@@ -362,7 +362,9 @@ browserless responsive lane has no standalone skill; it runs as part of
   `ruby ~/.claude/cf/bin/change_approve.rb <sha> --remote`, post the console
   link it prints, and wait: only the phone approves, and the receipt is
   recorded when it does. If the waiting process dies, resume with
-  `ruby ~/.claude/cf/bin/approval_console.rb record <request_id>`. Without
+  `ruby ~/.claude/cf/bin/approval_console.rb record <request_id>` as a
+  background task (`run_in_background`) so the session is woken on the
+  decision; never ask the human to type "approved". Without
   `--remote` it refuses without a real TTY; never drive that path. Then
   re-run. The rule covers the maintainer's own pull requests too.
 - A command lane finding `refusing to run command:<name>`: the branch changed

@@ -138,6 +138,7 @@ class ApprovalConsoleRemoteTest < Minitest::Test
     result = ApprovalConsole::Remote.approve(step_attrs, store: @store, client: client, out: StringIO.new, sleeper: sleeper, clock: -> { @now })
     refute_predicate result, :ok?
     assert_match(/expired|timed out/, result.error)
+    assert_equal :expired, result.outcome
   end
 
   def test_a_proof_for_another_context_is_refused_by_the_verifier

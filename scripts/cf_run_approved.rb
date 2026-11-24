@@ -26,7 +26,8 @@ require_relative 'cf_project_identity'
 #      the default branch's CHANGE.md and signs the same hash, path, text,
 #      account and commit;
 #   2. the receipt is under 15 minutes old (it is also single-use);
-#   3. when the receipt names an AWS account, the caller's current account is it;
+#   3. when the receipt names an AWS account, the current account is it, asked
+#      of --profile, else the receipt's own profile, else AWS_PROFILE;
 #   4. the receipt is marked consumed in a local ledger and then on the console,
 #      before anything runs, so a reuse is refused whether or not the script
 #      succeeds. A console that cannot be reached refuses the run (the ledger
@@ -44,13 +45,15 @@ class CfRunApproved
   Refused = Class.new(StandardError)
 
   def initialize(home: Dir.home, store: nil, client: nil, authority: nil, clock: -> { Time.now }, account: nil,
-                 out: $stdout, err: $stderr, runner: nil)
+                 profile: nil, env: ENV, out: $stdout, err: $stderr, runner: nil)
     @home = home
     @store = store
     @client = client
     @authority = authority
     @clock = clock
     @account = account
+    @profile = profile
+    @env = env
     @out = out
     @err = err
     @runner = runner || method(:spawn_script)
@@ -125,23 +128,31 @@ class CfRunApproved
     raise Refused, 'the receipt is 15 minutes old or older (or dated in the future); request a new approval' unless
       ApprovalConsole::ProofCheck.fresh?(proof, at: @clock.call, max_age: MAX_AGE)
 
-    verify_account(signed['account'])
+    verify_account(signed['account'], signed['profile'])
   rescue ApprovalConsole::Canonical::Invalid => e
     raise Refused, "the recorded receipt is malformed: #{e.message}"
   rescue ChangePolicy::Unreadable => e
     raise Refused, "cannot read the authoritative approval policy (#{e.message})"
   end
 
-  def verify_account(signed)
+  def verify_account(signed, signed_profile)
     return if signed.nil?
 
-    current = @account ? @account.call : current_account
-    raise Refused, "the receipt is for AWS account #{signed} but the current account is #{current.inspect}" unless current == signed
+    profile = @profile || signed_profile || @env['AWS_PROFILE']
+    current = @account ? @account.call(profile) : current_account(profile)
+    return if current == signed
+
+    raise Refused, "the receipt is for AWS account #{signed} but the current account is #{current.inspect}" if current
+    raise Refused, "the receipt is for AWS account #{signed} but no AWS identity could be resolved (profile: #{profile || 'none'}); " \
+                   'pass --profile NAME (or request with --profile), or set AWS_PROFILE, and log in to it'
   end
 
-  # Asked of the caller's own AWS profile, the same one the script will use.
-  def current_account
-    out, status = Open3.capture2e('aws', 'sts', 'get-caller-identity', '--query', 'Account', '--output', 'text')
+  # Asked of the AWS profile the script will use: --profile, else the profile
+  # the request was made with (signed in the receipt), else AWS_PROFILE.
+  def current_account(profile)
+    cmd = [ 'aws', 'sts', 'get-caller-identity', '--query', 'Account', '--output', 'text' ]
+    cmd.push('--profile', profile) if profile
+    out, status = Open3.capture2e(*cmd)
     status.success? ? out.strip : nil
   rescue SystemCallError
     nil
@@ -230,8 +241,12 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   repo = Dir.pwd
-  OptionParser.new { |o| o.on('--repo PATH') { |value| repo = File.expand_path(value) } }.parse!
+  profile = nil
+  OptionParser.new do |o|
+    o.on('--repo PATH') { |value| repo = File.expand_path(value) }
+    o.on('--profile NAME') { |value| profile = value }
+  end.parse!
   script = ARGV.first
-  abort 'usage: cf_run_approved.rb [--repo PATH] <queued-script>' unless script
-  exit CfRunApproved.new.run(script, repo: repo)
+  abort 'usage: cf_run_approved.rb [--repo PATH] [--profile AWS_PROFILE] <queued-script>' unless script
+  exit CfRunApproved.new(profile: profile).run(script, repo: repo)
 end

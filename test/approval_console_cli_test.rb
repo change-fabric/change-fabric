@@ -450,6 +450,31 @@ class ApprovalConsoleRecordVerbTest < Minitest::Test
     assert_match(/not a recordable approval type/, err)
   end
 
+  def test_record_exits_4_when_the_request_expires_unanswered
+    rid = submit(override_attrs)
+    out = StringIO.new
+    err = StringIO.new
+    io = remote_io.merge(client: client, authority: authority, sleeper: ->(_s) { @now += 1000 })
+    status = ApprovalConsoleCli.run([ "record", rid ], stdin: NoTty.new(false), stdout: out, stderr: err, env: { "CLAUDECODE" => "1" },
+                                                      store: @store, tty_open: -> { }, parents: -> { [ "claude" ] }, io: io)
+    assert_equal 4, status
+    assert_match(/expired|timed out/, err.string)
+    assert_nil ChangeOverrideStore.new(SHA).read
+  end
+
+  def test_record_exits_3_when_the_phone_denies_the_request
+    rid = submit(override_attrs)
+    denied = Object.new
+    denied.define_singleton_method(:proof) { |_id| { "status" => "denied" } }
+    out = StringIO.new
+    err = StringIO.new
+    status = ApprovalConsoleCli.run([ "record", rid ], stdin: NoTty.new(false), stdout: out, stderr: err, env: { "CLAUDECODE" => "1" },
+                                                      store: @store, tty_open: -> { }, parents: -> { [ "claude" ] },
+                                                      io: remote_io.merge(client: denied, authority: authority))
+    assert_equal 3, status
+    assert_match(/the request is denied/, err.string)
+  end
+
   def test_record_refuses_when_the_authoritative_pins_differ
     status, _out, err = cli([ "record", submit(override_attrs) ], auth: authority(pins: authoritative_pins.merge("rp_id" => "x.example.com")))
     assert_equal 2, status
@@ -478,6 +503,7 @@ class ApprovalConsoleRecordVerbTest < Minitest::Test
       status, out, err = cli(argv)
       assert_equal 0, status, err
       rid = JSON.parse(out)["request_id"]
+      assert_includes err, "run `approval_console.rb record #{rid}` as a background task"
       body = ApprovalConsole::Canonical.parse(@store.saved_request(rid))
       assert_equal [ "run-script", head, "echo hi\n", Digest::SHA256.hexdigest("echo hi\n"), script, nil ],
                    body.values_at("type", "sha", "script_text", "script_sha256", "script_path", "account")

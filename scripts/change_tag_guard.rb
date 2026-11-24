@@ -221,7 +221,8 @@ class ChangeTagGuard
     return nil unless problem
 
     "publishing tag '#{tag}' needs a phone release approval: #{problem} Request it with approval_console.rb " \
-      "request --type release --tag #{tag} --sha #{sha}, record it with approval_console.rb record <id>, then push. " \
+      "request --type release --tag #{tag} --sha #{sha} --no-wait, post the link, start approval_console.rb record <id> as a background task " \
+      "(run_in_background) so the session is woken on the decision (never ask the human to type approved), then push. " \
       "#{ChangeGateCheck.escape_note}"
   rescue StandardError => e
     "publishing tag '#{tag}' needs a phone release approval and it could not be checked (#{e.message}); the guard fails closed. " \
