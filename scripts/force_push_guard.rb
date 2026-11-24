@@ -58,7 +58,7 @@ class ForcePushGuard
   end
 
   def unparseable?
-    Shellwords.split(command)
+    GuardedCommand.lex(command)
     false
   rescue ArgumentError
     true
@@ -70,6 +70,7 @@ class ForcePushGuard
     GuardedCommand.push_args(command).each do |args|
       force = args.any? { |arg| GuardedCommand.force_arg?(arg) }
       return 'git push --mirror rewrites every branch, trunk included' if args.include?('--mirror')
+      return 'a forced push of every branch (--all or --branches)' if force && (args & %w[--all --branches]).any?
 
       deleting = args.include?('--delete') || args.include?('-d')
       dests = destinations(args)
@@ -77,9 +78,12 @@ class ForcePushGuard
         hit = positionals(args).drop(1).find { |name| protected?(strip_ref(name)) }
         return "deleting the protected branch '#{strip_ref(hit)}'" if hit
       end
-      colon = dests.find { |dest, refspec| refspec.start_with?(':') && protected?(dest) }
+      colon = dests.find { |dest, refspec| refspec.start_with?(':') && (protected?(dest) || dest.include?('*')) }
       return "deleting the protected branch '#{colon.first}'" if colon
       next unless force
+
+      wild = dests.find { |dest, _| dest.include?('*') }
+      return "a forced push of the wildcard refspec '#{wild.last}'" if wild
 
       targets = dests.empty? ? [ current_branch ] : dests.map(&:first)
       hit = targets.find { |dest| dest.nil? || protected?(dest) }

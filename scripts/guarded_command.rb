@@ -12,14 +12,63 @@ require_relative 'merge_mode_slug'
 class GuardedCommand
   TRUNK = %w[main master].freeze
 
-  # Tokenizes via Shellwords, so a quoted string (a commit message, a PR body)
+  # Tokenizes like a shell: a quoted string (a commit message, a PR body)
   # collapses into one token instead of leaking its words into the surrounding
   # command - "gh pr edit --body 'run gh pr merge later'" never looks like an
-  # invocation of `gh pr merge`.
+  # invocation of `gh pr merge` - and the operators ; & | && || and newline
+  # are their own tokens even when glued to a word (`main;git status`). A
+  # redirect such as 2>&1 stays one word. Unbalanced quotes fall back to a
+  # whitespace split.
   def self.tokens(command)
-    Shellwords.split(command.to_s)
+    lex(command.to_s)
   rescue ArgumentError
     command.to_s.split
+  end
+
+  OPERATOR_CHARS = [ ';', '&', '|', "\n" ].freeze
+
+  def self.lex(text)
+    out = []
+    word = nil
+    quote = nil
+    i = 0
+    while i < text.length
+      char = text[i]
+      if quote == "'"
+        char == "'" ? quote = nil : word << char
+      elsif quote == '"'
+        if char == '\\' && i + 1 < text.length && '"\\$`'.include?(text[i + 1])
+          i += 1
+          word << text[i]
+        elsif char == '"'
+          quote = nil
+        else
+          word << char
+        end
+      elsif char == '\\' && i + 1 < text.length
+        i += 1
+        (word ||= +'') << text[i] unless text[i] == "\n"
+      elsif char == "'" || char == '"'
+        quote = char
+        word ||= +''
+      elsif char.match?(/\s/) && char != "\n"
+        out << word if word
+        word = nil
+      elsif OPERATOR_CHARS.include?(char) && !(char == '&' && word&.end_with?('>', '<'))
+        out << word if word
+        word = nil
+        op = char == "\n" ? ';' : char
+        op += text[i += 1] if %w[& |].include?(char) && text[i + 1] == char
+        out << op
+      else
+        (word ||= +'') << char
+      end
+      i += 1
+    end
+    raise ArgumentError, 'unbalanced quote' if quote
+
+    out << word if word
+    out
   end
 
   # True when `words` appear as an exact contiguous run of tokens.

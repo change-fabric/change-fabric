@@ -31,7 +31,20 @@ class ForcePushGuardTest < Minitest::Test
     "cd x && git push -f origin main",
     "gh api --method DELETE repos/o/r/branches/main/protection",
     "gh api -X PATCH repos/o/r/git/refs/heads/main -F force=true -f sha=abc",
-    "git filter-repo --path secret --invert-paths && git push origin main"
+    "git filter-repo --path secret --invert-paths && git push origin main",
+    "git push --force --all origin",
+    "git push -f --branches origin",
+    "git push --force origin 'refs/heads/*:refs/heads/*'",
+    "git push -f origin +refs/heads/*",
+    "git push origin ':refs/heads/*'",
+    "git push -f origin main; git status",
+    "git push -f origin main;git status",
+    "git push -f origin main&&echo ok",
+    "git push -f origin main||true",
+    "git push -f origin main|cat",
+    "git push -f origin main &",
+    "git status\ngit push -f origin main",
+    "true;git push -f origin main"
   ].freeze
 
   def test_trunk_rewrites_and_deletes_are_denied_with_every_escape_set
@@ -85,5 +98,25 @@ class ForcePushGuardTest < Minitest::Test
     assert GuardedCommand.delete_push?("git push origin :x")
     assert GuardedCommand.delete_push?("git push --delete origin x")
     refute GuardedCommand.delete_push?("git push origin x")
+  end
+
+  def test_shell_aware_tokens_split_glued_operators_and_keep_quotes
+    assert_equal [ "git", "push", "origin", "main", ";", "git", "status" ], GuardedCommand.tokens("git push origin main;git status")
+    assert_equal [ "a", "&&", "b", "||", "c", "|", "d", ";", "e" ], GuardedCommand.tokens("a&&b||c|d\ne")
+    assert_equal [ "git", "commit", "-m", "x; git push -f origin main" ], GuardedCommand.tokens("git commit -m 'x; git push -f origin main'")
+    assert_equal [ "echo", "a \"b\" c" ], GuardedCommand.tokens('echo "a \\"b\\" c"')
+    assert_equal [ "cmd", "2>&1", "|", "tee", "log" ], GuardedCommand.tokens("cmd 2>&1 | tee log")
+    assert_equal [ "a b" ], GuardedCommand.tokens("a\\ b")
+  end
+
+  def test_other_guards_still_parse_their_cases
+    assert GuardedCommand.push?("cd x && git push -u origin feat/x")
+    assert GuardedCommand.merge?("gh pr merge 1 --squash;echo done")
+    refute GuardedCommand.merge?("gh pr edit --body 'run gh pr merge later'")
+    assert GuardedCommand.pr_create?("gh pr create --title t --body 'a; b'")
+    assert GuardedCommand.tag_push?("git push origin skills/v1.2.3")
+    refute GuardedCommand.tag_push?("git push")
+    assert_equal "a direct push to the trunk", GuardedCommand.new("git push origin main;echo", "merge-ready").violation
+    assert_nil GuardedCommand.new("git push origin feat/x", "merge-ready").violation
   end
 end
