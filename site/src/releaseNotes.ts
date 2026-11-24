@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.33.0": {
+    version: "0.33.0",
+    date: "2026-11-24",
+    headline: "Row threshold: an operation can set how many rows a statement may touch before it needs a recovery artifact.",
+    highlights: [
+      {
+        title: "Per-operation row threshold",
+        body:
+          "An operation may set row_threshold, a positive integer defaulting to 1000. Under an autopilot, a statement estimated to touch more rows runs only after a verified snapshot or checksummed dump.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. Nothing changes until an operation sets row_threshold.",
+  },
   "0.32.0": {
     version: "0.32.0",
     date: "2026-11-22",
