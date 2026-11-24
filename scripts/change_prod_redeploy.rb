@@ -210,7 +210,7 @@ module ChangeProdRedeploy
   end
 
   def gh_api(repo, path)
-    out, status = Open3.capture2e('gh', 'api', path, chdir: repo)
+    out, _err, status = Open3.capture3('gh', 'api', path, chdir: repo)
     raise Refused, "cannot read #{path.split('?').first}" unless status.success?
 
     JSON.parse(out)
