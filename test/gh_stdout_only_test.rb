@@ -8,6 +8,7 @@ require_relative "../scripts/change_pr_facts"
 require_relative "../scripts/merge_confirmation"
 require_relative "../scripts/stack_watch"
 require_relative "../scripts/change_policy"
+require_relative "../scripts/change_prod_redeploy"
 
 # gh 2.105 prints a "hint: ... gh event listen ..." block on stderr. A caller
 # that merges stderr into stdout cannot JSON.parse the result. A PATH shim
@@ -52,5 +53,10 @@ class GhStdoutOnlyTest < Minitest::Test
   def test_policy_default_branch_ignores_hint
     answer("main\n")
     assert_equal "main", ChangePolicy.gh_default_branch(@dir, "acme/widgets")
+  end
+
+  def test_prod_redeploy_gh_api_ignores_stderr_hint
+    answer(JSON.generate("state" => "success"))
+    assert_equal({ "state" => "success" }, ChangeProdRedeploy.gh_api(@dir, "repos/o/r/commits/x/status"))
   end
 end
