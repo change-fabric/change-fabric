@@ -164,8 +164,8 @@ class ChangeScreenshotUpload
   end
 
   def capture(*argv)
-    out, status = Open3.capture2e(*argv)
-    [ out.to_s.strip, status.success? ]
+    out, err, status = Open3.capture3(*argv)
+    [ (status.success? || err.to_s.strip.empty? ? out : err).to_s.strip, status.success? ]
   rescue StandardError => e
     [ e.message, false ]
   end

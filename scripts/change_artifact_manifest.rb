@@ -169,7 +169,7 @@ class ChangeArtifactManifest
   def pull_request
     return @pull_request if defined?(@pull_request)
 
-    out, status = Open3.capture2e('gh', 'pr', 'view', '--json', 'number,url,title')
+    out, _err, status = Open3.capture3('gh', 'pr', 'view', '--json', 'number,url,title')
     @pull_request = status.success? ? JSON.parse(out) : nil
   rescue StandardError
     @pull_request = nil

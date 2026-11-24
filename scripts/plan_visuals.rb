@@ -43,8 +43,8 @@ module PlanVisuals
   # Shells out to gh. Tests pass any object answering #run(*argv, stdin:).
   class Gh
     def run(*argv, stdin: nil)
-      out, status = Open3.capture2e(*argv, stdin_data: stdin.to_s)
-      [ out, status.success? ]
+      out, err, status = Open3.capture3(*argv, stdin_data: stdin.to_s)
+      [ status.success? || err.strip.empty? ? out : err, status.success? ]
     rescue StandardError => e
       [ e.message, false ]
     end

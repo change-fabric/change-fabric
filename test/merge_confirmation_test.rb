@@ -10,16 +10,16 @@ class MergeConfirmationTest < Minitest::Test
     JSON.generate("state" => state, "headRefName" => head_ref, "number" => 1)
   end
 
-  # Swaps Open3.capture2e for one that raises ENOENT, matching a missing gh
+  # Swaps Open3.capture3 for one that raises ENOENT, matching a missing gh
   # binary, without minitest/mock (absent from this bundle).
   def with_missing_gh
-    original = Open3.method(:capture2e)
+    original = Open3.method(:capture3)
     verbose = $VERBOSE
     $VERBOSE = nil
-    Open3.singleton_class.send(:define_method, :capture2e) { |*| raise Errno::ENOENT, "gh" }
+    Open3.singleton_class.send(:define_method, :capture3) { |*| raise Errno::ENOENT, "gh" }
     yield
   ensure
-    Open3.singleton_class.send(:define_method, :capture2e, &original)
+    Open3.singleton_class.send(:define_method, :capture3, &original)
     $VERBOSE = verbose
   end
 

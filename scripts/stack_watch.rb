@@ -136,8 +136,8 @@ class StackWatch
   end
 
   def gh_json(*args)
-    out, status = Open3.capture2e('gh', *args)
-    raise SetupError, "gh #{args.first(2).join(' ')} failed: #{out.strip}" unless status.success?
+    out, err, status = Open3.capture3('gh', *args)
+    raise SetupError, "gh #{args.first(2).join(' ')} failed: #{err.strip}" unless status.success?
 
     JSON.parse(out)
   rescue Errno::ENOENT

@@ -61,8 +61,8 @@ module ChangePrFacts
   def require_pr_url(url) = parse_url(url) || raise(Unreadable, "#{url} is not a pull request URL")
 
   def gh(*args)
-    out, status = Open3.capture2e('gh', *args)
-    raise Unreadable, "gh #{args.first(2).join(' ')} failed: #{out.strip[0, 200]}" unless status.success?
+    out, err, status = Open3.capture3('gh', *args)
+    raise Unreadable, "gh #{args.first(2).join(' ')} failed: #{err.strip[0, 200]}" unless status.success?
 
     out
   rescue SystemCallError => e
