@@ -66,9 +66,10 @@ module ChangeProdSql
   # "..." identifiers, -- comments and flat /* */ comments. Anything that needs
   # more care to tokenize is refused as unreadable, which makes the whole batch
   # destructive: E'' escape strings, U& strings and identifiers, B'' and X''
-  # literals, any `$` that is not a positional parameter, any backslash, and
+  # literals, any character outside printable ASCII, tab and LF, any `$` that is not a positional parameter, any backslash, and
   # nested comments. Dollar-quote grammar is deliberately not parsed.
   def blank(sql)
+    raise Unreadable, 'character outside printable ASCII, tab and newline' unless plain_ascii?(sql)
     raise Unreadable, 'backslash' if sql.include?('\\')
 
     out = +''
@@ -126,6 +127,12 @@ module ChangeProdSql
     end
     raise Unreadable, 'unterminated quote'
   end
+
+  # Printable ASCII, space, tab and LF only. CR, form feed, vertical tab, NUL,
+  # other control characters and every non-ASCII byte are refused, so a line
+  # comment always ends at an LF or the end of the input and no look-alike
+  # character can end or hide anything.
+  def plain_ascii?(sql) = sql.bytes.all? { |byte| byte.between?(0x20, 0x7e) || byte == 0x09 || byte == 0x0a }
 
   # `$1`, `$23`: digits only, with no identifier character or `$` on either side.
   # So `$$`, `$tag$`, `$q1$`, `$a_1$`, `$_$`, `$1$` and `a$b` are all refused.

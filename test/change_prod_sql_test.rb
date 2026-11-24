@@ -62,6 +62,22 @@ class ChangeProdSqlTest < Minitest::Test
     end
   end
 
+  def test_control_and_non_ascii_characters_make_the_whole_batch_destructive
+    [ "SELECT 1 -- c\rDELETE FROM t", "SELECT 1 --c\r\nDELETE FROM t", "SELECT 1;\fDELETE FROM t", "SELECT 1;\vDELETE FROM t",
+      "SELECT 1;\0DELETE FROM t", "SELECT 1\u0001", "SELECT 1\u007f", "SELECT '\u00e9'", "SELECT 1 -- \u2028DELETE FROM t",
+      "SELECT 1\u00a0FROM t", "SELECT \u0430 FROM t", "SELECT 1\xff".b ].each do |sql|
+      assert Sql.destructive?(sql), sql.inspect
+      assert_equal [ "unparseable" ], Sql.analyze(sql).map(&:kind), sql.inspect
+    end
+  end
+
+  def test_tab_lf_and_a_line_comment_to_the_end_of_input_are_still_read
+    refute Sql.destructive?("SELECT\t1\nFROM t -- trailing")
+    refute Sql.destructive?("SELECT 1 -- note\nFROM t")
+    assert Sql.destructive?("SELECT 1 -- note\n; DELETE FROM t")
+    assert_equal %w[select delete], Sql.analyze("SELECT 1 -- a\n; DELETE FROM t WHERE a = 1").map(&:kind)
+  end
+
   def test_plain_standard_quoting_is_still_read
     refute Sql.destructive?("SELECT 'it''s' , \"a\"\"b\" FROM t")
     refute Sql.destructive?("SELECT * FROM t WHERE a IN ('x', 'y') -- c")
