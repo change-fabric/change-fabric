@@ -251,11 +251,11 @@ module ConsolePages
   TYPE_TITLES = {
     'step' => 'Approve a gated step', 'override' => 'Override a merge or tag gate', 'prod-op' => 'Run a production operation',
     'money' => 'Spend money', 'carve-out' => 'Merge a carve-out PR', 'release' => 'Publish a release', 'run-script' => 'Run a script on this machine',
-    'grant' => 'Grant pulse a standing permission'
+    'grant' => 'Grant pulse a standing permission', 'autopilot' => 'Autopilot'
   }.freeze
   DEFAULT_TITLE = 'Approve a request'
   # Risk comes from the signed type only, never from agent text or argv.
-  RISK = { 'step' => :standard, 'override' => :high, 'prod-op' => :high, 'money' => :high, 'carve-out' => :elevated, 'release' => :elevated, 'run-script' => :high, 'grant' => :high }.freeze
+  RISK = { 'step' => :standard, 'override' => :high, 'prod-op' => :high, 'money' => :high, 'carve-out' => :elevated, 'release' => :elevated, 'run-script' => :high, 'grant' => :high, 'autopilot' => :high }.freeze
   RISK_WORDS = { standard: 'Standard', high: 'High risk', elevated: 'Elevated risk' }.freeze
   CONSEQUENCE = {
     'override' => 'Lifts a safety guard for this commit.',
@@ -264,7 +264,8 @@ module ConsolePages
     'carve-out' => 'Skips the normal review gates for this merge.',
     'release' => 'Publishes a release that others can install.',
     'run-script' => 'Runs the script below, once, with no further prompt. Read all of it.',
-    'grant' => 'Lets an agent take the listed actions on its own until the grant expires. It cannot be revoked early.'
+    'grant' => 'Lets an agent take the listed actions on its own until the grant expires. It cannot be revoked early.',
+    'autopilot' => 'Lets agents on this repo skip the listed approval gates until the end time. Secrets, releases, force-push and guard edits stay locked.'
   }.freeze
 
   HIDDEN = /[​-‏‪-‮⁦-⁩﻿]/
@@ -294,15 +295,15 @@ module ConsolePages
   TECHNICAL_KEYS = %w[machine_id request_id profile v pr_url].freeze
   TYPED_VERIFIED = {
     'override' => %w[scope], 'prod-op' => %w[argv], 'money' => %w[argv], 'carve-out' => %w[base files], 'release' => %w[tag commit],
-    'run-script' => %w[script_sha256 script_path script_text account], 'grant' => %w[scope_list grant_expires_at]
+    'run-script' => %w[script_sha256 script_path script_text account], 'grant' => %w[scope_list grant_expires_at], 'autopilot' => %w[scope_list autopilot_expires_at]
   }.freeze
-  VERIFIED_ORDER = %w[repo sha tag commit base scope scope_list grant_expires_at account script_path script_sha256 script_text items argv type created_at expires_at files].freeze
+  VERIFIED_ORDER = %w[repo machine sha tag commit base scope scope_list grant_expires_at autopilot_expires_at account script_path script_sha256 script_text items argv type created_at expires_at files].freeze
   AGENT_ORDER = %w[pr_title title summary reason items].freeze
   LABELS = {
     'repo' => 'Repo', 'sha' => 'Commit', 'tag' => 'Tag', 'commit' => 'Release commit', 'base' => 'Base', 'scope' => 'Scope',
     'type' => 'Type', 'created_at' => 'Created', 'expires_at' => 'Expires', 'pr_title' => 'PR title', 'summary' => 'Summary',
     'reason' => 'Reason', 'title' => 'Title', 'account' => 'AWS account', 'script_path' => 'Script path',
-    'script_sha256' => 'Script SHA-256', 'script_text' => 'Script', 'scope_list' => 'Allowed actions', 'grant_expires_at' => 'Grant expires'
+    'script_sha256' => 'Script SHA-256', 'script_text' => 'Script', 'scope_list' => 'Allowed actions', 'grant_expires_at' => 'Grant expires', 'autopilot_expires_at' => 'Autopilot ends', 'machine' => 'Machine'
   }.freeze
 
   # The zone that holds a body leaf. Anything not named as signed and
@@ -407,12 +408,24 @@ module ConsolePages
     end
   end
 
+  AUTOPILOT_END_NOTE = 'Any session can end it early with <code>change_autopilot.rb end</code>. It cannot be extended without a new approval.'
+  AUTOPILOT_LOCKED_NOTE = 'Locked-core actions (secrets, releases, force-push, guard edits) stay gated.'
+
+  # The machine row comes from the technical machine_id, shown only for an autopilot.
+  def verified_key?(type, body, key)
+    return type == 'autopilot' && body.key?('machine_id') if key == 'machine'
+
+    body.key?(key) && (zone(type, [ key ]) == :verified || (type == 'step' && key == 'items'))
+  end
+
   def verified_rows(body)
     type = body['type']
-    keys = VERIFIED_ORDER.select { |key| body.key?(key) && (zone(type, [ key ]) == :verified || (type == 'step' && key == 'items')) }
+    keys = VERIFIED_ORDER.select { |key| verified_key?(type, body, key) }
     rows = keys.flat_map do |key|
       value = body[key]
       case key
+      when 'machine' then [ row(LABELS.fetch(key), nested([ 'machine_id' ], body['machine_id'], 'code')) ]
+      when 'scope_list' then [ row(type == 'autopilot' ? 'Relaxed gates' : LABELS.fetch(key), nested([ key ], value, 'code')) ]
       when 'files' then [ row('Files', files_block(value)) ]
       when 'argv' then [ row('Command', argv_block(value)) ]
       when 'script_text' then [ row(LABELS.fetch(key), script_block(value)) ]
@@ -422,6 +435,7 @@ module ConsolePages
       end
     end
     rows << row('Scope', 'merge and tag guards') if type == 'override' && !body.key?('scope')
+    rows << row('Ending early', AUTOPILOT_END_NOTE) << row('Stays locked', AUTOPILOT_LOCKED_NOTE) if type == 'autopilot'
     rows.join
   end
 
@@ -484,6 +498,7 @@ module ConsolePages
     when 'carve-out' then "Merge #{pr_number(body) ? "PR ##{pr_number(body)}" : 'a PR'} into #{body['base']} at #{sha7} (#{plural(Array(body['files']).size, 'file')})"
     when 'release' then "Publish #{body['tag']} at #{body['commit'].to_s[0, 7]}"
     when 'run-script' then "Run #{File.basename(body['script_path'].to_s)} (#{body['script_sha256'].to_s[0, 12]}) at #{sha7} against #{account_text(body)} (#{repo})"
+    when 'autopilot' then "Autopilot for #{repo} on this machine until #{body['autopilot_expires_at']}: #{Array(body['scope_list']).join(', ')}"
     when 'grant' then "Grant #{Array(body['scope_list']).join(', ')} until #{body['grant_expires_at']} (#{repo})"
     else "Approve a #{body['type']} request at #{sha7}"
     end
@@ -498,6 +513,7 @@ module ConsolePages
     when 'carve-out' then "Carve-out · PR ##{pr_number(body) || '?'} · #{sha7}"
     when 'release' then "Release · #{body['tag']}"
     when 'run-script' then "Run script · #{body['account'] || 'no account'} · #{sha7}"
+    when 'autopilot' then "Autopilot · #{Array(body['scope_list']).join(', ')} · #{sha7}"
     when 'grant' then "Grant · #{Array(body['scope_list']).join(', ')} · #{sha7}"
     else "Request · #{sha7}"
     end
@@ -611,11 +627,16 @@ module ConsolePages
     risk = RISK.fetch(type, :high)
     pending = status == 'pending'
     title = TYPE_TITLES.fetch(type, DEFAULT_TITLE)
+    heading = esc(title)
+    if type == 'autopilot'
+      title = "Autopilot: #{neutral(repo_name(body))}, ends #{neutral(body['autopilot_expires_at'])}"
+      heading = "Autopilot: #{txt(repo_name(body))}, ends #{at(body, 'autopilot_expires_at')}"
+    end
     consequence = CONSEQUENCE[type]
     countdown = pending ? %(<p id="countdown" class="countdown">Expires at #{at(body, 'expires_at')}</p>) : ''
     inner = <<~HTML
       #{status_block(body, status)}
-      <h1#{risk == :high ? ' class="hl-danger"' : ''}>#{esc(title)}</h1>
+      <h1#{risk == :high ? ' class="hl-danger"' : ''}>#{heading}</h1>
       <div class="meta">#{risk_span(risk)}#{countdown}</div>
       #{consequence ? %(<p class="risk-note">#{esc(consequence)}</p>) : ''}
       <p class="changes">#{txt(what_changes(body))}</p>

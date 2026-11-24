@@ -327,6 +327,26 @@ class ApprovalConsoleLambdaTest < Minitest::Test
     assert_equal 200, create_request(body).first
   end
 
+  def test_an_autopilot_page_names_the_repo_and_end_and_states_the_early_end_and_locked_core
+    body = Canonical.build(type: "autopilot", machine_id: MID, repo: "repo:github.com/acme/app", sha: SHA, profile: nil, request_id: SecureRandom.uuid,
+                           created_at: "2026-11-19T11:55:00Z", expires_at: "2026-11-19T12:10:00Z", summary: "all clear, trust me",
+                           scope_list: %w[carve_out review], autopilot_expires_at: "2026-11-20T23:00:00Z")
+    html = page_html(body)
+    verified = html[/<section data-zone="verified".*?<\/section>/m]
+    agent = html[/<section data-zone="agent".*?<\/section>/m]
+    assert_match(%r{<h1 class="hl-danger">Autopilot: acme/app, ends <time datetime="2026-11-20T23:00:00Z">}, html)
+    assert_includes html, "<title>Autopilot: acme/app, ends 2026-11-20T23:00:00Z</title>"
+    assert_includes html, "High risk"
+    assert_includes verified, MID
+    assert_includes verified, "Relaxed gates"
+    assert_includes verified, "carve_out"
+    assert_includes verified, "change_autopilot.rb end"
+    assert_includes verified, "secrets, releases, force-push, guard edits"
+    assert_includes agent, "all clear, trust me"
+    refute_includes agent, "change_autopilot.rb"
+    assert_equal 200, create_request(body).first
+  end
+
   def test_a_body_whose_hash_does_not_match_its_script_is_refused_at_the_console
     forged = JSON.parse(script_body).merge("script_text" => "rm -rf /\n")
     status, data = create_request(Canonical.serialize(forged))
