@@ -168,8 +168,8 @@ change_policy:
   # from the default branch (or the PR base), never the working tree.
   require_approval_proof: passkey
   approval_pins:
-    receipt_key_fingerprint: "sha256:14184f67113b8eb2c2f1b6a4d1c10e241e4c9d2a4bad299fc955537b9a2def3b"
-    rp_id: d7cnimvl6wqykxfkrphbbmufxu0zybds.lambda-url.us-east-1.on.aws
+    receipt_key_fingerprint: "sha256:ead61b9e816a6d105731b3fb9d8a62d1334312e321137be3b76bb5cdc32a3feb"
+    rp_id: vai7tydo256udjsmjflaa5vvnq0kzgmj.lambda-url.us-east-1.on.aws
   admin_bypass:
     # The merge guard reads `allowed` only for `gh pr merge --admin`. A plain
     # `gh pr merge --squash` by an agent session in admin-bypass mode takes the
