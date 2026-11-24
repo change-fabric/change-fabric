@@ -46,6 +46,23 @@ class ChangeProdSchemaTest < Minitest::Test
     end
   end
 
+  def test_row_threshold_is_a_positive_integer
+    doc = load("valid.yml")
+    op = doc["change_config"]["operations"].keys.first
+    doc["change_config"]["operations"][op]["row_threshold"] = 250
+    assert_empty ChangeProdSchema.errors(doc)
+    [ 0, -5, "1000", 1.5, true ].each do |bad|
+      doc["change_config"]["operations"][op]["row_threshold"] = bad
+      assert ChangeProdSchema.errors(doc).any? { |message| message.include?("row_threshold must be a positive integer") }, bad.inspect
+    end
+  end
+
+  def test_doctor_accepts_a_row_threshold
+    doc = load("valid.yml")
+    doc["change_config"]["operations"].each_value { |op| op["row_threshold"] = 500 }
+    with_repo(doc) { |dir| assert_empty doctor_lines(dir).grep(/\Aerror:/) }
+  end
+
   def test_every_floor_has_an_invalid_fixture
     assert_operator Dir[File.join(FIXTURES, "invalid_*.yml")].size, :>=, 30
   end

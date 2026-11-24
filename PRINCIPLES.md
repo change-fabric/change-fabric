@@ -196,7 +196,9 @@ Enforcer: site/test/media-slot.test.ts, test/change_measured_shapes_docker_test.
 
 Autopilot is a phone-approved receipt for one repo and machine with a signed end at most 72h out; until that end or `change_autopilot.rb end` it waives only the gates it lists (carve-out taps off locked paths, review rounds, host-daemon, sensitive-term), logging each waiver, and it never reads or changes the merge mode. Secrets, release tags, change_override, CF_ALLOW_UNGATED_MERGE, cf:change passes and trunk force-push, rewrite or deletion stay locked; the force-push guard has no escape hatch.
 
-Enforcer: scripts/change_autopilot.rb, scripts/force_push_guard.rb
+Prod is covered only with a recovery precondition. Under an autopilot that lists `prod`, the runner needs no per-action tap, but any statement outside an allowlist (SELECT, SHOW, INSERT ... VALUES, UPDATE or DELETE with a WHERE, BEGIN, COMMIT, ROLLBACK, SET; never EXPLAIN, DO, CALL, COPY or DDL), a statement estimated over the op's row threshold, and any SQL the scanner cannot read with certainty (double quotes, dollar quotes, escape strings, control or non-ASCII characters) runs only after a verified recovery artifact: an available snapshot, or a dump with a recorded sha256 and per-table row counts. With none it is denied, and every run writes an audit record with statement hashes, row counts and the artifact id. A per-action approval keeps today's rules.
+
+Enforcer: scripts/change_autopilot.rb, scripts/force_push_guard.rb, scripts/change_prod_recovery.rb, scripts/change_prod_sql.rb, scripts/change_prod_gate.rb
 
 ## Skills name roles, not tiers
 

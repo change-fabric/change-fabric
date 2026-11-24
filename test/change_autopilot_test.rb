@@ -47,6 +47,31 @@ class ChangeAutopilotTest < Minitest::Test
     ApprovalConsole::Canonical.body_sha256(proof["body"])
   end
 
+  def record_with(publisher, body = attrs)
+    proof = phone_proof(body)
+    ApprovalConsole::Recorder.new(authority: authority, store: @store, clock: -> { @now }, recorded_by: "t", autopilot_publisher: publisher)
+                             .record(proof, expected: ApprovalConsole::Remote.expected(body, mid))
+  end
+
+  def test_the_recorder_hands_a_recorded_autopilot_to_the_publisher_and_reports_its_note
+    seen = []
+    result = record_with(->(proof, expected) { seen << [ proof["kind"], expected["scope_list"] ]; "published somewhere" })
+    assert result.ok?, result.error
+    assert_equal [ [ "webauthn+totp", ALL ] ], seen
+    assert_match(/autopilot for .* \(published somewhere\)\z/, result.summary)
+  end
+
+  def test_a_refused_autopilot_is_never_published
+    seen = []
+    late = attrs(ends: T0 + 1000)
+    proof = phone_proof(late)
+    @now += 2000
+    result = ApprovalConsole::Recorder.new(authority: authority, store: @store, clock: -> { @now }, recorded_by: "t", autopilot_publisher: ->(*) { seen << true })
+                                      .record(proof, expected: ApprovalConsole::Remote.expected(late, mid))
+    refute result.ok?
+    assert_empty seen
+  end
+
   def autopilot(at: @now, pins: authoritative_pins, store: @store, autopilots: ChangeAutopilotStore.new)
     ChangeAutopilot.new(project: @project, store: store, now: at, pins: pins, autopilots: autopilots)
   end
@@ -139,6 +164,30 @@ class ChangeAutopilotTest < Minitest::Test
     assert_equal 0, ChangeAutopilotCLI.run(%w[end --reason pilot], out: out, autopilot: autopilot)
     assert_match(/ended autopilot/, out.string)
     ALL.each { |gate| refute autopilot.covers?(gate), gate }
+  end
+
+  def test_end_marks_the_runner_end_pending_until_it_is_told
+    id = record
+    reader = autopilot
+    assert_empty reader.unannounced
+    reader.end!(by: "agent", reason: "pilot")
+    assert_equal [ id ], autopilot.unannounced.map { |row| row["id"] }
+    assert_equal "pilot", autopilot.unannounced.first["reason"]
+    # Another repo does not see it.
+    assert_empty ChangeAutopilot.new(project: File.join(@home, "other"), store: @store, now: @now, pins: authoritative_pins,
+                                     project_id: "repo:github.com/acme/other").unannounced
+    autopilot.told!(id)
+    assert_empty autopilot.unannounced
+  end
+
+  def test_the_real_end_cli_keeps_failing_until_the_runner_confirms
+    record
+    ok = ChangeProdAutopilotRef::Outcome
+    results = [ ok.new(ok: false, note: "down"), ok.new(ok: true, note: "told") ]
+    ender = ->(**) { results.shift }
+    codes = Array.new(2) { ChangeAutopilotCLI.run(%w[end], out: StringIO.new, err: StringIO.new, autopilot: autopilot, root: @project, ender: ender) }
+    assert_equal [ 1, 0 ], codes
+    assert_empty autopilot.unannounced
   end
 
   def test_status_cli_lists_gates_and_end

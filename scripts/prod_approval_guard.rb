@@ -12,7 +12,8 @@ require_relative 'hook_event'
 #   change_prod_approve.rb                      the human-only approval tool
 #   gh api .../actions/runs/N/pending_deployments   approving a deployment review
 #   gh api .../environments/... (a write)        protection rules, reviewers, branch policy
-#   git push or gh api writes to refs/cf-prod/{approvals,claims,lock,journal}
+#   git push or gh api writes to refs/cf-prod/{approvals,claims,lock,journal,autopilots,
+#                                              autopilot-ends,audit}
 #
 # The console verbs (enroll, totp-enroll, unlock, revoke, verify --write) are
 # already denied by secrets_read_guard.rb. There is no escape hatch for the

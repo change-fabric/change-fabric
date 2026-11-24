@@ -16,7 +16,11 @@ class ChangeProdStore
   class Exists < Error; end
   class Missing < Error; end
 
-  KINDS = %w[requests approvals].freeze
+  KINDS = %w[requests approvals autopilots autopilot-ends audit].freeze
+  # Autopilot refs are named by the 64-hex body hash of the signed receipt;
+  # every other kind is named by a request uuid.
+  AUTOPILOT_KINDS = %w[autopilots autopilot-ends].freeze
+  AUTOPILOT_ID = /\A[0-9a-f]{64}\z/
   PAYLOAD = 'payload.json'
   ZERO = '0' * 40
 
@@ -27,9 +31,19 @@ class ChangeProdStore
 
   def ref(kind, request_id)
     raise Error, "unknown ref kind #{kind.inspect}" unless KINDS.include?(kind)
-    raise Error, 'request_id is not a uuid' unless request_id.to_s.match?(ChangeProdEnvelope::UUID)
+    raise Error, "request_id is not a #{AUTOPILOT_KINDS.include?(kind) ? '64-hex autopilot id' : 'uuid'}" unless request_id.to_s.match?(id_pattern(kind))
 
     "refs/cf-prod/#{kind}/#{request_id}"
+  end
+
+  # The ids under one kind, from the local refs (call `fetch` first).
+  def list(kind)
+    raise Error, "unknown ref kind #{kind.inspect}" unless KINDS.include?(kind)
+
+    out, err, status = git('for-each-ref', '--format=%(refname)', "refs/cf-prod/#{kind}/")
+    raise Error, "listing refs/cf-prod/#{kind} failed: #{err.strip}" unless status.success?
+
+    out.lines.map { |line| line.strip.delete_prefix("refs/cf-prod/#{kind}/") }.grep(id_pattern(kind)).sort
   end
 
   # Creates the ref or raises Exists. With `push`, the ref must also be created
@@ -73,6 +87,8 @@ class ChangeProdStore
   end
 
   private
+
+  def id_pattern(kind) = AUTOPILOT_KINDS.include?(kind) ? AUTOPILOT_ID : ChangeProdEnvelope::UUID
 
   def write_commit(json)
     blob = capture('hash-object', '-w', '--stdin', stdin: json)

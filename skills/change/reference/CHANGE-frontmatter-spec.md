@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.32.0
+Schema version: 0.33.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -1625,6 +1625,7 @@ patterns, argv placeholders only from declared params, and one op at a time.
 | `change_config.operations.<op>.estimate.minutes` | number | no | (0.29.0) Informational only. |
 | `change_config.operations.<op>.estimate.cost_usd` | number | no | (0.29.0) Informational only. |
 | `change_config.operations.<op>.staging_first` | boolean | no | (0.29.0) Needs a passing staging run first. |
+| `change_config.operations.<op>.row_threshold` | positive integer | no (default 1000) | (0.33.0) Rows a statement may be estimated to touch before the op needs a verified recovery artifact under an autopilot, as for a destructive statement. |
 | `change_policy.prod_guard.approval.via` | `approval_console` | yes | (0.29.0) Where approval happens. |
 | `change_policy.prod_guard.approval.factors` | `[passkey_uv, totp]` | yes | (0.29.0) Floor: both factors. |
 | `change_policy.prod_guard.approval.proof` | `remote` | yes | (0.29.0) Floor: a console-signed remote proof. |
@@ -2040,3 +2041,6 @@ root `RELEASING.md`.
   reaches each named state from a fresh load and fails a watched element that
   moved or resized, a state that cannot be reached, or horizontal overflow in
   the state.
+- 0.33.0: additive. `change_config.operations.<op>.row_threshold`: the row
+  estimate above which a statement run under an autopilot needs a verified
+  recovery artifact (default 1000).

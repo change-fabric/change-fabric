@@ -127,4 +127,55 @@ class ChangeProdRequestTest < Minitest::Test
     assert_equal 2, Request.run([ "nope" ], stderr: StringIO.new)
     assert_equal 1, Request.run([ "create", "--bogus" ], stderr: StringIO.new)
   end
+
+  def dispatch(id, waiver: nil, runner: ->(*) { true })
+    out = StringIO.new
+    err = StringIO.new
+    argv = [ "dispatch", id, "--config", FIXTURE, "--repo", @dir, "--no-push" ]
+    opts = { stdout: out, stderr: err, runner: runner }
+    opts[:waiver] = waiver if waiver
+    [ Request.run(argv, **opts), out.string, err.string ]
+  end
+
+  def test_dispatch_with_no_approval_runs_under_an_active_autopilot_and_logs_the_waiver
+    _, out, = create
+    id = request_id(out)
+    calls = []
+    waiver = ->(repo, detail) { calls << [ repo, detail ]; "a" * 64 }
+    code, stdout, = dispatch(id, waiver: waiver)
+    assert_equal 0, code
+    assert_match(/dispatched cf-prod.yml for #{id} under autopilot aaaaaaaaaaaa/, stdout)
+    assert_equal [ [ @dir, "dispatch rotate_tenant_key #{id}" ] ], calls
+  end
+
+  def test_dispatch_with_no_approval_and_no_autopilot_still_refuses
+    _, out, = create
+    code, _, err = dispatch(request_id(out), waiver: ->(*) { nil })
+    assert_equal 1, code
+    assert_match(/not approved yet: no approval ref, and no active autopilot lists prod/, err)
+  end
+
+  def test_the_default_waiver_fails_closed_without_an_autopilot
+    home = Dir.mktmpdir
+    previous = ENV["HOME"]
+    ENV["HOME"] = home
+    _, out, = create
+    code, _, err = dispatch(request_id(out))
+    assert_equal 1, code
+    assert_match(/not approved yet/, err)
+  ensure
+    ENV["HOME"] = previous
+    FileUtils.remove_entry(home) if home
+  end
+
+  def test_an_existing_approval_ref_is_never_overridden_by_an_autopilot
+    _, out, = create
+    id = request_id(out)
+    @store.create("approvals", id, { "protocol" => "cf.prod.approval/2", "request_id" => id, "digest" => "sha256:#{'0' * 64}", "proof" => {} }, push: false)
+    asked = []
+    code, _, err = dispatch(id, waiver: ->(*) { asked << true; "a" * 64 })
+    assert_equal 1, code
+    assert_match(/does not name this request digest/, err)
+    assert_empty asked
+  end
 end

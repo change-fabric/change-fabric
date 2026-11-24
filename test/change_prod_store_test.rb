@@ -61,4 +61,29 @@ class ChangeProdStoreTest < Minitest::Test
   def test_fetch_failure_is_an_error
     assert_raises(ChangeProdStore::Error) { ChangeProdStore.new(@dir, remote: "nowhere").fetch }
   end
+
+  AUTOPILOT = "c" * 64
+
+  def test_autopilot_kinds_are_named_by_a_body_hash_and_the_others_by_a_uuid
+    assert_match %r{/autopilots/#{AUTOPILOT}\z}, @store.ref("autopilots", AUTOPILOT)
+    assert_match %r{/autopilot-ends/#{AUTOPILOT}\z}, @store.ref("autopilot-ends", AUTOPILOT)
+    assert_match %r{/audit/#{ID}\z}, @store.ref("audit", ID)
+    assert_raises(ChangeProdStore::Error) { @store.ref("autopilots", ID) }
+    assert_raises(ChangeProdStore::Error) { @store.ref("audit", AUTOPILOT) }
+    assert_raises(ChangeProdStore::Error) { @store.ref("autopilots", "../#{AUTOPILOT}") }
+    assert_raises(ChangeProdStore::Error) { @store.ref("elsewhere", ID) }
+  end
+
+  def test_list_returns_the_valid_ids_of_one_kind_only
+    @store.create("autopilots", AUTOPILOT, { "n" => 1 })
+    @store.create("autopilots", "d" * 64, { "n" => 2 })
+    @store.create("autopilot-ends", AUTOPILOT, { "n" => 3 })
+    @store.create("requests", ID, { "n" => 4 })
+    GitFixture.git(@dir, "update-ref", "refs/cf-prod/autopilots/not-an-id", @store.read("autopilots", AUTOPILOT).then { GitFixture.git(@dir, "rev-parse", @store.ref("autopilots", AUTOPILOT)).strip })
+    assert_equal [ AUTOPILOT, "d" * 64 ], @store.list("autopilots")
+    assert_equal [ AUTOPILOT ], @store.list("autopilot-ends")
+    assert_equal [ ID ], @store.list("requests")
+    assert_empty @store.list("audit")
+    assert_raises(ChangeProdStore::Error) { @store.list("elsewhere") }
+  end
 end

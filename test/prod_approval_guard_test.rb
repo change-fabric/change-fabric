@@ -85,6 +85,22 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_allowed "gh api --method GET repos/o/r/environments/production -f per_page=1"
   end
 
+  def test_denies_raw_writes_to_the_autopilot_and_audit_refs
+    id = "a" * 64
+    assert_denied "git push origin refs/cf-prod/autopilots/#{id}:refs/cf-prod/autopilots/#{id}"
+    assert_denied "git push origin :refs/cf-prod/autopilot-ends/#{id}"
+    assert_denied "git update-ref -d refs/cf-prod/autopilot-ends/#{id}"
+    assert_denied "git update-ref refs/cf-prod/audit/1234 HEAD"
+    assert_denied "gh api -X DELETE repos/o/r/git/refs/cf-prod/autopilot-ends/#{id}"
+  end
+
+  def test_the_autopilot_end_and_prod_dispatch_clis_are_not_blocked
+    assert_allowed "ruby ~/.claude/cf/bin/change_autopilot.rb end --reason done"
+    assert_allowed "ruby ~/.claude/cf/bin/change_autopilot.rb status --json"
+    assert_allowed "ruby ~/.claude/cf/bin/change_prod_request.rb dispatch 11111111-2222-4333-8444-555555555555 --config CHANGE.md"
+    assert_allowed "git fetch origin +refs/cf-prod/*:refs/cf-prod/*"
+  end
+
   def test_denies_writes_to_guarded_state_refs
     assert_denied "git push origin refs/cf-prod/approvals/1234:refs/cf-prod/approvals/1234"
     assert_denied "git push origin :refs/cf-prod/claims/1234"

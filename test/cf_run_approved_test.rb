@@ -235,4 +235,58 @@ class CfRunApprovedTest < Minitest::Test
     assert_equal 1, runner.run(outside, repo: @repo)
     assert_match(/is not directly in/, @err.string)
   end
+
+  def autopiloted(id: "e" * 64, env: {}, profile: nil, run: nil)
+    @asked = []
+    @out = StringIO.new
+    @err = StringIO.new
+    waiver = ->(root, detail, text) { @asked << [ root, detail, text ]; id }
+    opts = { home: @home, store: @store, client: client, authority: authority, clock: -> { @now }, out: @out, err: @err,
+             autopilot: waiver, env: env, profile: profile }
+    opts[:runner] = run if run
+    CfRunApproved.new(**opts)
+  end
+
+  def test_with_no_recorded_approval_an_active_autopilot_runs_the_script_and_logs_it
+    assert_equal 0, autopiloted.run(@script, repo: @repo)
+    assert_includes @out.string, "hello-from-script"
+    assert_equal [ [ @repo, "run 0001-hello.sh at #{@sha[0, 12]}", File.read(File.join(@queue, "done", "0001-hello.sh")) ] ], @asked.map { |root, detail, text| [ File.realpath(root), detail, text ] }
+    rows = Dir.children(File.join(@home, ".claude", "cf", "change", "run-ledger"))
+    assert_equal 1, rows.size
+    assert_match(/\Aautopilot-#{'e' * 16}-/, rows.first)
+    assert_path_exists File.join(@queue, "done", "0001-hello.sh")
+  end
+
+  def test_the_autopilot_run_passes_its_id_in_place_of_a_request_id_and_pins_one_profile
+    seen = nil
+    run = ->(_path, _root, _sha, request) { seen = request; 0 }
+    runner = autopiloted(env: { "AWS_PROFILE" => "only-this" }, run: run)
+    runner.run(@script, repo: @repo)
+    assert_equal "autopilot:#{'e' * 64}", seen
+    assert_equal({ "AWS_PROFILE" => "only-this", "AWS_ACCESS_KEY_ID" => nil, "AWS_SECRET_ACCESS_KEY" => nil,
+                   "AWS_SESSION_TOKEN" => nil, "AWS_DEFAULT_PROFILE" => nil }, runner.send(:aws_identity_env))
+  end
+
+  def test_with_no_approval_and_no_autopilot_it_still_refuses
+    @out = StringIO.new
+    @err = StringIO.new
+    refuser = CfRunApproved.new(home: @home, store: @store, client: client, authority: authority, clock: -> { @now }, out: @out, err: @err,
+                                autopilot: ->(*) { nil })
+    assert_equal 1, refuser.run(@script, repo: @repo)
+    assert_match(/no phone-approved run is recorded for this exact script/, @err.string)
+    assert_path_exists @script
+    refute_includes @out.string, "hello-from-script"
+  end
+
+  def test_the_default_waiver_fails_closed_with_no_autopilot_on_disk
+    assert_equal 1, go
+    assert_match(/no phone-approved run is recorded/, @err.string)
+  end
+
+  def test_a_recorded_approval_is_used_before_the_autopilot
+    approve
+    runner = autopiloted
+    assert_equal 0, runner.run(@script, repo: @repo)
+    assert_empty @asked
+  end
 end

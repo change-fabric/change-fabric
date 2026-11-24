@@ -18,6 +18,17 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.33.0] - 2026-11-24
+
+Per-operation row threshold for the prod runner. Additive for CHANGE.md: the new
+field is optional.
+
+### Added
+
+- `change_config.operations.<op>.row_threshold`: a positive integer, default
+  1000. Under an autopilot, a statement estimated to touch more rows needs a
+  verified recovery artifact before it runs.
+
 ## [0.32.0] - 2026-11-22
 
 Route states for the browserless lane. Additive for CHANGE.md: every new field

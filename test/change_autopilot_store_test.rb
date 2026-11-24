@@ -41,4 +41,16 @@ class ChangeAutopilotStoreTest < Minitest::Test
     assert_empty @store.all
     assert_empty @store.ledger("b" * 64)
   end
+
+  def test_published_root_is_recorded_per_autopilot
+    Dir.mktmpdir do |dir|
+      store = ChangeAutopilotStore.new(root: dir)
+      assert_nil store.published_root("a" * 64)
+      store.mark_published("a" * 64, root: "/some/checkout")
+      assert_equal "/some/checkout", store.published_root("a" * 64)
+      assert_nil store.published_root("b" * 64)
+      File.write(File.join(dir, "#{'c' * 64}.published"), "not json")
+      assert_equal "", store.published_root("c" * 64)
+    end
+  end
 end

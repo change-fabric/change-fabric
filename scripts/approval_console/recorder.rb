@@ -48,8 +48,9 @@ module ApprovalConsole
     end
 
     def initialize(authority:, store: LocalStore.new, clock: -> { Time.now }, recorded_by: ENV['USER'] || 'unknown',
-                   stores: {})
+                   stores: {}, autopilot_publisher: nil)
       @authority = authority
+      @autopilot_publisher = autopilot_publisher
       @store = store
       @clock = clock
       @recorded_by = recorded_by.to_s
@@ -174,7 +175,8 @@ module ApprovalConsole
     def write_autopilot(proof, expected)
       store(:autopilot, ChangeAutopilotStore).record(repo: expected['repo'], autopilot_id: Canonical.body_sha256(proof['body']), proof: proof,
                                                      policy_sha: policy_sha, recorded_by: @recorded_by)
-      "autopilot for #{expected['scope_list'].join(', ')} until #{expected['autopilot_expires_at']}"
+      note = @autopilot_publisher&.call(proof, expected)
+      "autopilot for #{expected['scope_list'].join(', ')} until #{expected['autopilot_expires_at']}#{note ? " (#{note})" : ''}"
     end
 
     def approvals(sha) = @stores[:approval]&.call(sha) || ChangeApprovalStore.new(sha)

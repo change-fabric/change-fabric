@@ -287,6 +287,7 @@ module ChangeBackup
       # No default: a command that omits the timestamp could pass an old backup
       # off as fresh.
       { 'id' => data['id'], 'resource' => resource, 'created_at' => parse_time(data['created_at'], 'created_at') }
+        .merge(data.slice('sha256', 'row_counts'))
     end
 
     def verify(snapshot)
@@ -381,7 +382,7 @@ module ChangeBackup
     ok, detail = provider.verify(snapshot)
     evidence(kind: 'snapshot', backup: name, environment: environment, resource: snapshot['resource'], config_digest: digest(config, name),
              completed_at: clock.call, result: ok ? 'verified' : 'failed', recovery_point: snapshot['created_at'], detail: detail,
-             extra: { 'snapshot_id' => snapshot['id'] })
+             extra: { 'snapshot_id' => snapshot['id'] }.merge(snapshot.slice('sha256', 'row_counts')))
   end
 
   def pitr_evidence(provider, config, name, environment, clock)

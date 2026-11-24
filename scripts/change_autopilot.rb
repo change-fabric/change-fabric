@@ -9,6 +9,7 @@ require_relative 'approval_console/canonical'
 require_relative 'approval_console/local_store'
 require_relative 'approval_console/standing_receipt'
 require_relative 'change_autopilot_store'
+require_relative 'change_prod_autopilot_ref'
 require_relative 'cf_project_identity'
 
 # Autopilot: a phone-approved, time-boxed receipt that lets agents on one repo,
@@ -98,12 +99,21 @@ class ChangeAutopilot
   # Tombstones every active autopilot for this repo; returns their ids.
   def end!(by:, reason:)
     active.map do |autopilot|
+      @autopilots.mark_pending(autopilot.id, repo: project_id, by: by, reason: reason)
       @autopilots.end!(autopilot_id: autopilot.id, by: by, reason: reason, at: @now)
       autopilot.id
     end
   end
 
   def ledger(autopilot_id) = @autopilots.ledger(autopilot_id)
+
+  # Ended here, but the prod runner has not confirmed its end marker.
+  def unannounced = @autopilots.pending(repo: project_id)
+
+  # Where it was published to the prod runner from, or nil if it never was.
+  def published_root(autopilot_id) = @autopilots.published_root(autopilot_id)
+
+  def told!(autopilot_id) = @autopilots.clear_pending(autopilot_id)
 
   private
 
@@ -134,7 +144,7 @@ end
 class ChangeAutopilotCLI
   USAGE = 'usage: change_autopilot.rb status [--json] | end [--reason TEXT] | ledger [ID]'
 
-  def self.run(argv, out: $stdout, err: $stderr, autopilot: nil, by: ENV['USER'] || 'agent')
+  def self.run(argv, out: $stdout, err: $stderr, autopilot: nil, by: ENV['USER'] || 'agent', root: nil, ender: ChangeProdAutopilotRef.method(:publish_end))
     verb, *rest = argv
     opts = {}
     OptionParser.new do |o|
@@ -144,7 +154,7 @@ class ChangeAutopilotCLI
     autopilot ||= ChangeAutopilot.new
     case verb
     when 'status' then status(autopilot, out, opts[:json])
-    when 'end' then finish(autopilot, out, err, by, opts[:reason] || 'ended early')
+    when 'end' then finish(autopilot, out, err, by, opts[:reason] || 'ended early', root || CfProjectIdentity.for(Dir.pwd).root, ender)
     when 'ledger' then ledger(autopilot, out, rest.first)
     else
       err.puts USAGE
@@ -158,20 +168,31 @@ class ChangeAutopilotCLI
   def self.status(autopilot, out, json)
     active = autopilot.active
     rows = active.map { |a| { 'id' => a.id, 'gates' => a.scope_list, 'ends_at' => a.expires_at.utc.iso8601 } }
+    waiting = autopilot.unannounced.map { |row| row['id'] }
     if json
-      out.puts JSON.generate('autopilot' => rows, 'rejected' => autopilot.rejected)
-    elsif rows.empty?
-      out.puts 'no autopilot is active for this repo'
+      out.puts JSON.generate('autopilot' => rows, 'rejected' => autopilot.rejected, 'ended_runner_not_told' => waiting)
     else
+      out.puts 'no autopilot is active for this repo' if rows.empty?
       rows.each { |row| out.puts "autopilot #{row['id'][0, 12]}: #{row['gates'].join(', ')} until #{row['ends_at']}" }
+      waiting.each { |id| out.puts "autopilot #{id[0, 12]}: ended locally, runner not yet told (run `end` to retry)" }
     end
     0
   end
 
-  def self.finish(autopilot, out, err, by, reason)
+  # The local tombstone is the source of truth for the gates. The prod runner
+  # reads its own end marker, so a failure to write it is loud and exits 1.
+  def self.finish(autopilot, out, err, by, reason, root, ender)
     ids = autopilot.end!(by: by, reason: reason)
     out.puts(ids.empty? ? 'no autopilot was active' : "ended autopilot #{ids.map { |id| id[0, 12] }.join(', ')}")
-    0
+    # Includes ones ended by an earlier `end` whose runner marker never landed.
+    autopilot.unannounced.reduce(0) do |status, row|
+      published = autopilot.published_root(row['id'])
+      outcome = ender.call(root: published.nil? || published.empty? ? root : published, id: row['id'], by: row['by'] || by,
+                           reason: row['reason'] || reason, published: !published.nil?)
+      autopilot.told!(row['id']) if outcome.ok?
+      (outcome.ok? ? out : err).puts("change_autopilot: #{outcome.note}") if outcome.note
+      outcome.ok? ? status : 1
+    end
   rescue StandardError => e
     err.puts "change_autopilot: end failed: #{e.message}"
     1
