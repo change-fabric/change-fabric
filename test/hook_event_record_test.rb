@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helpers"
+require_relative "../install"
 require_relative "../scripts/hook_event"
 
 class HookEventRecordTest < Minitest::Test
@@ -29,6 +30,18 @@ class HookEventRecordTest < Minitest::Test
       line.each_value { |v| refute_match(/\s/, v.to_s) }
     end
     refute_includes File.read(HookEvent.events_path(@home)), "git push"
+  end
+
+  def test_nil_home_falls_back_to_dir_home_for_doctrine_version
+    dir = File.join(@home, ".claude", "cf", "sessions", "s9")
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "doctrine-version"), "v7\n")
+    real = ENV.fetch("HOME", nil)
+    ENV["HOME"] = @home
+    assert_equal "v7", HookEvent.doctrine_version("s9", home: nil)
+    assert_equal "v7", HookEvent.record("rubric_surfaced", session: "s9", rule_id: "r", rule_version: "ab12cd34")[:doctrine_version]
+  ensure
+    ENV["HOME"] = real
   end
 
   def test_a_value_with_spaces_or_slashes_in_free_text_is_dropped

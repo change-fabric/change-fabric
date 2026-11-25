@@ -100,8 +100,8 @@ module HookEvent
     LEVELS.include?(candidate) ? candidate : 'unset'
   end
 
-  def self.doctrine_version(session, home: Dir.home)
-    path = File.join(session_dir(session, home), 'doctrine-version')
+  def self.doctrine_version(session, home: nil)
+    path = File.join(session_dir(session, home || Dir.home), 'doctrine-version')
     session.to_s.empty? || !File.file?(path) ? 'none' : File.read(path).strip
   rescue StandardError
     'none'
