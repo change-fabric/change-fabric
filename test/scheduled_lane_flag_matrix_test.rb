@@ -270,35 +270,43 @@ class ScheduledLaneFlagMatrixTest < Minitest::Test
 
   def test_time_budget_refuses_when_it_exceeds_the_job_minus_slack
     adapter = FakeAdapter.new(flags: { "a" => "off", "b" => "off" })
-    # 2 keys x (7 + 600 + 60) = 1334s; a 30 minute job leaves 1200s.
+    # 2 keys x (7 + 600 + 80) = 1374s; a 30 minute job leaves 1200s.
     result = matrix_for(adapter, job: 30).run(%w[a b])
-    assert_includes result.notes.join, "matrix needs 1334s"
+    assert_includes result.notes.join, "matrix needs 1374s"
     assert_empty adapter.log.grep(/\Aflip/)
     assert matrix_for(FakeAdapter.new(flags: { "a" => "off", "b" => "off" }), job: 33).run(%w[a b]).pass?
   end
 
-def test_deployed_sha_reads_count_toward_the_time_budget
-  with_sha = lane.raw.merge("deployed_sha_cmd" => "sha")
-  # 1 key x (7 + 600 + 60 + 120) = 787s; a 23 minute job leaves 780s.
-  adapter = FakeAdapter.new(flags: { "a" => "off" })
-  result = matrix_for(adapter, lane_def: ScheduledLane::Lane.new(with_sha), job: 23).run([ "a" ])
-  assert_includes result.notes.join, "matrix needs 787s"
-  assert_empty adapter.log.grep(/\Aflip/)
-end
+  def test_the_adapter_timeout_floor_counts_toward_the_time_budget
+    adapter = FakeAdapter.new(flags: { "a" => "off" })
+    # headroom 0 still reserves 16 calls x 5s = 80s: 1 key x (7 + 600 + 80) = 687s; a 21 minute job leaves 660s.
+    result = matrix_for(adapter, lane_def: lane("revert_headroom_seconds" => 0), job: 21).run([ "a" ])
+    assert_includes result.notes.join, "matrix needs 687s"
+    assert_empty adapter.log.grep(/\Aflip/)
+  end
 
-def test_two_runs_sharing_a_run_id_each_close_their_own_ledger_row
-  adapter = FakeAdapter.new(flags: { "a" => "off" })
-  2.times { assert matrix_for(adapter).run([ "a" ]).pass? }
-  assert_equal %w[reverted reverted], adapter.ledger["rows"].map { |row| row["state"] }
-end
+  def test_deployed_sha_reads_count_toward_the_time_budget
+    with_sha = lane.raw.merge("deployed_sha_cmd" => "sha")
+    # 1 key x (7 + 600 + 80 + 120) = 807s; a 23 minute job leaves 780s.
+    adapter = FakeAdapter.new(flags: { "a" => "off" })
+    result = matrix_for(adapter, lane_def: ScheduledLane::Lane.new(with_sha), job: 23).run([ "a" ])
+    assert_includes result.notes.join, "matrix needs 807s"
+    assert_empty adapter.log.grep(/\Aflip/)
+  end
 
-def test_ledger_ids_carry_the_lane_and_env
-  adapter = FakeAdapter.new(flags: { "a" => "off" })
-  matrix_for(adapter, env: "qa").run([ "a" ])
-  assert_match(/\Ar:x:qa:a:\h{6}\z/, adapter.ledger["rows"].first["id"])
-end
+  def test_two_runs_sharing_a_run_id_each_close_their_own_ledger_row
+    adapter = FakeAdapter.new(flags: { "a" => "off" })
+    2.times { assert matrix_for(adapter).run([ "a" ]).pass? }
+    assert_equal %w[reverted reverted], adapter.ledger["rows"].map { |row| row["state"] }
+  end
 
-def test_unsafe_keys_are_refused
+  def test_ledger_ids_carry_the_lane_and_env
+    adapter = FakeAdapter.new(flags: { "a" => "off" })
+    matrix_for(adapter, env: "qa").run([ "a" ])
+    assert_match(/\Ar:x:qa:a:\h{6}\z/, adapter.ledger["rows"].first["id"])
+  end
+
+  def test_unsafe_keys_are_refused
     adapter = FakeAdapter.new
     result = matrix_for(adapter).run([ "a; rm -rf /" ])
     assert_includes result.notes.join, "unsafe flag key"
@@ -311,26 +319,26 @@ def test_unsafe_keys_are_refused
     assert_equal [ 1, 2 ], numbers
   end
 
-def test_every_adapter_command_runs_under_a_timeout
-  adapter = FakeAdapter.new(flags: { "a" => "off" })
-  matrix_for(adapter).run([ "a" ])
-  assert_equal [ 5 ], adapter.timeouts.uniq, "a 60s headroom gives 3s a call, floored at 5s"
-  adapter = FakeAdapter.new(flags: { "a" => "off" })
-  matrix_for(adapter, lane_def: lane("revert_headroom_seconds" => 320)).run([ "a" ])
-  assert_equal [ 20 ], adapter.timeouts.uniq
-end
+  def test_every_adapter_command_runs_under_a_timeout
+    adapter = FakeAdapter.new(flags: { "a" => "off" })
+    matrix_for(adapter).run([ "a" ])
+    assert_equal [ 5 ], adapter.timeouts.uniq, "a 60s headroom gives 3s a call, floored at 5s"
+    adapter = FakeAdapter.new(flags: { "a" => "off" })
+    matrix_for(adapter, lane_def: lane("revert_headroom_seconds" => 320)).run([ "a" ])
+    assert_equal [ 20 ], adapter.timeouts.uniq
+  end
 
-def test_a_flip_that_hangs_is_restored_and_stops
-  adapter = FakeAdapter.new(flags: { "a" => "off", "b" => "off" })
-  adapter.hang("flip a")
-  result = matrix_for(adapter).run(%w[a b])
-  assert_equal "infra", result.failure_class
-  assert_includes result.notes.join, "timed out"
-  assert_includes adapter.log, "revert a", "the restore runs even though the flip never confirmed"
-  refute_includes adapter.log, "flip b"
-end
+  def test_a_flip_that_hangs_is_restored_and_stops
+    adapter = FakeAdapter.new(flags: { "a" => "off", "b" => "off" })
+    adapter.hang("flip a")
+    result = matrix_for(adapter).run(%w[a b])
+    assert_equal "infra", result.failure_class
+    assert_includes result.notes.join, "timed out"
+    assert_includes adapter.log, "revert a", "the restore runs even though the flip never confirmed"
+    refute_includes adapter.log, "flip b"
+  end
 
-def test_a_trapped_term_reverts_before_the_process_goes
+  def test_a_trapped_term_reverts_before_the_process_goes
     adapter = FakeAdapter.new(flags: { "a" => "off", "b" => "off" })
     result = matrix_for(adapter) do
       Process.kill("TERM", Process.pid)

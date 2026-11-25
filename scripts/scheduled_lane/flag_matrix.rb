@@ -175,12 +175,15 @@ module ScheduledLane
     # Each lane run reads the deployed SHA twice, each read bounded by LaneRun::SHA_TIMEOUT_SECONDS.
     def sha_read_seconds = @lane.deployed_sha_cmd ? 2 * LaneRun::SHA_TIMEOUT_SECONDS : 0
 
+    # The headroom, or what the adapter timeouts can actually use when their floor makes that more.
+    def adapter_reserve_seconds = [ @matrix['revert_headroom_seconds'], ADAPTER_CALLS_PER_KEY * adapter_timeout ].max
+
     def cap_problem(keys)
       bad = keys.reject { |key| key.match?(FLAG_PATTERN) }
       return "unsafe flag key(s): #{bad.join(', ')}" unless bad.empty?
       return "#{keys.length} keys exceed max_flags #{@matrix['max_flags']}" if keys.length > @matrix['max_flags']
 
-      needed = keys.length * (@matrix['settle_seconds'] + @lane.timeout_seconds + @matrix['revert_headroom_seconds'] + sha_read_seconds)
+      needed = keys.length * (@matrix['settle_seconds'] + @lane.timeout_seconds + adapter_reserve_seconds + sha_read_seconds)
       allowed = (@job_timeout_minutes - SLACK_MINUTES) * 60
       return nil if needed <= allowed
 

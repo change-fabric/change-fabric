@@ -165,24 +165,24 @@ class ScheduledLaneCliTest < Minitest::Test
     assert_equal 2, cli("run", "--config", config, "--lane", "example", "--release-tag", "--upload-pack=x")
   end
 
-def test_a_stalled_stdin_write_counts_against_the_timeout
-  started = Time.now
-  outcome = ScheduledLane::CommandRunner.new(chdir: @dir).call("sleep 20", stdin: "x" * 2_000_000, timeout: 0.3)
-  assert outcome.timed_out
-  assert_operator Time.now - started, :<, 12
-end
+  def test_a_stalled_stdin_write_counts_against_the_timeout
+    started = Time.now
+    outcome = ScheduledLane::CommandRunner.new(chdir: @dir).call("sleep 20", stdin: "x" * 2_000_000, timeout: 0.3)
+    assert outcome.timed_out
+    assert_operator Time.now - started, :<, 12
+  end
 
-def test_the_dry_run_touched_command_runs_without_the_ledger_credential
-  ENV["CF_TEST_LEDGER_TOKEN"] = "secret"
-  matrix = matrix_def.merge("ledger_credential_env" => "CF_TEST_LEDGER_TOKEN", "touched_cmd" => "printf %s \"$CF_TEST_LEDGER_TOKEN\"")
-  path = config({}, matrix)
-  assert_equal 0, cli("run", "--config", path, "--lane", "example", "--matrix", "touched", "--dry-run")
-  assert_includes @out.string, "touched flags (0)"
-ensure
-  ENV.delete("CF_TEST_LEDGER_TOKEN")
-end
+  def test_the_dry_run_touched_command_runs_without_the_ledger_credential
+    ENV["CF_TEST_LEDGER_TOKEN"] = "secret"
+    matrix = matrix_def.merge("ledger_credential_env" => "CF_TEST_LEDGER_TOKEN", "touched_cmd" => "printf %s \"$CF_TEST_LEDGER_TOKEN\"")
+    path = config({}, matrix)
+    assert_equal 0, cli("run", "--config", path, "--lane", "example", "--matrix", "touched", "--dry-run")
+    assert_includes @out.string, "touched flags (0)"
+  ensure
+    ENV.delete("CF_TEST_LEDGER_TOKEN")
+  end
 
-def test_runner_passes_stdin_and_drops_nil_env
+  def test_runner_passes_stdin_and_drops_nil_env
     runner = ScheduledLane::CommandRunner.new(chdir: @dir)
     assert_equal "hello", runner.call("cat", stdin: "hello").stdout
     assert_equal "", runner.call("printf %s \"$SECRET_X\"", env: { "SECRET_X" => nil }).stdout

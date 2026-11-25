@@ -244,20 +244,20 @@ class ScheduledLaneSinksTest < Minitest::Test
     assert_equal 1, seen.length, "a passing run sends no DM"
   end
 
-def test_dm_sink_runs_without_the_ledger_credential
-  seen = []
-  runner = Object.new
-  runner.define_singleton_method(:call) do |_cmd, env: {}, **|
-    seen << env
-    ScheduledLane::CommandRunner::Outcome.new(stdout: "", stderr: "", exit_code: 0, timed_out: false)
+  def test_dm_sink_runs_without_the_ledger_credential
+    seen = []
+    runner = Object.new
+    runner.define_singleton_method(:call) do |_cmd, env: {}, **|
+      seen << env
+      ScheduledLane::CommandRunner::Outcome.new(stdout: "", stderr: "", exit_code: 0, timed_out: false)
   end
   lane = ScheduledLane::Lane.new({ "matrix" => { "mode" => "off", "ledger_credential_env" => "LEDGER_TOKEN" },
                                    "sinks" => [ { "type" => "chat_dm", "cmd" => "send" } ] })
   ScheduledLane::Sinks.build(lane, runner: runner).first.report(report)
   assert_equal [ { "LEDGER_TOKEN" => nil } ], seen
-end
+  end
 
-def test_dm_sink_failure_is_a_sink_error
+  def test_dm_sink_failure_is_a_sink_error
     runner = Object.new
     runner.define_singleton_method(:call) { |*, **| ScheduledLane::CommandRunner::Outcome.new(stdout: "", stderr: "denied", exit_code: 1, timed_out: false) }
     assert_raises(ScheduledLane::SinkError) { ScheduledLane::ChatDmSink.new({ "cmd" => "x" }, runner).report(report) }
