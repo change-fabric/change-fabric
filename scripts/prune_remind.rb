@@ -80,4 +80,7 @@ class PruneRemind
   end
 end
 
-PruneRemind.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('prune_remind', event) { PruneRemind.new(event).emit }
+end

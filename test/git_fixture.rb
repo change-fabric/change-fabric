@@ -74,3 +74,8 @@ module GitFixture
 end
 
 GitFixture.scrub_env!
+
+# Hooks run by tests inherit the real HOME; point the guard event log at a
+# throwaway file so a test run never appends to ~/.claude/cf/state.
+require "tmpdir"
+ENV["CF_GUARD_EVENTS_PATH"] ||= File.join(Dir.mktmpdir("cf-guard-events"), "guard_events.jsonl")

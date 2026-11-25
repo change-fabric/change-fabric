@@ -89,4 +89,7 @@ class SlopRemind
   end
 end
 
-SlopRemind.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('slop_remind', event) { SlopRemind.new(event).emit }
+end

@@ -35,4 +35,7 @@ class InboxSessionEnd
   end
 end
 
-InboxSessionEnd.run(HookEvent.read) if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('inbox_session_end', event) { InboxSessionEnd.run(event) }
+end

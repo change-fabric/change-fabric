@@ -374,3 +374,51 @@ class MergeModeRestateTest < Minitest::Test
     assert_includes context, "merge-ready"
   end
 end
+
+class MergeModeRestateOnceTest < Minitest::Test
+  include TempHome
+
+  def emitted(event)
+    io = StringIO.new
+    MergeModeRestate.new({ "session_id" => "s1" }.merge(event)).emit(io)
+    io.string
+  end
+
+  def test_restates_once_then_stays_silent
+    MergeModeStore.new("s1").write("Merge ready")
+    refute_empty emitted({})
+    assert_empty emitted({})
+    assert_empty emitted({})
+  end
+
+  def test_restates_again_when_the_mode_changes
+    MergeModeStore.new("s1").write("Merge ready")
+    emitted({})
+    MergeModeStore.new("s1").write("Yolo")
+    assert_includes emitted({}), "yolo"
+    assert_empty emitted({})
+  end
+
+  def test_restates_on_the_prompt_after_a_compaction
+    MergeModeStore.new("s1").write("Merge ready")
+    emitted({})
+    assert_empty emitted("hook_event_name" => "PostCompact")
+    assert_includes emitted({}), "merge-ready"
+  end
+
+  def test_a_compact_session_start_also_clears_the_marker
+    MergeModeStore.new("s1").write("Merge ready")
+    emitted({})
+    emitted("hook_event_name" => "SessionStart", "source" => "compact")
+    refute_empty emitted({})
+  end
+
+  def test_sessions_are_independent
+    MergeModeStore.new("s1").write("Merge ready")
+    MergeModeStore.new("s2").write("Merge ready")
+    emitted({})
+    io = StringIO.new
+    MergeModeRestate.new("session_id" => "s2").emit(io)
+    refute_empty io.string
+  end
+end

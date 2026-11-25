@@ -7,6 +7,7 @@ require 'stringio'
 require 'shellwords'
 require 'rbconfig'
 require_relative 'cf_ruby_path'
+require_relative 'hook_event'
 require_relative 'cf_runtime'
 require_relative 'skill_compiler'
 require_relative 'skill_detect'
@@ -61,6 +62,7 @@ class CfHostHook
     request['initial_mode'] = @payload['initial_mode'] if @event == 'SessionStart'
     request['parent_session_id'] = parent_id if @event == 'SubagentStart' && parent_id
     result = runtime(request)
+    record_subagent_start
     @resolved_project = result['project']
     result = apply_mode(request) || result if @event == 'UserPromptSubmit' || @event == 'SessionStart'
     result = record_choice(request) || result if @event == 'PostToolUse'
@@ -106,6 +108,16 @@ class CfHostHook
       @rubrics = []
       output({ 'decision' => 'deny', 'reason' => reason }, '')
     end
+  end
+
+  # Content-free firing log: a subagent start is a session_start (the
+  # SessionStart hooks in Installer::HOOKS do not run for subagents).
+  def record_subagent_start
+    return unless @event == 'SubagentStart'
+
+    HookEvent.session_started(@payload.merge('session_id' => session_id, 'parent_session_id' => parent_id), host: @host)
+  rescue StandardError
+    nil
   end
 
   # The mode-persist hint names a stable interpreter. With no usable opt/ link

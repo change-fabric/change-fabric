@@ -65,4 +65,7 @@ class SkillDetect
   end
 end
 
-SkillDetect.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('skill_detect', event) { SkillDetect.new(event).emit }
+end

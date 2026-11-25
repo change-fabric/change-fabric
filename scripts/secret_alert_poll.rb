@@ -112,4 +112,7 @@ class SecretAlertPoll
   end
 end
 
-SecretAlertPoll.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('secret_alert_poll', event) { SecretAlertPoll.new(event).emit }
+end

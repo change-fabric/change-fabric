@@ -72,6 +72,7 @@ module Install
       [ File.join(state_root, 'config', 'providers.yml'), File.join(runtime_root, 'config', 'providers.yml') ]
     end
     def resource_floors      = File.join(@repo, 'config', 'resource_floors.yml')
+    def rule_ids_file        = File.join(@repo, 'config', 'rule_ids.yml')
 
     # The installed copy is named *.defaults.yml: ~/.claude/cf/config/resource_floors.yml
     # is the user's own override file, which an install must never overwrite.
@@ -239,8 +240,11 @@ module Install
     def add_event_hooks(hooks, events)
       events.each do |event, commands|
         section = (hooks[event] ||= [])
-        Array(commands).each do |command|
-          section << { 'hooks' => [ { 'type' => 'command', 'command' => command } ] }
+        Array(commands).each do |entry|
+          command, matcher = entry.is_a?(Hash) ? entry.values_at('command', 'matcher') : [ entry, nil ]
+          group = { 'hooks' => [ { 'type' => 'command', 'command' => command } ] }
+          group = { 'matcher' => matcher }.merge(group) if matcher
+          section << group
         end
       end
     end
@@ -566,6 +570,32 @@ module Install
       'Stop' => %w[skill_review.rb]
     }.freeze
 
+    # Tool matcher per PreToolUse and PostToolUse script. Deny guards err wide:
+    # a matcher that is too narrow silently disables a guard, one that is too
+    # wide only costs a no-op evaluation (the script re-checks the tool itself).
+    SHELL = 'Bash'
+    FILE_EDITS = 'Edit|Write|MultiEdit|NotebookEdit'
+    MATCHERS = {
+      'secrets_read_guard.rb' => "Bash|Read|Grep|Glob|#{FILE_EDITS}",
+      'force_push_guard.rb' => SHELL,
+      'client_name_guard.rb' => "Bash|#{FILE_EDITS}|mcp__.*",
+      'slop_remind.rb' => SHELL,
+      'review_gate.rb' => SHELL,
+      'noreply_guard.rb' => SHELL,
+      'docker_doctrine_guard.rb' => SHELL,
+      'change_merge_guard.rb' => SHELL,
+      'change_tag_guard.rb' => SHELL,
+      'change_stale_remind.rb' => SHELL,
+      'approval_watch_remind.rb' => SHELL,
+      'presence_probe.rb' => FILE_EDITS,
+      'prod_approval_guard.rb' => SHELL,
+      'model_role_guard.rb' => 'Agent|Task',
+      'resource_floor_guard.rb' => 'Agent|Task',
+      'skill_inject.rb' => FILE_EDITS,
+      'secret_ack.rb' => 'AskUserQuestion',
+      'change_post_merge_check.rb' => SHELL
+    }.freeze
+
     def initialize(paths:, ruby:)
       @paths = paths
       @ruby = ruby
@@ -694,6 +724,8 @@ module Install
         FileUtils.cp(@paths.provider_registry, dest)
         # Beside it, so scripts/model_roles.rb finds the repo map from a runtime copy.
         FileUtils.cp(@paths.model_roles_file, File.join(File.dirname(dest), 'model_roles.yml'))
+        # Beside it too: scripts/hook_event.rb reads the declared rule IDs from ../config.
+        FileUtils.cp(@paths.rule_ids_file, File.join(File.dirname(dest), 'rule_ids.yml'))
       end
       @paths.resource_floors_dests.each do |dest|
         FileUtils.mkdir_p(File.dirname(dest))
@@ -909,8 +941,16 @@ module Install
 
     def commands
       HOOKS.to_h do |event, names|
-        [ event, names.map { |name| "#{@ruby} #{@paths.script_dest(name)}" } ]
+        [ event, names.map { |name| hook_entry(event, name) } ]
       end
+    end
+
+    # A PreToolUse or PostToolUse entry carries its matcher; the rest stay strings.
+    def hook_entry(event, name)
+      command = "#{@ruby} #{@paths.script_dest(name)}"
+      return command unless %w[PreToolUse PostToolUse].include?(event)
+
+      { 'command' => command, 'matcher' => MATCHERS.fetch(name) }
     end
 
     def mirror_to_pi

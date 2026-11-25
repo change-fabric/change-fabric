@@ -179,4 +179,7 @@ class SecretsReadGuard
   end
 end
 
-SecretsReadGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('secrets_read_guard', event) { SecretsReadGuard.new(event).emit }
+end

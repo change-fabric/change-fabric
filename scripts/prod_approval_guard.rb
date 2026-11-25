@@ -243,4 +243,7 @@ class ProdApprovalGuard
   end
 end
 
-ProdApprovalGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('prod_approval_guard', event) { ProdApprovalGuard.new(event).emit }
+end

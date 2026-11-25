@@ -62,4 +62,7 @@ class ChangePostMergeCheck
   end
 end
 
-ChangePostMergeCheck.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('change_post_merge_check', event) { ChangePostMergeCheck.new(event).emit }
+end

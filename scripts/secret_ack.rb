@@ -112,4 +112,7 @@ class SecretAck
   def post(payload) = HookHttp.post_json(ENDPOINT, payload, timeout: TIMEOUT)
 end
 
-SecretAck.new(HookEvent.read).run if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('secret_ack', event) { SecretAck.new(event).run }
+end

@@ -99,4 +99,7 @@ class DockerDoctrineGuard
   end
 end
 
-DockerDoctrineGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('docker_doctrine_guard', event) { DockerDoctrineGuard.new(event).emit }
+end

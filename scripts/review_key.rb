@@ -18,11 +18,18 @@ module ReviewKey
     session = event['session_id'].to_s
     return session if session.empty?
 
-    agent = event['agent_id'].to_s
-    return "#{session}:#{agent}" unless agent.empty?
+    agent = agent_key(event)
+    return agent if agent
 
     slug = worktree_slug(path || event['cwd'])
     slug ? "#{session}@#{slug}" : session
+  end
+
+  # The `session:agent` identity when the payload names an agent, else nil.
+  def agent_key(event)
+    session = event['session_id'].to_s
+    agent = event['agent_id'].to_s
+    "#{session}:#{agent}" unless session.empty? || agent.empty?
   end
 
   # Every queue this session owns on disk: its own plus each agent and worktree

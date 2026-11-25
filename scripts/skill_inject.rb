@@ -150,6 +150,10 @@ class SkillInject
     fresh = first_time(skills)
     return if fresh.empty?
 
+    fresh.each do |skill|
+      HookEvent.record('rubric_surfaced', session: @event['session_id'], rule_id: "rubric/#{skill.name}",
+                                          rule_version: HookEvent.sha8(skill.body))
+    end
     text = fresh.map { |skill| "[cf skill: #{skill.name}] active this session.\n\n#{skill.body}" }
                 .join("\n\n---\n\n")
     io.puts(JSON.generate(hookSpecificOutput: { hookEventName: EVENT, additionalContext: text }))
@@ -166,5 +170,5 @@ end
 if __FILE__ == $PROGRAM_NAME
   event = HookEvent.read
   HookEvent.debug_keys(event, 'skill_inject')
-  SkillInject.new(event).emit
+  HookEvent.instrument('skill_inject', event) { SkillInject.new(event).emit }
 end
