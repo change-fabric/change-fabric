@@ -102,7 +102,10 @@ module ApprovalConsole
 
       File.open(path('consoles.lock'), File::RDWR | File::CREAT, FILE_MODE) do |lock|
         lock.flock(File::LOCK_EX)
-        legacy? ? migrate_locked : nil
+        # Also take the TOTP lock: consume and settle append to the queue under it,
+        # and an append between the queue move and the console.json switch
+        # would land in the legacy path and be orphaned.
+        with_lock { legacy? ? migrate_locked : nil }
       end
     end
 

@@ -194,6 +194,18 @@ class ApprovalConsoleMultiConsoleTest < Minitest::Test
     assert_predicate store, :console_configured?
   end
 
+  def test_migration_waits_for_the_totp_lock
+    dir = @store.dir
+    write_single_console_layout(dir)
+    File.open(File.join(dir, "totp.lock"), File::RDWR | File::CREAT) do |held|
+      held.flock(File::LOCK_EX)
+      migration = Thread.new { ApprovalConsole::LocalStore.new.migrate! }
+      refute migration.join(0.3), "migrate! must block while the TOTP lock is held"
+      held.flock(File::LOCK_UN)
+      assert_equal BETA, migration.value
+    end
+  end
+
   def test_migrate_needs_a_human_and_enroll_migrates
     write_single_console_layout(@store.dir)
     status, _out, err = cli([ "migrate" ], auth: nil)
