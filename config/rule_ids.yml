@@ -91,6 +91,18 @@ rules:
     hook: resource_floor_guard
     event: PreToolUse
     kind: advisory
+  glyph_guard/glyph:
+    hook: glyph_guard
+    event: PreToolUse
+    kind: deny
+  glyph_guard/title_len:
+    hook: glyph_guard
+    event: PreToolUse
+    kind: deny
+  glyph_guard/body_len:
+    hook: glyph_guard
+    event: PreToolUse
+    kind: advisory
   skill_inject/inject:
     hook: skill_inject
     event: PostToolUse

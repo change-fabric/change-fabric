@@ -18,7 +18,8 @@ class InstallMatchersTest < Minitest::Test
     "change_merge_guard" => %w[Bash],
     "change_tag_guard" => %w[Bash],
     "presence_probe" => %w[Edit Write NotebookEdit],
-    "prod_approval_guard" => %w[Bash]
+    "prod_approval_guard" => %w[Bash],
+    "glyph_guard" => %w[Bash Write Edit]
   }.freeze
 
   def setup
@@ -58,7 +59,7 @@ class InstallMatchersTest < Minitest::Test
 
   def test_the_table_covers_every_deny_rule_that_runs_on_tool_use
     deny_tool_hooks = HookEvent.rule_ids.values.select { |r| r["kind"] == "deny" && %w[PreToolUse PostToolUse].include?(r["event"]) }
-                               .map { |r| r["hook"] }
+                               .map { |r| r["hook"] }.uniq
     assert_equal deny_tool_hooks.sort, DENY_TOOLS.keys.sort
   end
 
