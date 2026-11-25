@@ -1,14 +1,15 @@
 ---
 name: cf:status
 group: workflow
-description: Arms a recurring self-status ping on a real cron loop. It prints a red/yellow/green progress line per active work item on each tick. Takes the interval as an argument or asks for it, refreshes a session-scoped status store every tick, prints only when something changed, and stops itself once every item reads green.
+description: Arms a recurring self-status ping on a real cron loop. It prints a red/yellow/green progress line per unfinished epic or stack on each tick, with percents computed from the triage report. Takes the interval as an argument or asks for it, refreshes a session-scoped status store every tick, prints only when something changed, and stops itself once every item reads green.
 ---
 
 # CF Status
 
-Report this session's own progress on a fixed interval, one line per active
-work item, so the human can glance at the terminal and see where the work
-stands without asking.
+Report progress on a fixed interval, one line per unfinished epic or stack, so
+the human can glance at the terminal and see where the work stands without
+asking. The lines come from `triage.rb report --json`, a deterministic read of
+state (units done over all units), never from the agent's own estimate.
 
 Trigger: `/cf:status [<minutes>]` to arm, `/cf:status tick` on every fire.
 
@@ -63,7 +64,7 @@ fire, so the prompt handed to `CronCreate` must be exactly `/cf:status tick`.
 4. **Seed the store.**
    `ruby ~/.claude/cf/bin/status_store.rb arm --session <id> --interval <N> --cron <job_id>`
    then write the opening item list with one `write` call (step 2 of Tick
-   mode describes how the list is built). The first list is printed in full;
+   mode describes how the list is built; it takes no item arguments). The first list is printed in full;
    there is nothing to diff against.
 
 5. **Confirm** in at most three lines: the interval, the job id, the number of
@@ -84,19 +85,18 @@ ticks except what is in the store.
    `write` against an unarmed session silently creates a partial store
    entry (`armed: true` but `cron_job_id: null`), which is exactly the state
    this check exists to avoid.
-2. **Recompute the list from live context**, not from the store: read this
-   session's actual state (the current todo list, what the last few turns
-   were doing, what is blocked waiting on a human or an external system) and
-   express it as one item per active work item, each a short imperative or
-   present-tense phrase and a percent. Keep the list short; if it runs past
-   about eight items the list has stopped being glanceable and should be
-   collapsed to the items actually in flight. Percent is a judgment call
-   about how much of that item is done, and it must sit in the band that
-   matches its real state (see Bands).
+2. **Recompute the list from state**, not from the store and not from
+   judgment. The next call reads the triage report itself, so there is
+   nothing to assemble by hand. Each line is one unfinished epic or stack, and
+   its percent is done units over all units for it. A finished group has no
+   line, and a group with no units reads `n/a` and has no line either. To
+   limit the list to one repo, add `--repo <owner/repo>`.
 3. **Write and diff in one call:**
-   `ruby ~/.claude/cf/bin/status_store.rb write --session <id> --item "10:Blocked on API keys" --item "55:Writing plan.md"`
-   The response carries `changed`, `all_green`, `rendered`, and
-   `cron_job_id`.
+   `ruby ~/.claude/cf/bin/status_store.rb write --session <id>`
+   The call runs `triage.rb report --json` (a pure read that never writes the
+   triage baseline) and stores the result. The response carries `changed`,
+   `all_green`, `rendered`, and `cron_job_id`. If it returns
+   `report_unavailable`, print one line saying so and leave the store alone.
 4. **Print.** If `changed` is true, print the `rendered` lines verbatim, one
    per line, nothing else: no preamble, no summary, no closing sentence. If
    `changed` is false, print exactly one line, `No change since HH:MM`, using
@@ -115,7 +115,7 @@ ticks except what is in the store.
 | 🟡 | 34-79% | In progress. |
 | 🟢 | 80-100% | Done, or near enough that nothing is expected to go wrong. |
 
-Line format, exactly: `<emoji> <label> (<NN>%)`.
+Line format, exactly: `<emoji> <label> (<NN>%)`, where the label is the group name and its next step.
 
 The bands are enforced in `status_store.rb`, which derives the emoji from the
 percent. Never hand-write an emoji into a line; give the store a percent and
@@ -145,8 +145,10 @@ an empty list every tick. Do both.
 - A tick that fires while a turn is running is queued, not injected: it waits
   for the turn to end. During a long turn the printed list can therefore be a
   few minutes older than the interval implies.
-- The list is the agent's own judgment about its own work. It is a progress
-  report, not a measurement, and a percent is an estimate.
+- Percents are measurements from state: merged PRs over all PRs for a stack,
+  done phases over all phases for an epic. They count units, not effort, so a
+  phase that is nearly done still reads as not done. The `--item NN:label`
+  form is gone and `write` rejects it.
 
 ## Failure modes
 

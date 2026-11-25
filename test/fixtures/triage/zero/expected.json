@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "generated_at": "2026-11-25T12:00:00Z",
+  "host": null,
+  "generation": 0,
+  "units": [
+    {
+      "unit": "acme/api#stack/empty-stack",
+      "repo": "acme/api",
+      "epic": null,
+      "node": "empty-stack",
+      "phase": "",
+      "group": "acme/api#stack/empty-stack",
+      "kind": "stack",
+      "state": "unknown",
+      "prs": [],
+      "percent": null,
+      "percent_label": "n/a",
+      "next_step": "stack records no PRs yet",
+      "blockers": [],
+      "eligible": false,
+      "changed": [],
+      "decisions": []
+    }
+  ],
+  "groups": [
+    {
+      "group": "acme/api#stack/empty-stack",
+      "kind": "stack",
+      "name": "acme/api#stack/empty-stack",
+      "total": 0,
+      "done": 0,
+      "percent": null,
+      "percent_label": "n/a",
+      "next_step": "stack records no PRs yet"
+    },
+    {
+      "group": "epic/empty",
+      "kind": "epic",
+      "name": "empty",
+      "total": 0,
+      "done": 0,
+      "percent": null,
+      "percent_label": "n/a",
+      "next_step": "no units"
+    }
+  ],
+  "eligible": [],
+  "decisions": [],
+  "hosts": [],
+  "findings": [],
+  "changed": []
+}

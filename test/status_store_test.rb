@@ -26,6 +26,24 @@ class StatusStoreTest < Minitest::Test
     FileUtils.remove_entry(@home)
   end
 
+  # Items now come from a triage report, never from judgment. Each pair
+  # becomes one report group whose done/total yields exactly that percent.
+  def report_file(items)
+    groups = items.map do |percent, label|
+      { "group" => label, "kind" => "epic", "name" => label, "total" => 100, "done" => percent,
+        "percent" => percent, "percent_label" => "#{percent}%", "next_step" => "" }
+    end
+    path = File.join(@home, "report-#{items.hash.abs}.json")
+    File.write(path, JSON.generate("groups" => groups))
+    path
+  end
+
+  def write_items(session, items)
+    args = [ "write", "--report-file", report_file(items) ]
+    args.push("--session", session) unless session.nil?
+    run_cli(args)
+  end
+
   def run_cli(argv)
     out = StringIO.new
     StatusStore::CLI.run(argv, out: out)
@@ -48,27 +66,27 @@ class StatusStoreTest < Minitest::Test
 
   def test_arm_clears_items_left_over_from_a_previous_arming
     run_cli([ "arm", "--session", "s1", "--interval", "10", "--cron", "cron_1" ])
-    run_cli([ "write", "--session", "s1", "--item", "50:in flight" ])
+    write_items("s1", [ [ 50, "in flight" ] ])
     run_cli([ "arm", "--session", "s1", "--interval", "5", "--cron", "cron_2" ])
     result = run_cli([ "show", "--session", "s1" ])
     assert_empty result["items"]
   end
 
   def test_write_on_a_fresh_store_reports_changed_true
-    result = run_cli([ "write", "--session", "s1", "--item", "10:new item" ])
+    result = write_items("s1", [ [ 10, "new item" ] ])
     assert result["changed"]
   end
 
   def test_write_with_an_identical_list_reports_changed_false_and_preserves_previous
-    run_cli([ "write", "--session", "s1", "--item", "10:one", "--item", "20:two" ])
-    result = run_cli([ "write", "--session", "s1", "--item", "10:one", "--item", "20:two" ])
+    write_items("s1", [ [ 10, "one" ], [ 20, "two" ] ])
+    result = write_items("s1", [ [ 10, "one" ], [ 20, "two" ] ])
     refute result["changed"]
     assert_equal [ 10, 20 ], result["previous"].map { |item| item["percent"] }
   end
 
   def test_write_with_a_reordered_list_reports_changed_true
-    run_cli([ "write", "--session", "s1", "--item", "10:one", "--item", "20:two" ])
-    result = run_cli([ "write", "--session", "s1", "--item", "20:two", "--item", "10:one" ])
+    write_items("s1", [ [ 10, "one" ], [ 20, "two" ] ])
+    result = write_items("s1", [ [ 20, "two" ], [ 10, "one" ] ])
     assert result["changed"]
   end
 
@@ -76,50 +94,99 @@ class StatusStoreTest < Minitest::Test
     {
       0 => "red", 33 => "red",
       34 => "yellow", 79 => "yellow",
-      80 => "green", 100 => "green"
+      80 => "green", 99 => "green"
     }.each do |percent, color|
-      result = run_cli([ "write", "--session", "s1", "--item", "#{percent}:item" ])
+      result = write_items("s1", [ [ percent, "item" ] ])
       assert_equal color, result["items"].first["color"], "expected #{percent}% to render #{color}"
     end
+    assert_equal "green", StatusStore.band_for(100)[2]
   end
 
   def test_all_green_is_true_only_when_every_item_is_at_or_above_80
-    result = run_cli([ "write", "--session", "s1", "--item", "80:one", "--item", "100:two" ])
+    result = write_items("s1", [ [ 80, "one" ], [ 99, "two" ] ])
     assert result["all_green"]
 
-    result = run_cli([ "write", "--session", "s1", "--item", "79:one", "--item", "100:two" ])
+    result = write_items("s1", [ [ 79, "one" ], [ 99, "two" ] ])
     refute result["all_green"]
   end
 
-  def test_all_green_is_false_for_an_empty_list
-    result = run_cli([ "write", "--session", "s1" ])
+  def test_all_green_is_false_when_the_report_has_no_groups
+    result = write_items("s1", [])
     refute result["all_green"]
+  end
+
+  def test_finished_groups_are_not_listed_but_a_report_of_only_finished_groups_is_all_green
+    result = write_items("s1", [ [ 100, "shipped" ] ])
+    assert_empty result["items"]
+    assert result["all_green"]
+  end
+
+  def test_a_group_with_an_empty_denominator_has_no_line_and_keeps_the_loop_running
+    path = File.join(@home, "na.json")
+    File.write(path, JSON.generate("groups" => [ { "name" => "empty", "total" => 0, "done" => 0, "percent" => nil,
+                                                    "percent_label" => "n/a", "next_step" => "no units" } ]))
+    result = run_cli([ "write", "--session", "s1", "--report-file", path ])
+    assert_empty result["items"]
+    refute result["all_green"]
+  end
+
+  def test_the_repo_filter_keeps_only_that_repos_groups
+    path = File.join(@home, "repo.json")
+    File.write(path, JSON.generate("groups" => [
+      { "group" => "a", "name" => "a", "total" => 4, "done" => 1, "percent" => 25, "next_step" => "x" },
+      { "group" => "b", "name" => "b", "total" => 4, "done" => 2, "percent" => 50, "next_step" => "y" }
+    ], "units" => [ { "group" => "a", "repo" => "o/a" }, { "group" => "b", "repo" => "o/b" } ]))
+    result = run_cli([ "write", "--session", "s1", "--report-file", path, "--repo", "o/b" ])
+    assert_equal [ "b: y" ], result["items"].map { |item| item["label"] }
   end
 
   def test_rendered_line_format_is_exactly_emoji_label_percent
-    result = run_cli([ "write", "--session", "s1", "--item", "55:Writing plan.md" ])
+    result = write_items("s1", [ [ 55, "Writing plan.md" ] ])
     assert_equal [ "\u{1F7E1} Writing plan.md (55%)" ], result["rendered"]
   end
 
   def test_a_percent_above_100_is_clamped
-    result = run_cli([ "write", "--session", "s1", "--item", "999:too high" ])
+    path = File.join(@home, "high.json")
+    File.write(path, JSON.generate("groups" => [ { "name" => "too high", "total" => 100, "done" => 50, "percent" => 999,
+                                                    "next_step" => "" } ]))
+    result = run_cli([ "write", "--session", "s1", "--report-file", path ])
     assert_equal 100, result["items"].first["percent"]
   end
 
   def test_a_label_containing_a_pipe_or_a_newline_is_stripped_not_rejected
-    result = run_cli([ "write", "--session", "s1", "--item", "10:has|pipe\nand newline" ])
+    result = write_items("s1", [ [ 10, "has|pipe\nand newline" ] ])
     refute_nil result["items"].first
     label = result["items"].first["label"]
     refute_includes label, "|"
     refute_includes label, "\n"
   end
 
-  def test_a_malformed_item_returns_bad_item_error_and_leaves_stored_items_untouched
-    run_cli([ "write", "--session", "s1", "--item", "10:kept" ])
-    result = run_cli([ "write", "--session", "s1", "--item", "not-an-item" ])
-    assert_equal "bad_item", result["error"]
+  def test_the_item_flag_is_rejected_because_percents_come_only_from_the_report
+    write_items("s1", [ [ 10, "kept" ] ])
+    result = run_cli([ "write", "--session", "s1", "--item", "90:judged" ])
+    assert_equal "usage", result["error"]
     show = run_cli([ "show", "--session", "s1" ])
     assert_equal [ "kept" ], show["items"].map { |item| item["label"] }
+  end
+
+  def test_an_unreadable_report_returns_report_unavailable_and_leaves_stored_items_untouched
+    write_items("s1", [ [ 10, "kept" ] ])
+    result = run_cli([ "write", "--session", "s1", "--report-file", File.join(@home, "missing.json") ])
+    assert_equal "report_unavailable", result["error"]
+    show = run_cli([ "show", "--session", "s1" ])
+    assert_equal [ "kept" ], show["items"].map { |item| item["label"] }
+  end
+
+  def test_the_default_loader_reads_triage_report_json_read_only
+    captured = nil
+    loader = lambda do |argv|
+      captured = argv
+      [ JSON.generate("groups" => [ { "name" => "g", "total" => 2, "done" => 1, "percent" => 50, "next_step" => "n" } ]), true ]
+    end
+    out = StringIO.new
+    StatusStore::CLI.run([ "write", "--session", "s1" ], out: out, loader: loader)
+    assert_equal [ "report", "--json" ], captured.last(2)
+    assert_equal [ "g: n" ], JSON.parse(out.string)["items"].map { |item| item["label"] }
   end
 
   def test_a_corrupt_items_file_reads_as_empty_rather_than_raising
@@ -132,7 +199,7 @@ class StatusStoreTest < Minitest::Test
   end
 
   def test_a_blank_session_id_is_non_persistable
-    run_cli([ "write", "--session", "", "--item", "10:ghost" ])
+    write_items("", [ [ 10, "ghost" ] ])
     result = run_cli([ "show", "--session", "" ])
     refute result["armed"]
     assert_empty result["items"]
@@ -145,7 +212,7 @@ class StatusStoreTest < Minitest::Test
     FileUtils.touch(other, mtime: Time.now + 60)
 
     assert_equal "", run_cli([ "resolve", "--session", "" ])["session_id"]
-    run_cli([ "write", "--session", "", "--item", "10:ghost" ])
+    write_items("", [ [ 10, "ghost" ] ])
     refute File.exist?(File.join(other, "status"))
   end
 
@@ -157,7 +224,7 @@ class StatusStoreTest < Minitest::Test
 
     ENV["CLAUDE_CODE_SESSION_ID"] = ""
     assert_equal "", run_cli([ "resolve" ])["session_id"]
-    run_cli([ "write", "--item", "10:ghost" ])
+    write_items(nil, [ [ 10, "ghost" ] ])
     refute File.exist?(File.join(other, "status"))
   ensure
     ENV.delete("CLAUDE_CODE_SESSION_ID")
@@ -176,7 +243,7 @@ class StatusStoreTest < Minitest::Test
 
   def test_disarm_returns_the_recorded_cron_job_id_and_removes_both_files
     run_cli([ "arm", "--session", "s1", "--interval", "10", "--cron", "cron_9" ])
-    run_cli([ "write", "--session", "s1", "--item", "10:one" ])
+    write_items("s1", [ [ 10, "one" ] ])
     paths = run_cli([ "path", "--session", "s1" ])
     result = run_cli([ "disarm", "--session", "s1" ])
     assert_equal "cron_9", result["cron_job_id"]
@@ -211,14 +278,14 @@ class StatusStoreTest < Minitest::Test
     FileUtils.touch(newer, mtime: Time.now + 60)
 
     assert_nil run_cli([ "resolve" ])["session_id"]
-    run_cli([ "write", "--item", "10:ghost" ])
+    write_items(nil, [ [ 10, "ghost" ] ])
     refute File.exist?(File.join(newer, "status")), "an unresolved session must write nowhere"
     refute File.exist?(File.join(older, "status"))
   end
 
   def test_writes_leave_no_temp_file_behind
     run_cli([ "arm", "--session", "s1", "--interval", "10", "--cron", "cron_1" ])
-    run_cli([ "write", "--session", "s1", "--item", "10:one" ])
+    write_items("s1", [ [ 10, "one" ] ])
     paths = run_cli([ "path", "--session", "s1" ])
     refute File.exist?("#{paths['config']}.tmp")
     refute File.exist?("#{paths['items']}.tmp")

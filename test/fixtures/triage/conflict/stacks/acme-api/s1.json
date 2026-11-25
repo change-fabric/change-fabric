@@ -1,0 +1,2 @@
+{"slug": "s1", "repo": "acme/api", "source": "plan", "mode": "admin_bypass", "current": 0, "judged": [],
+ "prs": [{"number": 7, "state": "merged", "phase": "area/api-plan#Phase 1"}]}

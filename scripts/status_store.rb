@@ -4,6 +4,8 @@
 require 'json'
 require 'time'
 require 'fileutils'
+require 'open3'
+require 'rbconfig'
 
 # Session-scoped state for cf:status's own self-status ping, under
 # ~/.claude/cf/sessions/<session_id>/. Scope is deliberately session-scoped,
@@ -128,16 +130,52 @@ class StatusStore
     File.rename(tmp, path)
   end
 
+  # The unfinished groups of a `triage.rb report --json` report as items.
+  # Percent is the report's own done-over-total, never a judgment. A finished
+  # group has no line, and a group with an empty denominator (`n/a`) has no
+  # percent to show, so it has no line either. `repo` limits the list to the
+  # groups that own a unit in that repo.
+  def self.items_from_report(report, repo: nil)
+    groups = Array(report['groups'])
+    groups = groups.select { |group| repo_groups(report, repo).include?(group['group']) } if repo
+    groups.filter_map do |group|
+      next if group['percent'].nil? || group['done'].to_i >= group['total'].to_i
+
+      step = group['next_step'].to_s
+      label = step.empty? ? group['name'].to_s : "#{group['name']}: #{step}"
+      Item.new(group['percent'].to_i.clamp(0, 100), label.gsub(/[\n\r|]/, '')[0, 120])
+    end
+  end
+
+  def self.repo_groups(report, repo)
+    Array(report['units']).select { |unit| unit['repo'] == repo }.map { |unit| unit['group'] }.uniq
+  end
+
+  # True when the report has groups and none is unfinished (including an
+  # `n/a` group, which can never read done).
+  def self.report_settled?(report)
+    groups = Array(report['groups'])
+    !groups.empty? && groups.all? { |group| group['total'].to_i.positive? && group['done'].to_i >= group['total'].to_i }
+  end
+
   # The thin CLI the cf:status skill drives from Bash. Every subcommand
   # prints JSON so the skill parses one shape regardless of which one ran.
   class CLI
-    ITEM_PATTERN = /\A(\d{1,3}):(.+)\z/m
+    TRIAGE = File.join(__dir__, 'triage.rb')
 
     USAGE = 'status_store.rb resolve|path|show|render|disarm [--session <id>] | ' \
             'arm --interval <minutes> --cron <job_id> [--session <id>] | ' \
-            'write [--session <id>] --item "<NN>:<label>" [--item ...]'
+            'write [--session <id>] [--repo <owner/repo>]'
 
-    def self.run(argv, out: $stdout)
+    # Runs `triage.rb report --json`, a pure read, and returns [stdout, ok].
+    DEFAULT_LOADER = lambda do |argv|
+      out, _err, status = Open3.capture3(*argv)
+      [ out, status.success? ]
+    rescue SystemCallError
+      [ '', false ]
+    end
+
+    def self.run(argv, out: $stdout, loader: DEFAULT_LOADER)
       command, *rest = argv
       opts = parse_options(rest)
       case command
@@ -145,7 +183,7 @@ class StatusStore
       when 'path' then path(opts, out)
       when 'arm' then arm(opts, out)
       when 'show' then show(opts, out)
-      when 'write' then write(opts, out)
+      when 'write' then write(opts, out, loader)
       when 'render' then render(opts, out)
       when 'disarm' then disarm(opts, out)
       else out.puts(JSON.generate(error: 'usage', usage: USAGE))
@@ -153,14 +191,16 @@ class StatusStore
     end
 
     def self.parse_options(argv)
-      opts = { 'item' => [] }
+      opts = {}
       index = 0
       while index < argv.length
         case argv[index]
         when '--session' then opts['session'] = argv[index += 1]
         when '--interval' then opts['interval'] = argv[index += 1]
         when '--cron' then opts['cron'] = argv[index += 1]
-        when '--item' then opts['item'] << argv[index += 1]
+        when '--report-file' then opts['report_file'] = argv[index += 1]
+        when '--repo' then opts['repo'] = argv[index += 1]
+        when '--item' then opts['item'] = true
         end
         index += 1
       end
@@ -233,35 +273,48 @@ class StatusStore
       ))
     end
 
-    def self.write(opts, out)
-      parsed = []
-      opts['item'].each do |raw|
-        match = ITEM_PATTERN.match(raw.to_s)
-        return out.puts(JSON.generate(error: 'bad_item', item: raw)) unless match
+    # Items come only from the triage report. The old `--item NN:label` path
+    # (a percent from the model's judgment) is gone and rejected.
+    def self.write(opts, out, loader)
+      return out.puts(JSON.generate(error: 'usage', usage: USAGE)) if opts['item']
 
-        parsed << StatusStore::Item.new(clamp_percent(match[1].to_i), sanitize_label(match[2]))
-      end
+      report = load_report(opts, loader)
+      return out.puts(JSON.generate(error: 'report_unavailable')) unless report
 
+      parsed = StatusStore.items_from_report(report, repo: opts['repo'])
       store = StatusStore.new(resolve_session_id(opts).to_s)
       previous = store.items
       store.write_items(parsed)
       store.stamp_tick
       cfg = store.config
+      green = parsed.empty? ? StatusStore.report_settled?(report) : StatusStore.all_green?(parsed)
 
       out.puts(JSON.generate(
         changed: previous.map(&:to_a) != parsed.map(&:to_a),
         previous: previous.map(&:to_h),
         items: parsed.map(&:to_h),
-        all_green: StatusStore.all_green?(parsed),
+        all_green: green,
         rendered: parsed.map { |item| StatusStore.render_line(item) },
         cron_job_id: cfg['cron_job_id'],
         last_tick: cfg['last_tick']
       ))
     end
 
-    def self.clamp_percent(value) = value.clamp(0, 100)
+    def self.load_report(opts, loader)
+      text, ok = opts['report_file'] ? read_report_file(opts['report_file']) : loader.call([ RbConfig.ruby, TRIAGE, 'report', '--json' ])
+      return nil unless ok
 
-    def self.sanitize_label(label) = label.gsub(/[\n\r|]/, '')
+      data = JSON.parse(text)
+      data.is_a?(Hash) ? data : nil
+    rescue JSON::ParserError
+      nil
+    end
+
+    def self.read_report_file(path)
+      [ File.read(path), true ]
+    rescue SystemCallError
+      [ '', false ]
+    end
 
     def self.render(opts, out)
       store = StatusStore.new(resolve_session_id(opts).to_s)

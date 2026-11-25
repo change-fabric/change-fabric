@@ -1,0 +1,5 @@
+{
+  "acme/api#11": {"state": "MERGED", "ci": "passed", "clean": false, "unresolved_threads": 0},
+  "acme/api#12": {"state": "OPEN", "ci": "failed", "clean": false, "unresolved_threads": 2},
+  "acme/api#13": {"state": "OPEN", "ci": "pending", "clean": false, "unresolved_threads": 0}
+}
