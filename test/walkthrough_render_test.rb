@@ -166,6 +166,32 @@ class WalkthroughRenderTest < Minitest::Test
     cues.each_cons(2) { |a, b| assert_operator b[:start_ms], :>=, a[:end_ms] }
   end
 
+  def test_captions_hold_until_the_next_cue_within_the_film
+    run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, gates: { roast: false })
+    run.instance_variable_set(:@board, board.merge("captions" => { "hold" => true }))
+    inputs = [ scene_input("One two", 0), scene_input("Three", 5000) ]
+    cues = parse_srt(run.send(:captions, inputs, 6000))
+    assert_equal [ [ 0, 1850 ], [ 5000, 6000 ] ], cues.map { |c| [ c[:start_ms], c[:end_ms] ] },
+                 "the cap holds the first cue; the film's end stops the last"
+  end
+
+  # The hold keys the render, and the burned SRT and the VTT sidecar agree.
+  def test_held_captions_never_reuse_an_unheld_render
+    plain = run_render(burn_captions: true)
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b.merge("captions" => { "hold" => true })))
+    held = run_render(burn_captions: true)
+    refute_equal File.dirname(plain[:mp4]), File.dirname(held[:mp4])
+    plain_cues, held_cues = [ plain, held ].map { |r| parse_srt(File.read(File.join(File.dirname(r[:mp4]), "captions.srt"))) }
+    assert_equal plain_cues.map { |c| c[:start_ms] }, held_cues.map { |c| c[:start_ms] }
+    assert(held_cues.zip(plain_cues).all? { |h, p| h[:end_ms] >= p[:end_ms] })
+    # The detail cue holds to the hero cue; the hero cue holds to the film's end.
+    assert_equal [ 900, 2000, 3100 ], held_cues.map { |c| c[:end_ms] }
+    assert_equal 3100, held[:manifest].dig("timeline", "total_ms")
+    dir = File.dirname(held[:mp4])
+    assert_equal WalkthroughCaptions.vtt(File.read(File.join(dir, "captions.srt"))), File.read(File.join(dir, "walkthrough.vtt"))
+  end
+
   def run_render(**opts)
     WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new, gates: { roast: false } }.merge(opts)).call
   end

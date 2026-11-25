@@ -38,7 +38,11 @@ module WalkthroughDevice
   SCRIM_ALPHA = 0.6
   SCRIM_EASE = 1.6
   SCRIMS = %w[gradient none].freeze
-  CAPTION_KEYS = %w[scrim burn].freeze
+  CAPTION_KEYS = %w[scrim burn hold].freeze
+  # captions.hold: true holds each cue up to HOLD_MS past its last word
+  # (toward the next cue); a number of ms sets that cap, up to HOLD_MAX_MS.
+  HOLD_MS = 1500
+  HOLD_MAX_MS = 5000
   # Burned captions with no scrim get an outline and shadow instead (libass).
   NO_SCRIM_STYLE = 'BorderStyle=1,Outline=2,Shadow=1,OutlineColour=&H00161716,BackColour=&H80000000'
   # Bezel thickness in device CSS px (phone) and canvas px (desktop frame).
@@ -106,20 +110,28 @@ module WalkthroughDevice
     layout(board, scene).rect('phone').scale.round(4)
   end
 
-  # The board's caption scrim under full-bleed scenes: gradient or none.
-  def scrim(board)
+  # The board's captions block, or {} when it is absent or not an object
+  # (caption_errors reports the bad shape; the readers fall back to defaults).
+  def caption_block(board)
     cap = board['captions']
-    (cap.is_a?(Hash) && cap['scrim']) || 'gradient'
+    cap.is_a?(Hash) ? cap : {}
   end
+
+  # The board's caption scrim under full-bleed scenes: gradient or none.
+  def scrim(board) = caption_block(board)['scrim'] || 'gradient'
 
   # The libass force_style for burned captions: an outline and shadow when
   # the board drops the scrim, nil (the default style) otherwise.
   def caption_style(board) = scrim(board) == 'none' ? NO_SCRIM_STYLE : nil
 
   # False only when the board asks for sidecar-only captions.
-  def caption_track?(board)
-    cap = board['captions']
-    !(cap.is_a?(Hash) && cap['burn'] == false)
+  def caption_track?(board) = caption_block(board)['burn'] != false
+
+  # The most a cue is held past its last word, in ms, or nil when the board
+  # does not ask for a hold (the default: cues end on the last word).
+  def caption_hold_ms(board)
+    hold = caption_block(board)['hold']
+    hold == true ? HOLD_MS : (hold if hold.is_a?(Integer) && hold.positive?)
   end
 
   def phone(board) = DEFAULT_PHONE.merge(board['phone'] || {})
@@ -176,8 +188,11 @@ module WalkthroughDevice
     errs = unknown.empty? ? [] : [ "captions has unknown keys: #{unknown.join(', ')}" ]
     errs << "captions.scrim must be one of #{SCRIMS.join(', ')}" if cap.key?('scrim') && !SCRIMS.include?(cap['scrim'])
     errs << 'captions.burn must be true or false' if cap.key?('burn') && ![ true, false ].include?(cap['burn'])
+    errs << "captions.hold must be true, false, or whole ms in 1..#{HOLD_MAX_MS}" if cap.key?('hold') && !hold_valid?(cap['hold'])
     errs
   end
+
+  def hold_valid?(hold) = [ true, false ].include?(hold) || (hold.is_a?(Integer) && hold.between?(1, HOLD_MAX_MS))
 
   def fullbleed_errors(board)
     fb = board['phone_fullbleed']
@@ -318,7 +333,7 @@ module WalkthroughDevice
 
   def floor_even(value) = (value / 2.0).floor * 2
 
-  private_class_method :aspect_errors, :range_error, :size_error, :fit_scale, :full_bleed, :phone_rect, :side_by_side, :place, :floor_even, :fullbleed_layout
+  private_class_method :caption_block, :aspect_errors, :range_error, :size_error, :fit_scale, :full_bleed, :phone_rect, :side_by_side, :place, :floor_even, :fullbleed_layout
 
   # -- compositing ---------------------------------------------------------
 

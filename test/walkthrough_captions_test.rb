@@ -53,6 +53,21 @@ class WalkthroughCaptionsTest < Minitest::Test
     assert_equal %w[a b c], out.map { |c| c[:lines].first }
   end
 
+  def test_hold_keeps_a_cue_up_until_the_next_one_starts
+    list = [ { start_ms: 0, end_ms: 1000, lines: [ "a" ] }, { start_ms: 1600, end_ms: 2000, lines: [ "b" ] },
+             { start_ms: 6000, end_ms: 7000, lines: [ "c" ] } ]
+    held = WalkthroughCaptions.hold(list, max_ms: 1500, end_ms: 7800)
+    assert_equal [ 1600, 3500, 7800 ], held.map { |c| c[:end_ms] }, "next start, then the cap, then the film's end"
+    assert_equal list.map { |c| c[:start_ms] }, held.map { |c| c[:start_ms] }, "starts never move"
+    held.each_cons(2) { |a, b| assert_operator b[:start_ms], :>=, a[:end_ms] }
+    assert_equal 8500, WalkthroughCaptions.hold(list, max_ms: 1500).last[:end_ms], "no film end: the cap alone"
+  end
+
+  def test_hold_never_shortens_a_cue
+    list = [ { start_ms: 0, end_ms: 1000, lines: [ "a" ] }, { start_ms: 1000, end_ms: 1200, lines: [ "b" ] } ]
+    assert_equal [ 1000, 1200 ], WalkthroughCaptions.hold(list, max_ms: 1500, end_ms: 900).map { |c| c[:end_ms] }
+  end
+
   def test_srt_golden
     srt = WalkthroughCaptions.srt(WalkthroughCaptions.cues(WalkthroughCaptions.word_spans(alignment("Hi there"))))
     assert_equal "1\n00:00:00,000 --> 00:00:00,800\nHi there\n", srt
