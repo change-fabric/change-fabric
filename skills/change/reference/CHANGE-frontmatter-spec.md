@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.34.0
+Schema version: 0.35.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -69,6 +69,110 @@ is the field-by-field authority behind it.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `inbox_root` | string | no | Overrides where this repo's `cf:inbox` agent-handoff state (roster, per-role inboxes, `LEDGER.md`) lives, e.g. `~/notes/team-handoff` to share one inbox across several repos on one team. A leading `~/` expands against the home directory; a relative path resolves against the repo root. Read directly from `CHANGE.md`'s frontmatter by `InboxPaths`, never through the `ChangeConfig` validator, so a malformed `change_config:` or `change_policy:` block never affects it and a repo with no `CHANGE.md` at all still resolves a default. `ENV["INBOX_ROOT"]` overrides this field in turn. Omit it and `cf:inbox` falls back to a zero-config default keyed off this repo's working directory. See `skills/inbox/SKILL.md`. |
+
+### scheduled_lanes (0.35.0): lanes that run on a cadence or on request
+
+A top-level list, read directly from `CHANGE.md`'s frontmatter by
+`scripts/scheduled_lane.rb` (never through the `ChangeConfig` validator, so a
+malformed `change_config:` block does not affect it). Each entry is one lane a
+CI schedule or a manual dispatch runs; the driver runs its command under a
+timeout, grades it only from a result file, optionally walks a feature-flag
+matrix through repo-declared adapter commands, and reports to sinks.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `scheduled_lanes[].id` | string | yes | Lane id, `[a-z0-9-]`, unique in the list. Keys the stable sink label `scheduled-lane:<id>`. |
+| `scheduled_lanes[].run` | string | yes | Command run through `/bin/sh -c`. Exit 0 passes, nonzero fails. It must write the result file (see the result contract below). |
+| `scheduled_lanes[].result_file` | string | yes | Path of the JSON the run writes. Each run gets its own copy of it, `<stem>.<iteration>.json`, passed in `CF_LANE_RESULT_FILE`, so one iteration never reads another's file. |
+| `scheduled_lanes[].deployed_sha_cmd` | string | no | Prints the SHA deployed to `{env}`. Run immediately before and after each lane run; a changed value marks the run `infra` with `sha_moved`. Needed to label or fail a release-diligence run whose deployed SHA is not the tag's. |
+| `scheduled_lanes[].cadence` | `nightly`, `weekly` or `dispatch-only` | yes | When the repo's workflow runs the lane. A label for the workflow author and reports; the driver never schedules anything itself. |
+| `scheduled_lanes[].timeout_minutes` | integer 1 to 360 | yes | Limit on one run of `run`. A timeout is an `infra` failure. |
+| `scheduled_lanes[].dispatch_inputs` | list | no | The workflow_dispatch inputs the lane honors, from `ref`, `lanes`, `matrix`, `release_tag`, `approved_keys`. Documentation for the workflow author. |
+| `scheduled_lanes[].matrix.mode` | `off` or `touched-one-at-a-time` | yes (with `matrix`) | `touched-one-at-a-time` turns on each listed flag alone, runs the lane, and restores it. |
+| `scheduled_lanes[].matrix.touched_cmd` | string | with `touched-one-at-a-time` | Prints one flag key per line. Used by whoever prepares the dispatch and by `--dry-run`; a matrix run never recomputes keys from it. |
+| `scheduled_lanes[].matrix.flip_cmd` | string | with `touched-one-at-a-time` | Sets `{flag}` on in `{env}`; exit 0 when applied. Must contain `{flag}`. |
+| `scheduled_lanes[].matrix.revert_cmd` | string | with `touched-one-at-a-time` | Sets `{flag}` off in `{env}`; exit 0 when applied. Must contain `{flag}`. |
+| `scheduled_lanes[].matrix.read_cmd` | string | with `touched-one-at-a-time` | Prints `on` or `off` for `{flag}` in `{env}`. |
+| `scheduled_lanes[].matrix.list_on_cmd` | string | with `touched-one-at-a-time` | Prints every key effective on in `{env}` beyond the seeded defaults, one per line. Empty means clean. |
+| `scheduled_lanes[].matrix.ledger_cmd` | string | with `touched-one-at-a-time` | Gets or puts the revert ledger in durable storage the repo chooses, never runner-local disk. Called as `<ledger_cmd> get` (prints the JSON, or nothing when there is none) and `<ledger_cmd> put` (JSON on stdin). |
+| `scheduled_lanes[].matrix.ledger_credential_env` | string | no | Name of the env var holding the write-scoped credential `ledger_cmd` uses. The driver hands it to `ledger_cmd` only and refuses a matrix run when it is unset; every other command, `run` included, runs without it. |
+| `scheduled_lanes[].matrix.lock_group` | string | with `touched-one-at-a-time` | The concurrency group every workflow that flips flags in the env must share. |
+| `scheduled_lanes[].matrix.max_flags` | integer 1 to 50 | no (default 5) | More keys than this refuse the run. |
+| `scheduled_lanes[].matrix.revert_headroom_seconds` | integer 0 to 3600 | no (default 300) | Time reserved per key for the revert. |
+| `scheduled_lanes[].matrix.settle_seconds` | integer 0 to 3600 | no (default 90) | Wait between a confirmed flip and the lane run. |
+| `scheduled_lanes[].matrix.forbid_envs` | list of strings | no (default `[production]`) | Envs the driver refuses. `production` cannot be removed. |
+| `scheduled_lanes[].sinks[].type` | `github_issue`, `release_comment` or `chat_dm` | yes (per sink) | `github_issue` upserts one open issue per lane; `release_comment` posts diligence results when a release tag is given; `chat_dm` pipes the report to a repo command. |
+| `scheduled_lanes[].sinks[].labels` | list of strings | no | Extra labels on the lane's issue (`github_issue`). |
+| `scheduled_lanes[].sinks[].assignee_on_app_failure` | string | no | Login assigned when the failure class is `app` (`github_issue`). |
+| `scheduled_lanes[].sinks[].assignee_on_infra_failure` | string | no | Login assigned when the failure class is `infra` (`github_issue`). |
+| `scheduled_lanes[].sinks[].cmd` | string | yes for `chat_dm` | Repo command that sends the message. The body arrives on stdin; the driver posts nowhere itself. |
+
+Result contract. Before `run` the driver exports `CF_LANE_RUN_ID` (the GitHub
+run id and attempt, or a generated id locally, plus `-<iteration>`),
+`CF_LANE_RESULT_FILE`, `CF_LANE_REF` and `CF_LANE_ENV`. The run writes
+`CF_LANE_RESULT_FILE` as JSON:
+
+```json
+{ "schema": "cf-lane-result/1", "run_id": "<CF_LANE_RUN_ID>", "status": "pass",
+  "cases": [ { "name": "switch-view", "grade": "pass", "step_ms": 1200, "reason": null } ] }
+```
+
+The verdict comes only from that file. A missing, unparseable, invalid or stale
+file (another run id), a timeout, a spawn error or an adapter error is class
+`infra`. A valid file saying `fail` is class `app`. The verdict is fail
+whenever the exit code is nonzero, even if the file says `pass`; that case is an
+`app` fail noted `exit/status disagree`.
+
+Matrix rules. Strictly one flag on at a time. Before anything else the driver
+sweeps the revert ledger and restores every unreverted key to its recorded seed
+state, then for each key in `--keys` (the set the dispatch's recorded decision
+bound): reads `list_on_cmd` (anything printed aborts as `infra`), reads the
+key's seed state, writes the ledger row, flips, confirms with `read_cmd`, waits
+`settle_seconds`, runs the lane, and restores the seed state and confirms it,
+on a lane failure, an exception, a timeout, or a trapped TERM or INT alike. A
+revert that does not confirm stops the matrix, classes it `infra` and names the
+stuck flag. A revert needs authority: a decided matrix dispatch
+(`--receipt <id>`) or `scheduled_lane.rb recover --env <env> --receipt <id>`
+under a standing `revert-to-seed` receipt; a scheduled run with `--matrix off`
+only detects (unreverted ledger rows, stray on flags) and reports. The required
+time, `keys * (settle + timeout_minutes * 60 + headroom)`, must fit the workflow
+job's `timeout-minutes` (`--job-timeout-minutes`) minus 10 minutes. The driver
+checks that a receipt id is present, not that it is valid; the workflow gates
+the dispatch on the decision that issued it.
+
+A workflow for a lane looks like this, and every workflow that flips flags in an
+env sets `concurrency.group` to that env's `lock_group`:
+
+```yaml
+on:
+  schedule: [{ cron: "0 7 * * *" }]
+  workflow_dispatch:
+    inputs:
+      ref: { type: string, default: main }
+      lanes: { type: string, default: all }
+      matrix: { type: choice, options: ["off", touched], default: "off" }
+jobs:
+  lane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - run: >-
+          ruby ~/.local/share/change-fabric/bin/scheduled_lane.rb run --config CHANGE.md
+          --lane app-smoke-timing --ref "${{ inputs.ref || 'main' }}"
+          --matrix "${{ inputs.matrix || 'off' }}" --release-tag "${{ inputs.release_tag }}"
+```
+
+`--env` defaults to `staging`; `--dry-run` prints the plan and runs nothing (with
+`--matrix touched` it also runs `touched_cmd`). Exit codes: 0 pass, 1 fail,
+2 usage or config error, 3 pass whose sinks failed.
+
+`report-infra --lane <id> --reason <text>` reports class `infra` to the sinks
+without running the lane, for an outer failure job. A run writes
+`scheduled-lane-result.json` (override with `--out`) with the ref, matrix mode,
+release tag, deployed SHA, run id and one row per matrix key. With
+`--release-tag`, a deployed SHA that differs from the tag's labels every sink
+body `staging at <sha>, not <tag>`, sets `ref_mismatch: true` and fails the
+diligence run; an unverifiable deployed SHA fails it too.
 
 ## Conventions in the field tables
 
@@ -2048,3 +2152,8 @@ root `RELEASING.md`.
   `timing` and `timing_from` grade a wait as pass, warn or fail on its measured
   time, and a case with a timed step may not retry. Findings gain a `step_ms`
   column in the CSV and Markdown report. No `change_config` field changes.
+- 0.35.0: additive. Top-level `scheduled_lanes`: lanes run on a cadence or on
+  request by `scripts/scheduled_lane.rb`, with a `cf-lane-result/1` result
+  contract, an optional one-flag-at-a-time matrix through repo-declared adapter
+  commands, and issue, release-comment and chat sinks. No `change_config` field
+  changes.

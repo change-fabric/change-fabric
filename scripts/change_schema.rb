@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.34.0'
+  VERSION = '0.35.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -67,6 +67,36 @@ module ChangeSchema
     # directly from the frontmatter by InboxPaths, never through ChangeConfig,
     # so a malformed change_config: or change_policy: block never affects it.
     'inbox_root',
+    # scheduled_lanes (0.35.0): the third top-level field outside both
+    # change_config: and change_policy:. Lanes a repo runs on a cadence or on
+    # request through scripts/scheduled_lane.rb, with an optional flag matrix
+    # and result sinks. Read directly from the frontmatter by ScheduledLane, so
+    # a malformed change_config: block never affects it.
+    'scheduled_lanes[].id',
+    'scheduled_lanes[].run',
+    'scheduled_lanes[].result_file',
+    'scheduled_lanes[].deployed_sha_cmd',
+    'scheduled_lanes[].cadence',
+    'scheduled_lanes[].timeout_minutes',
+    'scheduled_lanes[].dispatch_inputs',
+    'scheduled_lanes[].matrix.mode',
+    'scheduled_lanes[].matrix.touched_cmd',
+    'scheduled_lanes[].matrix.flip_cmd',
+    'scheduled_lanes[].matrix.revert_cmd',
+    'scheduled_lanes[].matrix.read_cmd',
+    'scheduled_lanes[].matrix.list_on_cmd',
+    'scheduled_lanes[].matrix.ledger_cmd',
+    'scheduled_lanes[].matrix.ledger_credential_env',
+    'scheduled_lanes[].matrix.lock_group',
+    'scheduled_lanes[].matrix.max_flags',
+    'scheduled_lanes[].matrix.revert_headroom_seconds',
+    'scheduled_lanes[].matrix.settle_seconds',
+    'scheduled_lanes[].matrix.forbid_envs',
+    'scheduled_lanes[].sinks[].type',
+    'scheduled_lanes[].sinks[].labels',
+    'scheduled_lanes[].sinks[].assignee_on_app_failure',
+    'scheduled_lanes[].sinks[].assignee_on_infra_failure',
+    'scheduled_lanes[].sinks[].cmd',
     # change_config: mechanical target-app details the audit lanes read.
     'change_config.project',
     'change_config.boot.up',
@@ -753,6 +783,19 @@ module ChangeSchema
     'contributors_team.artifacts.media.video',
     'contributors_team.artifacts.media.video_fps'
   ].freeze
+  # Scheduled lanes (0.35.0).
+  SCHEDULED_LANE_KEYS = %w[id run result_file deployed_sha_cmd cadence timeout_minutes dispatch_inputs matrix sinks].freeze
+  SCHEDULED_LANE_CADENCES = %w[nightly weekly dispatch-only].freeze
+  SCHEDULED_LANE_DISPATCH_INPUTS = %w[ref lanes matrix release_tag approved_keys].freeze
+  SCHEDULED_LANE_ID = /\A[a-z0-9][a-z0-9-]*\z/
+  MATRIX_MODES = %w[off touched-one-at-a-time].freeze
+  MATRIX_KEYS = %w[mode touched_cmd flip_cmd revert_cmd read_cmd list_on_cmd ledger_cmd ledger_credential_env lock_group
+                   max_flags revert_headroom_seconds settle_seconds forbid_envs].freeze
+  MATRIX_REQUIRED_CMDS = %w[touched_cmd flip_cmd revert_cmd read_cmd list_on_cmd ledger_cmd lock_group].freeze
+  SINK_TYPES = %w[github_issue release_comment chat_dm].freeze
+  SINK_KEYS = %w[type labels assignee_on_app_failure assignee_on_infra_failure cmd].freeze
+  # An environment a matrix may never touch, whatever forbid_envs says.
+  PROTECTED_ENVS = %w[production].freeze
   # The design block's accepted keys and parity statuses (0.13.0).
   DESIGN_KEYS = %w[tokens tailwind figma parity roast critic_rounds default_target targets].freeze
   # Design targets (0.18.0).
@@ -1057,6 +1100,107 @@ module ChangeSchema
     errors = []
     errors << "#{field}.kind must be one of #{REVIEW_KINDS.join(', ')} or null" if roast.key?('kind') && !(roast['kind'].nil? || REVIEW_KINDS.include?(roast['kind']))
     errors << "#{field}.audience must be a string or null" if roast.key?('audience') && !nullable_string?(roast['audience'])
+    errors
+  end
+
+  # Every problem with a top-level scheduled_lanes list (0.35.0), as messages
+  # naming the field. Empty when the list is absent or valid.
+  def self.scheduled_lanes_errors(lanes)
+    return [] if lanes.nil?
+    return [ 'scheduled_lanes must be a list' ] unless lanes.is_a?(Array)
+
+    errors = lanes.each_with_index.flat_map { |lane, index| scheduled_lane_errors(lane, "scheduled_lanes[#{index}]") }
+    ids = lanes.filter_map { |lane| lane['id'] if lane.is_a?(Hash) }
+    dupes = ids.tally.select { |_, count| count > 1 }.keys
+    errors << "scheduled_lanes repeats id(s): #{dupes.join(', ')}" unless dupes.empty?
+    errors
+  end
+
+  def self.scheduled_lane_errors(lane, field)
+    return [ "#{field} must be a mapping" ] unless lane.is_a?(Hash)
+
+    errors = unknown_keys(lane, SCHEDULED_LANE_KEYS, field)
+    errors << "#{field}.id must match #{SCHEDULED_LANE_ID.source}" unless lane['id'].is_a?(String) && lane['id'].match?(SCHEDULED_LANE_ID)
+    %w[run result_file].each { |key| errors << "#{field}.#{key} is required (a non-empty string)" unless present?(lane[key]) }
+    errors << "#{field}.deployed_sha_cmd must be a non-empty string" if lane.key?('deployed_sha_cmd') && !present?(lane['deployed_sha_cmd'])
+    errors << "#{field}.cadence must be one of #{SCHEDULED_LANE_CADENCES.join(', ')}" unless SCHEDULED_LANE_CADENCES.include?(lane['cadence'])
+    errors << "#{field}.timeout_minutes is required (an integer from 1 to 360)" unless int_in?(lane['timeout_minutes'], 1..360)
+    errors.concat(dispatch_input_errors(lane['dispatch_inputs'], field)) if lane.key?('dispatch_inputs')
+    errors.concat(matrix_errors(lane['matrix'], "#{field}.matrix")) if lane.key?('matrix')
+    errors.concat(sinks_errors(lane['sinks'], "#{field}.sinks")) if lane.key?('sinks')
+    errors
+  end
+
+  def self.dispatch_input_errors(inputs, field)
+    unless inputs.is_a?(Array) && inputs.all?(String)
+      return [ "#{field}.dispatch_inputs must be a list of #{SCHEDULED_LANE_DISPATCH_INPUTS.join(', ')}" ]
+    end
+
+    unknown = inputs - SCHEDULED_LANE_DISPATCH_INPUTS
+    unknown.empty? ? [] : [ "#{field}.dispatch_inputs lists unknown input(s): #{unknown.join(', ')}" ]
+  end
+
+  def self.matrix_errors(matrix, field)
+    return [ "#{field} must be a mapping" ] unless matrix.is_a?(Hash)
+
+    errors = unknown_keys(matrix, MATRIX_KEYS, field)
+    errors << "#{field}.mode must be one of #{MATRIX_MODES.join(', ')}" unless MATRIX_MODES.include?(matrix['mode'])
+    MATRIX_REQUIRED_CMDS.each do |key|
+      errors << "#{field}.#{key} is required when mode is touched-one-at-a-time" if matrix['mode'] == 'touched-one-at-a-time' && !present?(matrix[key])
+      errors << "#{field}.#{key} must be a non-empty string" if matrix.key?(key) && !present?(matrix[key])
+    end
+    %w[flip_cmd revert_cmd].each do |key|
+      errors << "#{field}.#{key} must contain {flag}" if present?(matrix[key]) && !matrix[key].include?('{flag}')
+    end
+    errors.concat(matrix_number_errors(matrix, field))
+    errors.concat(matrix_env_errors(matrix, field))
+    errors
+  end
+
+  def self.matrix_number_errors(matrix, field)
+    errors = []
+    errors << "#{field}.max_flags must be an integer from 1 to 50" if matrix.key?('max_flags') && !int_in?(matrix['max_flags'], 1..50)
+    %w[settle_seconds revert_headroom_seconds].each do |key|
+      errors << "#{field}.#{key} must be an integer from 0 to 3600" if matrix.key?(key) && !int_in?(matrix[key], 0..3600)
+    end
+    errors
+  end
+
+  def self.matrix_env_errors(matrix, field)
+    errors = []
+    if matrix.key?('forbid_envs')
+      forbid = matrix['forbid_envs']
+      if !forbid.is_a?(Array) || !forbid.all?(String)
+        errors << "#{field}.forbid_envs must be a list of environment names"
+      elsif (PROTECTED_ENVS - forbid.map(&:downcase)).any?
+        errors << "#{field}.forbid_envs must keep #{PROTECTED_ENVS.join(', ')}"
+      end
+    end
+    cred = matrix['ledger_credential_env']
+    if matrix.key?('ledger_credential_env') && !(cred.is_a?(String) && cred.match?(ENV_NAME))
+      errors << "#{field}.ledger_credential_env must be an environment variable name"
+    end
+    errors
+  end
+
+  def self.sinks_errors(sinks, field)
+    return [ "#{field} must be a list" ] unless sinks.is_a?(Array)
+
+    sinks.each_with_index.flat_map { |sink, index| sink_errors(sink, "#{field}[#{index}]") }
+  end
+
+  def self.sink_errors(sink, field)
+    return [ "#{field} must be a mapping" ] unless sink.is_a?(Hash)
+
+    errors = unknown_keys(sink, SINK_KEYS, field)
+    errors << "#{field}.type must be one of #{SINK_TYPES.join(', ')}" unless SINK_TYPES.include?(sink['type'])
+    errors << "#{field}.cmd is required for chat_dm" if sink['type'] == 'chat_dm' && !present?(sink['cmd'])
+    if sink.key?('labels') && !(sink['labels'].is_a?(Array) && sink['labels'].all? { |label| present?(label) })
+      errors << "#{field}.labels must be a list of non-empty strings"
+    end
+    %w[assignee_on_app_failure assignee_on_infra_failure].each do |key|
+      errors << "#{field}.#{key} must be a non-empty string" if sink.key?(key) && !present?(sink[key])
+    end
     errors
   end
 
