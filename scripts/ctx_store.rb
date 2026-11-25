@@ -130,8 +130,10 @@ class CtxStore
     review_after = review_after&.to_s
     validate!(name: name.to_s, description: description.to_s, klass:, ttl:, review_after:)
     doc = build(name.to_s, description.to_s, klass, status.to_s, ttl, review_after, supersedes, body.to_s)
-    persist(doc)
-    after_mutation("capture #{doc.name}")
+    with_lock do
+      persist(doc)
+      after_mutation("capture #{doc.name}")
+    end
     doc
   end
 
@@ -160,26 +162,84 @@ class CtxStore
   end
 
   def delete(name)
-    path = path_for(name)
-    return false unless path
+    with_lock do
+      path = path_for(name)
+      next false unless path
 
-    File.delete(path)
-    after_mutation("remove #{name}")
-    true
+      File.delete(path)
+      after_mutation("remove #{name}")
+      true
+    end
   end
 
   # Compact a live doc into a short digest under archive/ and drop the live copy.
   # The verbatim original stays in git history, so archiving means drop-from-live,
   # not lose-forever. archive/ is outside the live classes, so the index and the
   # structural check skip it.
-  def archive(name, digest = nil)
-    doc = read(name)
-    return false unless doc
+  #
+  # `restorable: true` also embeds the verbatim doc in the archive digest so
+  # `unarchive` can put it back without git history. The write order (archive
+  # copy first, then drop the live doc) means a crash between the two leaves
+  # both copies, never neither.
+  def archive(name, digest = nil, restorable: false)
+    with_lock do
+      doc = read(name)
+      next false unless doc
 
-    File.delete(path_for(name))
-    write_archive(doc, digest || default_digest(doc))
-    after_mutation("archive #{name}")
-    true
+      path = path_for(name)
+      original = File.read(path) if restorable
+      write_archive(doc, digest || default_digest(doc), original:)
+      File.delete(path)
+      after_mutation("archive #{name}")
+      true
+    end
+  end
+
+  # Reverses a restorable archive: rewrites the embedded original under its
+  # class directory and drops the digest. False when there is no archive, it
+  # carries no embedded original, or a live doc already holds the name.
+  def unarchive(name)
+    with_lock do
+      path = archive_path(name.to_s)
+      next false if !File.file?(path) || path_for(name)
+
+      original = archived_original(path)
+      next false unless original
+
+      write_atomically(doc_path(Doc.parse(original)), original)
+      File.delete(path)
+      after_mutation("unarchive #{name}")
+      true
+    end
+  end
+
+  # Exclusive store lock shared by every mutator and by ctx expiry's
+  # revalidate-then-archive step. Re-entrant per instance because flock on a
+  # second descriptor of the same file would deadlock a nested call.
+  def with_lock
+    return yield if @lock_held
+
+    FileUtils.mkdir_p(@store_dir)
+    File.open(@store_dir) do |dir|
+      dir.flock(File::LOCK_EX)
+      @lock_held = true
+      yield
+    ensure
+      @lock_held = false
+    end
+  end
+
+  # The raw frontmatter of a live doc as a Hash (so a field Doc does not model,
+  # such as `pinned`, stays readable), or nil when absent or unparseable.
+  def front_of(name)
+    path = path_for(name)
+    return nil unless path
+
+    front, = SkillRegistry::Frontmatter.split(File.read(path))
+    meta = front && YAML.safe_load(front)
+    meta.is_a?(Hash) ? meta : nil
+  rescue StandardError
+    nil
   end
 
   def device = @device ||= read_or_init_device
@@ -222,16 +282,26 @@ class CtxStore
     @committer.call("ctx: #{action} [#{device}]")
   end
 
-  def write_archive(doc, digest)
-    path = File.join(CtxPaths.class_dir(CtxPaths::ARCHIVE, @cwd, home: @home), "#{doc.name}.md")
-    write_atomically(path, archive_markdown(doc, digest))
+  def archive_path(name) = File.join(CtxPaths.class_dir(CtxPaths::ARCHIVE, @cwd, home: @home), "#{name}.md")
+
+  def write_archive(doc, digest, original: nil)
+    write_atomically(archive_path(doc.name), archive_markdown(doc, digest, original))
   end
 
-  def archive_markdown(doc, digest)
+  def archive_markdown(doc, digest, original = nil)
     front = { 'name' => doc.name, 'description' => doc.description,
               'class' => CtxPaths::ARCHIVE, 'status' => 'archived',
-              'archived_from' => doc.klass, 'last_touched' => doc.last_touched }.compact
+              'archived_from' => doc.klass, 'last_touched' => doc.last_touched,
+              'original' => original }.compact
     CtxStore.render(front, digest)
+  end
+
+  def archived_original(path)
+    front, = SkillRegistry::Frontmatter.split(File.read(path))
+    original = front && YAML.safe_load(front)&.fetch('original', nil)
+    original.is_a?(String) ? original : nil
+  rescue StandardError
+    nil
   end
 
   def default_digest(doc)
@@ -287,8 +357,9 @@ class CtxStore
       when 'recall' then recall(store, positional.first, out:)
       when 'list' then list(store, flags, out:)
       when 'archive' then mutate(store, :archive, positional.first, 'archived', out:)
+      when 'unarchive' then mutate(store, :unarchive, positional.first, 'unarchived', out:)
       when 'remove' then mutate(store, :delete, positional.first, 'removed', out:)
-      else out.puts('usage: ctx_store.rb capture|recall|list|archive|remove [--flags]')
+      else out.puts('usage: ctx_store.rb capture|recall|list|archive|unarchive|remove [--flags]')
       end
     end
 
