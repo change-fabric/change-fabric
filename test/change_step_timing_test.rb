@@ -210,9 +210,15 @@ class ChangeStepTimingTest < Minitest::Test
   end
 
   class Session
-    def initialize(steps) = @steps = steps
+    attr_reader :timeouts
+
+    def initialize(steps)
+      @steps = steps
+      @timeouts = []
+    end
 
     def run_function(_code, launch_args: [], timeout_ms: nil)
+      @timeouts << timeout_ms
       { "index" => 0, "attempts" => 1, "ok" => @steps.all? { |step| step["ok"] != false }, "steps" => @steps,
         "observation" => { "url" => "https://app.example.org/", "title" => "t", "text" => "x" } }
     end
@@ -250,6 +256,20 @@ class ChangeStepTimingTest < Minitest::Test
     refute warned.fail?
     assert failed.fail?
     assert_match(/400ms against warn_ms 100, fail_ms 300/, failed.detail)
+  end
+
+  # A timed wait with no timeout of its own waits fail_ms + 60000, and the
+  # case's call must outlive that or the timing finding is lost with the call.
+  def test_the_case_call_budget_covers_a_timed_waits_derived_timeout
+    session = Session.new([])
+    Dir.mktmpdir do |dir|
+      body = suite_yaml(timing_line: "timing: { warn_ms: 60000, fail_ms: 120000 }")
+      File.write(File.join(dir, "speed.cf-testcases.yml"), body)
+      config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+      ChangeLaneTestcases.new(config, Ctx.new("net", "https://app.example.org", session, [], false),
+                              grader: Grader.new, sleeper: ->(_seconds) { }).run
+    end
+    assert_equal [ 180_000 + ChangeFlowCompiler::DEFAULT_TIMEOUT_MS ], session.timeouts
   end
 
   def test_a_timeout_finding_names_its_reason

@@ -324,7 +324,15 @@ class ChangeLaneTestcases < ChangeLane
   # lane's, mirroring how the compiler resolves it.
   def step_timeout(step)
     inner = step.values.find { |value| value.is_a?(Hash) && value.key?('timeout_ms') }
-    Integer(step['timeout_ms'] || inner&.fetch('timeout_ms') || timeout_ms)
+    Integer(step['timeout_ms'] || inner&.fetch('timeout_ms') || timed_timeout(step) || timeout_ms)
+  end
+
+  # A timed wait with no timeout of its own waits `fail_ms` plus the compiler's
+  # margin, so the case's call budget has to cover that and not the lane default.
+  def timed_timeout(step)
+    timing = step['timing'] || step.values.filter_map { |value| value['timing'] if value.is_a?(Hash) }.first
+    fail_ms = timing['fail_ms'] if timing.is_a?(Hash)
+    fail_ms + ChangeFlowCompiler::TIMING_TIMEOUT_DEFAULT_MS if fail_ms.is_a?(Integer)
   end
 
   # How many cases run at once (lanes.testcases.parallel, validated 1..10).
