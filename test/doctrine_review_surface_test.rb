@@ -70,7 +70,7 @@ class DoctrineReviewSurfaceTest < Minitest::Test
     InboxStore::CLI.run([ "init", "--roles", "lead,worker" ], out: StringIO.new)
     dir = File.join(@home, ".claude", "cf", "sessions", "s1")
     FileUtils.mkdir_p(dir)
-    File.write(File.join(dir, "inbox-role"), "worker")
+    File.write(File.join(dir, "inbox-role"), "WORKER")
     InboxStore::CLI.run([ "announce", "--from", "lead", "--subject", "Pulse P0: integrity breach" ], out: StringIO.new)
     msg = surface["systemMessage"]
     assert_includes msg, "[announce] Pulse P0: integrity breach"
@@ -81,5 +81,36 @@ class DoctrineReviewSurfaceTest < Minitest::Test
     InboxStore::CLI.run([ "init", "--roles", "lead,worker" ], out: StringIO.new)
     InboxStore::CLI.run([ "announce", "--from", "lead", "--subject", "hello" ], out: StringIO.new)
     assert_nil surface
+  end
+
+  def test_same_announce_in_two_inbox_roots_is_not_collapsed
+    other = Dir.mktmpdir
+    announce_to_worker("hello")
+    first = surface["systemMessage"]
+    ENV["INBOX_ROOT"] = other
+    announce_to_worker("hello")
+    second = surface["systemMessage"]
+    assert_includes first, "[announce] hello"
+    assert_includes second, "[announce] hello", "same subject in another root is a new item"
+  ensure
+    FileUtils.remove_entry(other) if other
+  end
+
+  def test_failed_output_leaves_items_leased_for_a_later_session
+    triage_item("a")
+    broken = Object.new
+    def broken.puts(*) = raise(IOError, "closed")
+    DoctrineReviewSurface.run({ "session_id" => "s1" }, broken, inbox: @inbox)
+    assert_equal "leased", @inbox.open_items.first["state"]
+  end
+
+  private
+
+  def announce_to_worker(subject)
+    InboxStore::CLI.run([ "init", "--roles", "lead,worker" ], out: StringIO.new)
+    dir = File.join(@home, ".claude", "cf", "sessions", "s1")
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "inbox-role"), "WORKER")
+    InboxStore::CLI.run([ "announce", "--from", "lead", "--subject", subject ], out: StringIO.new)
   end
 end

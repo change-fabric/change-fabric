@@ -39,8 +39,11 @@ class DoctrineReviewSurface
     leased = @inbox.lease(owner: owner, ttl: LEASE_TTL)
     return if leased.empty?
 
-    delivered = leased.filter_map { |item| deliver(item) }
-    io.puts(JSON.generate(systemMessage: message(delivered))) unless delivered.empty?
+    # Announce first; mark delivered only once output succeeded. If output
+    # raises, the items stay leased and a later session reclaims them.
+    io.puts(JSON.generate(systemMessage: message(leased)))
+    io.flush if io.respond_to?(:flush)
+    leased.each { |item| deliver(item) }
   end
 
   private
@@ -63,16 +66,17 @@ class DoctrineReviewSurface
   def mirror_announces
     root = InboxPromptHook.configured_root or return
     role = InboxPromptHook.role_for(@event, root) or return
-    Dir.glob(File.join(InboxStore.inbox_dir(role), '*.md')).sort.each { |path| mirror(path, role) }
+    source = File.realpath(root)
+    Dir.glob(File.join(InboxStore.inbox_dir(role), '*.md')).sort.each { |path| mirror(path, role, source) }
   end
 
-  def mirror(path, role)
+  def mirror(path, role, source)
     return if @now - File.mtime(path) > ANNOUNCE_WINDOW
 
     meta = InboxStore.frontmatter(File.read(path))
     return unless meta['status'] == 'fyi'
 
-    @inbox.upsert(kind: 'announce', key: LeasedInbox.dedup_key('announce', role, File.basename(path)),
+    @inbox.upsert(kind: 'announce', key: LeasedInbox.dedup_key('announce', "#{source}##{role}", File.basename(path)),
                   title: meta['subject'].to_s, body: File.read(path), data: { 'from' => meta['from'], 'path' => path })
   end
 end
