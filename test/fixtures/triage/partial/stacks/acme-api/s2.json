@@ -1,0 +1,4 @@
+{"slug": "s2", "repo": "acme/api", "source": "list", "mode": "admin_bypass", "current": 1, "judged": [],
+ "prs": [{"number": 11, "state": "merged", "phase": null},
+         {"number": 12, "state": "handed_off", "phase": null},
+         {"number": 13, "state": "pending", "phase": null}]}

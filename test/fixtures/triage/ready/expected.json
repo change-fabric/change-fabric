@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "generated_at": "2026-11-25T12:00:00Z",
+  "host": null,
+  "generation": 0,
+  "units": [
+    {
+      "unit": "acme/api#launch/P2#Phase 1",
+      "repo": "acme/api",
+      "epic": "launch",
+      "node": "P2#Phase 1",
+      "phase": "Build the thing",
+      "group": "epic/launch",
+      "kind": "epic",
+      "state": "next",
+      "prs": [],
+      "percent": 0,
+      "percent_label": "0%",
+      "next_step": "start P2#Phase 1 Build the thing",
+      "blockers": [],
+      "eligible": true,
+      "changed": [],
+      "decisions": []
+    },
+    {
+      "unit": "acme/api#launch/P2#Phase 2",
+      "repo": "acme/api",
+      "epic": "launch",
+      "node": "P2#Phase 2",
+      "phase": "Ship the thing",
+      "group": "epic/launch",
+      "kind": "epic",
+      "state": "pending",
+      "prs": [],
+      "percent": 0,
+      "percent_label": "0%",
+      "next_step": "waiting on launch/P2#Phase 1",
+      "blockers": [
+        "unmet_dependency:launch/P2#Phase 1"
+      ],
+      "eligible": false,
+      "changed": [],
+      "decisions": []
+    },
+    {
+      "unit": "acme/api#launch/P3#Phase 1",
+      "repo": "acme/api",
+      "epic": "launch",
+      "node": "P3#Phase 1",
+      "phase": "Tag the release",
+      "group": "epic/launch",
+      "kind": "epic",
+      "state": "next",
+      "prs": [],
+      "percent": 0,
+      "percent_label": "0%",
+      "next_step": "blocked: carve_out_or_tag",
+      "blockers": [
+        "carve_out_or_tag"
+      ],
+      "eligible": false,
+      "changed": [],
+      "decisions": []
+    },
+    {
+      "unit": "acme/web#launch/P1#Phase 1",
+      "repo": "acme/web",
+      "epic": "launch",
+      "node": "P1#Phase 1",
+      "phase": "Build the thing",
+      "group": "epic/launch",
+      "kind": "epic",
+      "state": "next",
+      "prs": [],
+      "percent": 0,
+      "percent_label": "0%",
+      "next_step": "start P1#Phase 1 Build the thing",
+      "blockers": [],
+      "eligible": true,
+      "changed": [],
+      "decisions": []
+    },
+    {
+      "unit": "acme/web#launch/P1#Phase 2",
+      "repo": "acme/web",
+      "epic": "launch",
+      "node": "P1#Phase 2",
+      "phase": "Ship the thing",
+      "group": "epic/launch",
+      "kind": "epic",
+      "state": "pending",
+      "prs": [],
+      "percent": 0,
+      "percent_label": "0%",
+      "next_step": "waiting on launch/P1#Phase 1",
+      "blockers": [
+        "unmet_dependency:launch/P1#Phase 1"
+      ],
+      "eligible": false,
+      "changed": [],
+      "decisions": []
+    },
+    {
+      "unit": "acme/docs#launch/P4#Phase 1",
+      "repo": "acme/docs",
+      "epic": "launch",
+      "node": "P4#Phase 1",
+      "phase": "Write the docs",
+      "group": "epic/launch",
+      "kind": "epic",
+      "state": "next",
+      "prs": [],
+      "percent": 0,
+      "percent_label": "0%",
+      "next_step": "blocked: open_decision",
+      "blockers": [
+        "open_decision"
+      ],
+      "eligible": false,
+      "changed": [],
+      "decisions": [
+        {
+          "id": "inbox:20261125-0900-docs-choice",
+          "kind": "inbox",
+          "subject": "Pick the docs host",
+          "refs": "acme/docs#launch/P4#Phase 1",
+          "host": null
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "group": "epic/launch",
+      "kind": "epic",
+      "name": "launch",
+      "total": 6,
+      "done": 0,
+      "percent": 0,
+      "percent_label": "0%",
+      "next_step": "start P2#Phase 1 Build the thing"
+    }
+  ],
+  "eligible": [
+    "acme/api#launch/P2#Phase 1",
+    "acme/web#launch/P1#Phase 1"
+  ],
+  "decisions": [
+    {
+      "id": "inbox:20261125-0900-docs-choice",
+      "kind": "inbox",
+      "subject": "Pick the docs host",
+      "refs": "acme/docs#launch/P4#Phase 1",
+      "host": null
+    }
+  ],
+  "hosts": [
+    {
+      "host": "mini",
+      "self": false,
+      "status": "missing",
+      "heartbeat_age": null,
+      "generation": null,
+      "reason": null
+    },
+    {
+      "host": "vm",
+      "self": false,
+      "status": "missing",
+      "heartbeat_age": null,
+      "generation": null,
+      "reason": null
+    }
+  ],
+  "findings": [],
+  "changed": []
+}

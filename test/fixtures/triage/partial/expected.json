@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "generated_at": "2026-11-25T12:00:00Z",
+  "host": null,
+  "generation": 0,
+  "units": [
+    {
+      "unit": "acme/api#stack/s2",
+      "repo": "acme/api",
+      "epic": null,
+      "node": "s2",
+      "phase": "",
+      "group": "acme/api#stack/s2",
+      "kind": "stack",
+      "state": "active",
+      "prs": [
+        {
+          "number": 11,
+          "state": "MERGED",
+          "ci": null,
+          "clean": null,
+          "unresolved_threads": null
+        },
+        {
+          "number": 12,
+          "state": "OPEN",
+          "ci": "failed",
+          "clean": false,
+          "unresolved_threads": 2
+        },
+        {
+          "number": 13,
+          "state": "OPEN",
+          "ci": "pending",
+          "clean": false,
+          "unresolved_threads": 0
+        }
+      ],
+      "percent": 33,
+      "percent_label": "33%",
+      "next_step": "fix failing checks on #12",
+      "blockers": [],
+      "eligible": false,
+      "changed": [],
+      "decisions": []
+    }
+  ],
+  "groups": [
+    {
+      "group": "acme/api#stack/s2",
+      "kind": "stack",
+      "name": "acme/api#stack/s2",
+      "total": 3,
+      "done": 1,
+      "percent": 33,
+      "percent_label": "33%",
+      "next_step": "fix failing checks on #12"
+    }
+  ],
+  "eligible": [],
+  "decisions": [],
+  "hosts": [],
+  "findings": [],
+  "changed": []
+}
