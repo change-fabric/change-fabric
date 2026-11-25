@@ -41,7 +41,7 @@ class GuardEvents
     started = events.filter_map { |e| parse_time(e['ts']) }.min
     log_days = started ? ((@now - started) / 86_400).floor : 0
     starts = events.select { |e| e['type'] == 'session_start' }
-    candidates = proposable_ids.filter_map { |id| idle_row(id, started, starts, days, sessions) }
+    candidates = proposable_ids.filter_map { |id| idle_row(id, starts, days, sessions) }
     { 'days' => days, 'sessions' => sessions, 'log_days' => log_days, 'session_starts' => starts.size,
       'enough_history' => log_days >= days && starts.size >= sessions, 'proposals' => candidates }
   end
@@ -100,12 +100,17 @@ class GuardEvents
           .filter_map { |e| parse_time(e['ts']) }.max
   end
 
-  # Idle is measured from the last firing, or the start of the log when it never
-  # fired, so a young log cannot condemn anything.
-  def idle_row(id, started, starts, days, sessions)
-    return nil unless started
+  def first_seen_at(id)
+    events.select { |e| e['rule_id'] == id }.filter_map { |e| parse_time(e['ts']) }.min
+  end
 
-    since = fired_at(id) || started
+  # Idle is measured from the last firing, or the rule's first observation when it
+  # never fired, so a young log or a newly installed rule cannot condemn anything,
+  # and a rule with no observations is not proposed.
+  def idle_row(id, starts, days, sessions)
+    since = fired_at(id) || first_seen_at(id)
+    return nil unless since
+
     idle_days = ((@now - since) / 86_400).floor
     idle_sessions = starts.count { |e| (t = parse_time(e['ts'])) && t > since }
     return nil unless idle_days >= days && idle_sessions >= sessions

@@ -71,6 +71,18 @@ class GuardEventsTest < Minitest::Test
     refute_includes ids, "skill_review/gate"
   end
 
+  def test_a_newly_observed_rule_is_not_credited_with_the_logs_history
+    starts = (1..250).map { |i| ev("session_start", 100 - (i * 0.1)) }
+    log(ev("evaluation", 5, rule_id: "slop_remind/remind"), *starts)
+    assert_empty reader.idle(days: 60, sessions: 200)["proposals"]
+  end
+
+  def test_a_rule_with_no_observations_is_not_proposed
+    starts = (1..250).map { |i| ev("session_start", 100 - (i * 0.1)) }
+    log(*starts)
+    assert_empty reader.idle(days: 60, sessions: 200)["proposals"]
+  end
+
   def test_a_young_log_proposes_nothing
     starts = (1..300).map { |i| ev("session_start", 10 - (i * 0.03)) }
     log(*starts)
