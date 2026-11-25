@@ -181,12 +181,25 @@ class WalkthroughDeviceTest < Minitest::Test
     assert_nil WalkthroughDevice.caption_style(VERTICAL)
   end
 
+  def test_caption_hold_is_off_unless_the_board_asks
+    assert_nil WalkthroughDevice.caption_hold_ms(VERTICAL)
+    assert_nil WalkthroughDevice.caption_hold_ms(VERTICAL.merge("captions" => { "hold" => false }))
+    assert_equal 1500, WalkthroughDevice.caption_hold_ms(VERTICAL.merge("captions" => { "hold" => true }))
+    assert_equal 2500, WalkthroughDevice.caption_hold_ms(VERTICAL.merge("captions" => { "hold" => 2500 }))
+  end
+
   def test_caption_board_errors
     assert_empty WalkthroughDevice.board_errors(VERTICAL.merge("captions" => { "scrim" => "gradient", "burn" => false }))
     assert_equal [ "captions must be an object" ], WalkthroughDevice.board_errors(VERTICAL.merge("captions" => "none"))
     errs = WalkthroughDevice.board_errors(VERTICAL.merge("captions" => { "scrim" => "steps", "burn" => "no", "size" => 1 }))
     assert_equal [ "captions has unknown keys: size", "captions.scrim must be one of gradient, none",
                    "captions.burn must be true or false" ], errs
+    assert_empty WalkthroughDevice.board_errors(VERTICAL.merge("captions" => { "hold" => true }))
+    assert_empty WalkthroughDevice.board_errors(VERTICAL.merge("captions" => { "hold" => 2500 }))
+    [ "yes", 0, 5001, 1.5 ].each do |bad|
+      assert_equal [ "captions.hold must be true, false, or whole ms in 1..5000" ],
+                   WalkthroughDevice.board_errors(VERTICAL.merge("captions" => { "hold" => bad })), bad.inspect
+    end
     assert WalkthroughDevice.caption_track?(VERTICAL)
     refute WalkthroughDevice.caption_track?(VERTICAL.merge("captions" => { "burn" => false }))
   end

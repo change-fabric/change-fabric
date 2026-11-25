@@ -94,6 +94,19 @@ module WalkthroughCaptions
     end
   end
 
+  # A held cue stays up after its last word until the next cue starts, so a
+  # short line is not gone before it can be read. The hold adds at most
+  # max_ms, and never runs past the next cue's start or end_ms (the end of
+  # the film). Run it after no_overlap, on the whole film's cue list.
+  def hold(cue_list, max_ms:, end_ms: nil)
+    cue_list.each_with_index.map do |c, i|
+      limit = cue_list[i + 1]&.fetch(:start_ms) || end_ms
+      stop = c[:end_ms] + max_ms
+      stop = [ stop, limit ].min if limit
+      c.merge(end_ms: [ stop, c[:end_ms] ].max)
+    end
+  end
+
   def srt(cue_list)
     cue_list.each_with_index.map do |c, i|
       "#{i + 1}\n#{timestamp(c[:start_ms])} --> #{timestamp(c[:end_ms])}\n#{c[:lines].join("\n")}\n"

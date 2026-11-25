@@ -62,6 +62,11 @@ module WalkthroughLive
 
   def live?(scene) = scene['screen'].is_a?(Hash) && scene['screen'].key?('url')
 
+  # A live scene that holds requestAnimationFrame to the capture's frame
+  # clock (BrowserlessJs::FRAME_CLOCK_JS) instead of sampling a real-time
+  # screencast.
+  def frame_clock?(scene) = live?(scene) && scene['frame_clock'] == true
+
   def compose?(scene) = WalkthroughCompose.compose?(scene)
 
   # Filmed in real time through the browser: a live scene, or a compose
@@ -162,6 +167,7 @@ module WalkthroughLive
     errors.concat(session_from_errors(scene, orders, by_id))
     errors.concat(storage_errors(scene['storage']))
     errors << 'cursor must be false (omit it to show the cursor)' if scene.key?('cursor') && scene['cursor'] != false
+    errors << 'frame_clock must be true (omit it to film in real time)' if scene.key?('frame_clock') && scene['frame_clock'] != true
     errors
   end
 
@@ -371,6 +377,7 @@ module WalkthroughLive
                          **(WalkthroughInset.inset?(scene) ? { inset: WalkthroughInset.material(scene) } : {}),
                          **PrototypeCapture.timeline_material(all_interactions(scene)),
                          **(scene['cursor'] == false ? { cursor: false } : {}),
+                         **(frame_clock?(scene) ? { frame_clock: true } : {}),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
 
@@ -568,6 +575,10 @@ module WalkthroughLive
       const linkHook = #{JSON.generate(LINK_HOOK)};
       const hideCursor = #{JSON.generate(BrowserlessJs::HIDE_CURSOR_SCRIPT)};
       const stepMs = #{PrototypeCapture.frame_ms(fps_for(board))};
+      // frame_clock: rAF steps exactly one frame per tick and each tick is a
+      // fresh screenshot, so rAF-driven motion moves in even steps.
+      const frameClock = #{frame_clock?(scene)};
+      const frameClockJs = #{JSON.generate(BrowserlessJs::FRAME_CLOCK_JS)};
       #{BrowserlessJs::SCREENCAST_SAMPLER_JS}
       const runDevice = async (job) => {
         const dev = job.dev;
@@ -576,6 +587,7 @@ module WalkthroughLive
         page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
         const seedId = await restore(page, client);
         await page.evaluateOnNewDocument(linkHook);
+        if (frameClock) await page.evaluateOnNewDocument(frameClockJs);
         await page.evaluateOnNewDocument(hideCursor);
         const safe = async (fn, fallback) => { try { return await fn(); } catch (e) { void e; return fallback; } };
         if (job.html) {
@@ -607,10 +619,16 @@ module WalkthroughLive
         };
         // CDP takes whole pixels; a full-bleed phone's dpr (2.7692) is not.
         const sampler = ScreencastSampler({ quality: #{JPEG_QUALITY}, maxWidth: Math.ceil(dev.w * dev.dpr), maxHeight: Math.ceil(dev.h * dev.dpr) });
-        if (job.shots) {
+        // A fresh still, then the screencast again; under the frame clock each
+        // tick shoots its own frame, which must replace this JPEG even when the
+        // picture is unchanged.
+        let lastShot = null;
+        const reseed = async () => {
           sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
-          await sampler.attach(client);
-        }
+          if (!frameClock) await sampler.attach(client);
+          lastShot = null;
+        };
+        if (job.shots) await reseed();
         const lintAt = new Set(job.lint);
         const cursor = [], lint = [], devices = [], links = [];
         const overlays = {};
@@ -636,6 +654,8 @@ module WalkthroughLive
         const st = { pos: { x: dev.w / 2, y: dev.h / 2 }, from: null, down: false, resting: null };
         st.from = st.pos;
         const dispatch = (#{PrototypeCapture::DISPATCH_JS})(page, { aim, mobile: !!dev.mobile, st });
+        const frameCall = (name, ms) => (frameClock ? safe(() => page.evaluate((n, v) => window[n] && window[n](v), name, ms), null) : null);
+        await frameCall("__cfFrameHold");
         let t0 = Date.now();
         for (let i = 0; i < job.events.length; i++) {
           const leaving = job.cutFrame !== undefined && i === job.cutFrame ? page.url() : null;
@@ -653,6 +673,7 @@ module WalkthroughLive
           // shifts by the wait, so it adds no video time.
           if (leaving !== null) {
             const paused = Date.now();
+            await frameCall("__cfFrameRelease");
             if (job.shots) await sampler.detach();
             const until = paused + #{NAVIGATE_WAIT_MS};
             while (page.url() === leaving && Date.now() < until) await sleep(25);
@@ -661,10 +682,8 @@ module WalkthroughLive
             await safe(() => page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))), null);
             // The next scene's own frame-0 input, on the painted destination.
             for (const ev of job.entryEvents || []) await dispatch(ev);
-            if (job.shots) {
-              sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
-              await sampler.attach(client);
-            }
+            await frameCall("__cfFrameHold");
+            if (job.shots) await reseed();
             t0 += Date.now() - paused;
           }
           await sleep(t0 + i * stepMs - Date.now());
@@ -705,15 +724,22 @@ module WalkthroughLive
             if (!vp || vp.w !== dev.w || vp.h !== dev.h || vp.dpr !== (dev.dpr || 1)) {
               await page.setViewport({ width: dev.w, height: dev.h, deviceScaleFactor: dev.dpr, isMobile: !!dev.mobile, hasTouch: !!dev.mobile });
             }
-            if (job.shots) {
-              sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
-              await sampler.attach(client);
-            }
+            if (job.shots) await reseed();
+          }
+          if (frameClock && job.shots) {
+            await frameCall("__cfFrameStep", stepMs);
+            // Every shot is a full frame, so an unchanged one is not stored
+            // again: the tick reuses the last, as a screencast repeat does.
+            // PNG: lossless, and smaller than JPEG q95 for a flat drawing.
+            const shot = (await client.send("Page.captureScreenshot", { format: "png" })).data;
+            if (shot !== lastShot) sampler.seed(shot);
+            lastShot = shot;
           }
           sampler.tick();
           cursor.push({ x: st.pos.x, y: st.pos.y, down: st.down });
           st.down = false;
         }
+        await frameCall("__cfFrameRelease");
         if (job.shots) await sampler.detach();
         const sampled = sampler.result();
         // The built-in page's end state, so a run can confirm what was sent
@@ -781,11 +807,17 @@ module WalkthroughLive
   # filmed run, inside one browserless call.
   CAPTURE_MARGIN_MS = 60_000
 
+  # Under the frame clock every tick is a full-size screenshot, which takes
+  # far longer than a frame, so the run is budgeted at up to this per frame.
+  FRAME_SHOT_MS = 1000
+
   # The browserless call budget for one live capture: the filmed run (the
   # scene, plus the next scene of a navigate run) and CAPTURE_MARGIN_MS,
-  # never under the default call timeout.
+  # never under the default call timeout. A navigate run is one job, so the
+  # tapping scene's frame clock decides for both scenes.
   def capture_timeout_ms(board, scene, next_scene = nil)
     run = duration_ms(board, scene) + (next_scene ? duration_ms(board, next_scene) : 0)
+    run = (run / PrototypeCapture.frame_ms(fps_for(board)) * FRAME_SHOT_MS).ceil if frame_clock?(scene)
     [ ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS, run + CAPTURE_MARGIN_MS ].max
   end
 
@@ -1008,9 +1040,13 @@ module WalkthroughLive
     def layout_for(board) = @framed ? WalkthroughBrowserFrame.layout(board) : WalkthroughDevice.layout(board, @scene)
 
     def write_jpgs(run, dir)
-      FrameVideo.write_jpgs(dir, run['frames'], run['ticks'])
+      FrameVideo.write_sequence(dir, run['frames'], run['ticks'])
       dir
     end
+
+    # A frame-clock run's frames are PNG, a screencast's JPEG; FFmpeg reads
+    # an image sequence by its extension.
+    def frame_ext(dir) = File.exist?(File.join(dir, '000001.png')) ? 'png' : 'jpg'
 
     # The desktop arrow (hidden when there is no desktop or the scene sets
     # cursor: false) is cursor.json; a
@@ -1083,7 +1119,7 @@ module WalkthroughLive
     # JPEG screencast frames become PNGs on the board canvas in the pinned
     # FFmpeg container, offline.
     def composite!(dirs, out_dir, inset = nil, hires: nil)
-      inputs = dirs.flat_map { |d| [ '-start_number', '1', '-i', File.join(container(d), '%06d.jpg') ] }
+      inputs = dirs.flat_map { |d| [ '-start_number', '1', '-i', File.join(container(d), "%06d.#{frame_ext(d)}") ] }
       hires = nil unless inset
       inputs += [ '-i', container(hires) ] if hires
       filter = WalkthroughInset.append(composite_filter(out_dir), inset, hires: hires && dirs.size)

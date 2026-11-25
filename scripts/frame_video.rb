@@ -30,6 +30,22 @@ module FrameVideo
     ticks.size
   end
 
+  PNG_MAGIC = "\x89PNG".b
+
+  # Like write_jpgs, but each file is named by its bytes, 000001.png onward
+  # for PNG frames (a walkthrough frame-clock run) and .jpg otherwise, and
+  # returns the extension. FFmpeg reads a sequence by its extension, so one
+  # sequence is one format.
+  def write_sequence(dir, frames, ticks)
+    used = Array(ticks).map { |idx| Base64.decode64(frames[[ idx, 0 ].max]) }
+    exts = used.map { |bytes| bytes.start_with?(PNG_MAGIC) ? 'png' : 'jpg' }.uniq
+    raise EncodeError, "one frame sequence mixes #{exts.join(' and ')} frames" if exts.size > 1
+
+    FileUtils.mkdir_p(dir)
+    used.each_with_index { |bytes, i| File.binwrite(File.join(dir, format("%06d.#{exts.first}", i + 1)), bytes) }
+    exts.first
+  end
+
   # `size` ([w, h]) fits every frame into one even-sized canvas, letterboxed.
   # FFmpeg sizes the whole video from the first frame, and libx264 refuses an
   # odd dimension, so without it one stray frame of another size (Chromium can

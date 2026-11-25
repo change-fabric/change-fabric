@@ -567,12 +567,16 @@ module WalkthroughRender
 
     def aligned(inputs) = inputs.select { |i| i[:alignment] }
 
-    def captions(inputs)
+    # total_ms is the film's end, the latest a held cue may stay up. The SRT
+    # is the one source for the burn, the soft track, and the VTT sidecar.
+    def captions(inputs, total_ms = nil)
       # Cues never straddle a scene change: each scene packs its own words.
-      cue_list = aligned(inputs).flat_map do |i|
+      cue_list = WalkthroughCaptions.no_overlap(aligned(inputs).flat_map do |i|
         WalkthroughCaptions.cues(WalkthroughCaptions.word_spans(i[:alignment], offset_ms: i[:offset_ms]))
-      end
-      WalkthroughCaptions.srt(WalkthroughCaptions.no_overlap(cue_list))
+      end)
+      hold = WalkthroughDevice.caption_hold_ms(@board)
+      cue_list = WalkthroughCaptions.hold(cue_list, max_ms: hold, end_ms: total_ms) if hold
+      WalkthroughCaptions.srt(cue_list)
     end
 
     def duck_spans(inputs)
@@ -778,7 +782,7 @@ module WalkthroughRender
       return mp4 if File.size?(mp4)
 
       inputs = assembly_inputs(manifest)
-      srt = captions(inputs)
+      srt = captions(inputs, manifest.dig('timeline', 'total_ms'))
       plan = plan(manifest, inputs)
       # A silent board has no cues: an empty SRT is no caption track (pass 2
       # cannot open it), so it renders without needing captions.burn false.
