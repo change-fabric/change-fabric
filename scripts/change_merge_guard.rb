@@ -94,17 +94,17 @@ class ChangeMergeGuard
     :unreadable
   end
 
-  # A PR whose changed files (both names of a rename) match the base policy's
-  # `carve_out_paths` merges only at a phone-approved head: a ChangeCarveOutStore
+  # A PR whose changed files (both names of a rename) touch a policy file (the
+  # repo-root CHANGE.md or a registered app config, always carve-outs since
+  # 0.36.0) or match the base policy's `carve_out_paths` merges only at a
+  # phone-approved head: a ChangeCarveOutStore
   # record for this repo, PR and exact head, its receipt passing the carve-out
   # row of the claim table (passkey level, signed files and base equal to the
   # recomputed ones) and under 24h old now, and `--match-head-commit <head>` on
-  # the merge. Fails closed on every gh or store error, but only for a policy
-  # that lists carve-out paths; a repo without the list is unaffected. A
-  # standing override does not waive it.
+  # the merge. Fails closed on every gh or store error: the changed files are
+  # always classified, since every governed repo has policy files. A standing
+  # override does not waive it.
   def carve_out_violation(policy, base, sha, url)
-    return nil if policy.carve_out_paths.empty?
-
     files = changed_files(url)
     hits = files.select { |file| policy.carve_out?(file) }
     return nil if hits.empty?
@@ -117,13 +117,13 @@ class ChangeMergeGuard
       "--type carve-out --pr-url #{url || '<pr-url>'} --summary <what and why>, add --no-wait, post the link, then start approval_console.rb record <id> as a background task (run_in_background) so the session is woken on the decision (never ask the human to type approved), then merge with " \
       "--match-head-commit #{sha}. #{escape_note}"
   rescue StandardError => e
-    "this repo lists carve-out paths and the PR could not be classified (#{e.message}); the guard fails closed. #{escape_note}"
+    "the PR could not be classified (#{e.message}) against the carve-out paths; the guard fails closed. #{escape_note}"
   end
 
   def carve_out_problem(policy, base, sha, url, files)
     return "a carve-out must merge now, not with --auto: auto-merge lands a later head than the one approved." if GuardedCommand.tokens(command).include?('--auto')
     return "the merge must carry --match-head-commit #{sha} (the head the approval binds)." unless match_head_commit(command) == sha
-    return nil if autopilot_waives?(files, sha, url)
+    return nil if autopilot_waives?(policy, files, sha, url)
 
     repo = ChangePrFacts.repo_id(url)
     number = ChangePrFacts.parse_url(url).last
@@ -147,10 +147,11 @@ class ChangeMergeGuard
 
   # An active autopilot naming carve_out stands in for the per-head tap, but
   # only for this repo's own PR and never when any changed file is a locked
-  # path (the guards, the autopilot code, CHANGE.md, ...). --auto and
-  # --match-head-commit were already enforced above; cf:change still gates.
-  def autopilot_waives?(files, sha, url)
-    return false if files.any? { |file| ChangeAutopilot.locked_path?(file) }
+  # path (the guards, the autopilot code, CHANGE.md, ...) or a policy file (a
+  # registered app config). --auto and --match-head-commit were already
+  # enforced above; cf:change still gates.
+  def autopilot_waives?(policy, files, sha, url)
+    return false if files.any? { |file| ChangeAutopilot.locked_path?(file) || policy.policy_file?(file) }
 
     root = repo_root or return false
     return false unless ChangePrFacts.repo_id(url) == CfProjectIdentity.for(root).id

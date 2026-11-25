@@ -131,11 +131,13 @@ is green, `mergeStateStatus` is CLEAN, it has 0 unresolved review threads, and
 a comprehensive `cf:change` run passed for the exact head SHA. A PR touching
 the merge or tag guards, the review gate, the sensitive-term or secret hooks,
 the `change_policy` block, these merge rules, or a release workflow is a
-carve-out (paths in `CHANGE.md`): the merge guard merges it only at the head
+carve-out (paths in `CHANGE.md`). The policy files are always carve-outs, listed
+or not: the repo-root `CHANGE.md` and every app config `change_config.apps`
+registers, and no autopilot waives them. The merge guard merges it only at the head
 Patrick's phone approved, with `--match-head-commit <sha>`, failing closed on
 a gh error.
 
-Enforcer: scripts/change_merge_guard.rb, CHANGE.md
+Enforcer: scripts/change_merge_guard.rb, scripts/change_policy.rb, CHANGE.md
 
 ## One PR at a time, rebased, linear history
 

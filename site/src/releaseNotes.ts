@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.36.0": {
+    version: "0.36.0",
+    date: "2026-11-25",
+    headline: "The policy files are always carve-outs.",
+    highlights: [
+      {
+        title: "CHANGE.md and registered app configs need a phone-approved head",
+        body:
+          "The merge guard treats the repo-root CHANGE.md and every app config that change_config.apps registers as carve-out paths in every gated repo, whether or not carve_out_paths lists them. A PR that touches one merges only at a phone-approved head, and an autopilot never waives it.",
+      },
+    ],
+    upgrade: "No CHANGE.md edit needed. A PR that changes CHANGE.md or a CHANGE.app.yml now needs a carve-out approval before an agent merges it.",
+  },
 "0.35.0": {
   version: "0.35.0",
   date: "2026-11-25",

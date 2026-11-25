@@ -31,6 +31,8 @@ class StubMergeGuard < ChangeMergeGuard
 
   def repo_root = @root
   def pr_facts = @pr
+  # The PR touches no policy file unless a test says otherwise.
+  def changed_files(_url) = []
 
   def base_policy(root, _base, _repo = nil)
     @stub_base_policy == :same_as_root ? ChangePolicy.for_repo(root) : @stub_base_policy
@@ -503,6 +505,55 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
     assert_empty io.string
   end
 
+  # 0.36.0: the policy files are carve-outs in every gated repo, listed or not.
+  def unlisted_verdict(files, base_policy: policy(paths: []), command: "gh pr merge 612 --squash --match-head-commit #{HEAD}")
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    Guard.new(event, root: @root, pr: [ "main", HEAD, PR_URL ], base_policy: base_policy, files: files, proof_store: @store).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason")
+  end
+
+  def app_policy(paths: [])
+    ChangePolicy.new({ "approval_pins" => authoritative_pins, "admin_bypass" => { "carve_out_paths" => paths },
+                       "promotion" => { "main" => { "require_change_pass" => false } } }, nil,
+                     app_configs: [ "apps/web/CHANGE.app.yml" ])
+  end
+
+  def test_an_unlisted_change_md_edit_needs_a_receipt
+    assert_match(/carve-out \(CHANGE.md\): no phone-approved carve-out is recorded/, unlisted_verdict([ "CHANGE.md" ]))
+    approve(files: [ "CHANGE.md" ])
+    assert_nil unlisted_verdict([ "CHANGE.md" ])
+  end
+
+  def test_an_unlisted_repo_still_merges_other_files_freely
+    assert_nil unlisted_verdict([ "README.md", "scripts/x.rb" ], command: "gh pr merge 612 --squash")
+  end
+
+  def test_a_registered_app_config_edit_is_denied
+    assert_match(%r{carve-out \(apps/web/CHANGE.app.yml\)}, unlisted_verdict([ "apps/web/CHANGE.app.yml" ], base_policy: app_policy))
+    assert_nil unlisted_verdict([ "apps/other/CHANGE.app.yml" ], base_policy: app_policy, command: "gh pr merge 612 --squash")
+  end
+
+  def test_an_explicit_list_adds_to_the_policy_files
+    both = app_policy(paths: [ "hooks/**" ])
+    assert_match(/carve-out \(hooks\/a.rb\)/, unlisted_verdict([ "hooks/a.rb" ], base_policy: both))
+    assert_match(/carve-out \(CHANGE.md\)/, unlisted_verdict([ "CHANGE.md" ], base_policy: both))
+    assert_match(%r{carve-out \(apps/web/CHANGE.app.yml\)}, unlisted_verdict([ "apps/web/CHANGE.app.yml" ], base_policy: both))
+    assert_nil unlisted_verdict([ "docs/a.md" ], base_policy: both, command: "gh pr merge 612 --squash")
+  end
+
+  def test_an_unlisted_repo_fails_closed_when_files_cannot_be_classified
+    failing = ->(_url) { raise ChangePrFacts::Unreadable, "gh api failed" }
+    assert_match(/could not be classified \(gh api failed\)/, unlisted_verdict(failing))
+  end
+
+  def test_the_policy_reads_registered_app_configs_from_change_config
+    assert_equal [ "apps/web/CHANGE.app.yml" ],
+                 ChangePolicy.registered_app_configs({ "apps" => { "web" => { "config" => "./apps/web/CHANGE.app.yml" } } })
+    assert_empty ChangePolicy.registered_app_configs({ "project" => "x" })
+    assert_raises(ArgumentError) { ChangePolicy.registered_app_configs({ "apps" => [ "web" ] }) }
+  end
+
   def test_the_escape_hatch_still_suppresses_the_guard
     ENV["CF_ALLOW_UNGATED_MERGE"] = "1"
     assert_nil verdict("gh pr merge 612 --squash")
@@ -574,6 +625,17 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
         assert_match(/no phone-approved carve-out/, locked_verdict([ "scripts/change_autopilot.rb" ]))
         assert_match(/no phone-approved carve-out/, locked_verdict([ "CHANGE.md", "scripts/x.rb" ]))
         assert_match(/no phone-approved carve-out/, verdict(files: CARVE))
+        assert_empty calls
+      end
+    end
+  end
+
+  def test_an_autopilot_never_waives_an_implicit_policy_file
+    assert ChangeAutopilot.locked_path?("CHANGE.md")
+    with_repo_identity do
+      with_autopilot do |calls|
+        assert_match(/no phone-approved carve-out/, unlisted_verdict([ "CHANGE.md" ]))
+        assert_match(/no phone-approved carve-out/, unlisted_verdict([ "apps/web/CHANGE.app.yml" ], base_policy: app_policy))
         assert_empty calls
       end
     end

@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.35.0
+Schema version: 0.36.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -1176,7 +1176,7 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
-| `change_policy.admin_bypass.carve_out_paths` | list of globs | no (default empty) | (0.26.0) Files whose change makes a PR a carve-out, matched with `File.fnmatch` (`FNM_PATHNAME`: `*` stays in one directory; a trailing `/**` covers everything below). Read from the PR base branch's policy. (0.28.0) The merge guard enforces it: a PR matching a glob (a rename on either name) merges only at a phone-approved head with `--match-head-commit`. |
+| `change_policy.admin_bypass.carve_out_paths` | list of globs | no (default empty) | (0.26.0) Files whose change makes a PR a carve-out, matched with `File.fnmatch` (`FNM_PATHNAME`: `*` stays in one directory; a trailing `/**` covers everything below). Read from the PR base branch's policy. (0.28.0) The merge guard enforces it: a PR matching a glob (a rename on either name) merges only at a phone-approved head with `--match-head-commit`. (0.36.0) The repo-root `CHANGE.md` and every app config that `change_config.apps` registers (for example `apps/<name>/CHANGE.app.yml`) are carve-outs in every gated repo even when unlisted; this list adds to them, and an autopilot never waives them. |
 
 ### change_policy.trackers (0.19.0): the tracker workflow
 
@@ -2158,3 +2158,7 @@ root `RELEASING.md`.
   contract, an optional one-flag-at-a-time matrix through repo-declared adapter
   commands, and issue, release-comment and chat sinks. No `change_config` field
   changes.
+- 0.36.0: enforcement only, no new field. The repo-root `CHANGE.md` and every
+  app config `change_config.apps` registers are implicit carve-out paths in
+  every gated repo, listed or not; `carve_out_paths` adds to them. An
+  autopilot never waives them.
