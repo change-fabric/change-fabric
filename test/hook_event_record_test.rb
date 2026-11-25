@@ -32,6 +32,12 @@ class HookEventRecordTest < Minitest::Test
     refute_includes File.read(HookEvent.events_path(@home)), "git push"
   end
 
+  def test_a_subagent_event_records_under_parent_and_agent
+    HookEvent.instrument("force_push_guard", { "session_id" => "p1", "agent_id" => "a7", "tool_name" => "Bash" }, home: @home) { nil }
+    HookEvent.instrument("force_push_guard", { "session_id" => "p1", "tool_name" => "Bash" }, home: @home) { nil }
+    assert_equal [ "p1:a7", "p1" ], lines.select { |l| l["type"] == "evaluation" }.map { |l| l["session"] }
+  end
+
   def test_nil_home_falls_back_to_dir_home_for_doctrine_version
     dir = File.join(@home, ".claude", "cf", "sessions", "s9")
     FileUtils.mkdir_p(dir)

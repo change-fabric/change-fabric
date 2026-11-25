@@ -7,6 +7,7 @@ require 'digest'
 require 'stringio'
 require 'time'
 require 'yaml'
+require_relative 'review_key'
 
 # Parse a hook event from stdin. Hooks fire on every event, so a bad or
 # unexpected payload must fail silent (empty event), never crash the session.
@@ -178,10 +179,10 @@ module HookEvent
     id, rule = rule_for(hook)
     return unless id
 
-    session = event['session_id']
+    session = ReviewKey.agent_key(event) || event['session_id']
     digest_text = context_text(output)
     set_doctrine_version(session, digest_text, home) if rule['starts_session'] && digest_text
-    session_started(event, home: home) if rule['starts_session']
+    session_started(event.merge('session_id' => session), home: home) if rule['starts_session']
     version = rule_version(hook)
     record('evaluation', session: session, home: home, rule_id: id, rule_version: version, hook: hook, tool: event['tool_name'])
     outcome = outcome_of(output, rule)
