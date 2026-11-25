@@ -520,7 +520,11 @@ module ApprovalConsole
       old = path('pending_sync.jsonl')
       File.rename(old, File.join(root, 'pending_sync.jsonl')) if File.file?(old)
       # console.json last: once it exists the console reads from consoles/<rp_id>/.
-      write_atomic(File.join(root, 'console.json'), JSON.pretty_generate('base_url' => config['base_url'], 'rp_id' => rp_id))
+      # A retry after an interrupted move finds base_url already gone from the
+      # machine config, so keep the one the first pass wrote.
+      moved = read_json(File.join(root, 'console.json'))
+      base_url = config['base_url'] || moved['base_url']
+      write_atomic(File.join(root, 'console.json'), JSON.pretty_generate('base_url' => base_url, 'rp_id' => rp_id))
     end
 
     # Opens `file` 0600 with `mode` added to WRONLY|CREAT, writes and fsyncs.

@@ -180,6 +180,20 @@ class ApprovalConsoleMultiConsoleTest < Minitest::Test
     refute File.exist?(File.join(dir, "consoles"))
   end
 
+  # Interrupted after console.json was rewritten but before credentials.json
+  # was removed: the retry must keep the console URL the first pass moved.
+  def test_a_retried_migration_keeps_the_moved_console_url
+    dir = @store.dir
+    write_single_console_layout(dir)
+    creds = File.read(File.join(dir, "credentials.json"))
+    store = ApprovalConsole::LocalStore.new
+    store.migrate!
+    File.write(File.join(dir, "credentials.json"), creds)
+    assert_equal BETA, store.migrate!
+    assert_equal "https://#{BETA}/", store.base_url
+    assert_predicate store, :console_configured?
+  end
+
   def test_migrate_needs_a_human_and_enroll_migrates
     write_single_console_layout(@store.dir)
     status, _out, err = cli([ "migrate" ], auth: nil)
