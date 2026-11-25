@@ -1,7 +1,7 @@
 ---
 name: cf:plan
 group: workflow
-description: Turns a described goal into a landed planning set under the configured plans tree. The set is plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js. Background worker-role agents research and surface the open questions; this session grills the user with AskUserQuestion until the judgment calls are settled, then has the plan written against those answers. It plans only; it never implements the plan or runs the Workflow itself.
+description: Turns a described goal into a landed planning set under the configured plans tree. The set is plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js. Background worker-role agents research and surface the open questions; this session grills the user with AskUserQuestion until the judgment calls are settled, then has the plan written against those answers. Under merge-ready or local-only it stops at a handoff prompt for a fresh session; under admin-bypass or yolo it continues straight into the plan's Workflow once the plan lands.
 ---
 
 # CF Plan
@@ -46,8 +46,10 @@ Three files, always all three, in one directory:
 own store beside `ctx`, `sessions`, and `bin`. Set `CF_PLANS_ROOT` to keep
 plans in your own notes tree instead.
 
-Then one more thing, to the user only: a fenced handoff prompt to paste into a
-fresh session that will execute the plan.
+Then one more thing, to the user only: a fenced handoff prompt. Under
+merge-ready or local-only it is what the user pastes into a fresh session to
+execute the plan; under admin-bypass or yolo it is a record only, because this
+session starts the Workflow itself (step 11).
 
 ## Resource floors
 
@@ -77,10 +79,18 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
 
 ## Boundaries
 
-- This skill writes only under `<root>`. It never edits a repo, never commits,
-  never pushes. The session's cf merge mode is therefore irrelevant to it.
-- It never calls `Workflow`. It authors a script; executing it is a separate
-  session's job, started by the user pasting the step-10 prompt.
+- Planning (steps 1 to 10) writes only under `<root>`. It never edits a repo,
+  never commits, never pushes.
+- The interview always comes first, in every merge mode, and away mode still
+  refuses to start it. Nothing executes before the plan has landed.
+- The session's cf merge mode decides what happens after the plan lands.
+  Under merge-ready or local-only this skill never calls `Workflow`: executing
+  is a separate session's job, started by the user pasting the step-10 prompt.
+  Under admin-bypass or yolo it calls `Workflow` once, at step 11, with the
+  plan's own `workflow.js`. That call is authorized by the merge mode plus the
+  plan having just landed (`plan_check.rb` passed and the ctx pointer
+  recorded); it needs no further confirmation. From there the executing work
+  follows the merge mode's own rules for pushes, PRs and merges.
 - **The interview happens here, in this session, not in a subagent.**
   `AskUserQuestion` is unavailable inside a subagent. Research agents surface
   candidate questions as structured output; you ask them.
@@ -317,14 +327,17 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
    ```
 
 10. **Emit the handoff.** Fill `reference/handoff-prompt.md` and print it as
-    the final message, in one fenced block, ready to copy. Say plainly that
-    this skill has not run anything and that pasting the block into a fresh
-    session is what starts execution. Report how many interview rounds ran and
+    one fenced block, ready to copy. Report how many interview rounds ran and
     which decisions the user's answers changed, how many visuals landed, and
     the roast rounds, scores, and spend. The visuals line also says where
     they will post: on the single PR once it settles, or for a multi-PR
     plan on each phase's PR at cf:sweep stack step 4b (`all`,
-    architecture, and timelines on the first PR). Stop here.
+    architecture, and timelines on the first PR).
+
+    Under merge-ready or local-only, say plainly that this skill has not run
+    anything and that pasting the block into a fresh session is what starts
+    execution, then stop here. Under admin-bypass or yolo, say the block is a
+    record only and go on to step 11.
 
     Chat delivery. After the fenced block, never inside it, send the light
     PNGs (`diagrams/<name>-light.png`) in `## Visuals` order with the
@@ -337,6 +350,15 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
     than one PR phase, the handoff ends with "When the phases are open as PRs,
     run `/cf:sweep stack <plan_dir>`.", so cf:sweep stack mode lands the PRs
     strictly one at a time by merge mode. A single-PR plan omits the line.
+
+11. **Execute (admin-bypass or yolo only).** Read the session's merge mode
+    from the `[cf]` context line. Under merge-ready or local-only this step
+    does not run; the skill ended at step 10. Otherwise read
+    `<plan_dir>/workflow.js` and call `Workflow` with its contents unchanged,
+    starting Phase 1 at once. Do not ask first: the merge mode and the plan
+    just landing are the authorization. On a `resource-floor` stop, ask the
+    user about tier 2 reclaim and resume with `only`, as the handoff
+    describes.
 
 ## Failure modes
 

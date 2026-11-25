@@ -1,5 +1,6 @@
 Fill every `{{placeholder}}` from this run, then print the fenced block below
-as the final message. Do not add commentary inside the fence.
+as the step-10 message (the final message under merge-ready or local-only;
+a record before step 11 starts the Workflow under admin-bypass or yolo). Do not add commentary inside the fence.
 
 Every path placeholder here (`{{plan_path}}`, `{{goal_path}}`,
 `{{workflow_path}}`, `{{repo_path}}`) takes the tilde form (from
