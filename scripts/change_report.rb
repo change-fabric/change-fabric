@@ -146,8 +146,8 @@ class ChangeReport
   def findings_section
     return [ '## Findings', '', 'No findings recorded.' ] if @findings.empty?
 
-    lines = [ '## Findings', '', '| Lane | Status | Severity | Target | Check | Location | Detail | Attempts |',
-              '| --- | --- | --- | --- | --- | --- | --- | --- |' ]
+    lines = [ '## Findings', '', '| Lane | Status | Severity | Target | Check | Location | Detail | Attempts | Step ms |',
+              '| --- | --- | --- | --- | --- | --- | --- | --- | --- |' ]
     @findings.sort_by { |finding| sort_key(finding) }.each { |finding| lines << finding_row(finding) }
     lines
   end
@@ -161,7 +161,7 @@ class ChangeReport
   # identical rows, which are indistinguishable however they land.
   def sort_key(finding)
     [ finding.fail? ? 0 : 1, finding.lane, finding.status, finding.severity, finding.target,
-      finding.check, finding.location, finding.detail, finding.help ]
+      finding.check, finding.location, finding.detail, finding.help, finding.step_ms.to_s ]
   end
 
   # `attempts` renders as a plain count, with the flaky verdict called out
@@ -170,7 +170,7 @@ class ChangeReport
   # habit look like a clean report.
   def finding_row(finding)
     cells = [ finding.lane, finding.status.upcase, finding.severity, finding.target,
-              finding.check, finding.location, finding.detail, attempts_cell(finding) ]
+              finding.check, finding.location, finding.detail, attempts_cell(finding), finding.step_ms ]
     "| #{cells.map { |cell| escape(cell) }.join(' | ')} |"
   end
 

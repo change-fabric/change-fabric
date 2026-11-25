@@ -29,7 +29,7 @@ module ChangeSuiteSchema
   # field set before the key existed. Every PR that adds a suite field raises
   # this by one and records the field in FIELD_VERSIONS, so an install can tell
   # a file written for a newer toolkit from a file with a typo.
-  SUITE_VERSION = 7
+  SUITE_VERSION = 8
 
   # The version a file declares when it says nothing.
   DEFAULT_SUITE_VERSION = 1
@@ -120,7 +120,7 @@ module ChangeSuiteSchema
   # (v5) The step option and the read kinds newer than version 1, gated the
   # same way: a v4 file using them is refused naming the version that adds them.
   OPTION_VERSIONS = { 'budget_ms' => 5, 'budget_from' => 5, 'label' => 5, 'tolerance' => 5, 'tolerance_px' => 5, 'wait' => 5, 'max_cls' => 5,
-                     'max_diff_ratio' => 7, 'mask' => 7 }.freeze
+                     'max_diff_ratio' => 7, 'mask' => 7, 'timing' => 8, 'timing_from' => 8 }.freeze
   KIND_VERSIONS = ChangeFlowCompiler::MEASURED_KINDS.to_h { |kind| [ kind, 5 ] }.freeze
 
   def self.option_version(option) = OPTION_VERSIONS.fetch(option, DEFAULT_SUITE_VERSION)

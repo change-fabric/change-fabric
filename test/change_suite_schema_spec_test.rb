@@ -121,6 +121,11 @@ class ChangeSuiteSchemaSpecTest < Minitest::Test
     ChangeSuite.steps([ { "goto" => "/" }, { "wait_for_text" => "x", "budget_ms" => 10 } ], "s", "c", "p", 5)
   end
 
+  def test_a_v8_file_loads_its_timed_wait
+    steps = ChangeSuite.load_file(compat("v8")).cases.first.steps
+    assert_equal 3, steps.size
+  end
+
   def test_the_seventeen_case_v4_fixture_loads_under_the_current_loader
     suite = ChangeSuite.load_file(compat("v4-seventeen"))
     assert_equal 4, suite.version

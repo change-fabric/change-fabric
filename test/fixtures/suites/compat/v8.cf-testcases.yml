@@ -1,0 +1,10 @@
+suite: compat-v8
+suite_version: 8
+cases:
+  - id: home
+    acceptance: The next view appears within its timing budget.
+    steps:
+      - goto: /
+      - click: "#next"
+        label: next
+      - wait_for_text: { text: Ready, timing: { warn_ms: 5000, fail_ms: 15000 }, timing_from: next }

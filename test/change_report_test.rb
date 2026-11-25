@@ -122,8 +122,8 @@ class ChangeReportTest < Minitest::Test
 
     around_desktop do |_dir|
       csv = File.read(ChangeReport.new(project: "p", scope: "all", findings: findings).write[:csv])
-      assert_equal "lane,status,severity,target,check,location,detail,help,attempts,flaky", csv.lines.first.chomp
-      assert_match(/,2,true$/, csv.lines[1].chomp)
+      assert_equal "lane,status,severity,target,check,location,detail,help,attempts,flaky,step_ms", csv.lines.first.chomp
+      assert_match(/,2,true,""$/, csv.lines[1].chomp)
     end
   end
 

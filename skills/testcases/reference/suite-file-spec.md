@@ -1,6 +1,6 @@
 # Test-case suite file specification
 
-Suite version: 7
+Suite version: 8
 
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
@@ -47,6 +47,7 @@ only adds optional fields, so an older file always loads on a newer install.
 | 5 | Measured reads `rect.x`, `rect.y`, `rect.width`, `rect.height`, `rect.bottom`, `scroll_y`; the step verb `expect_stable`; the step options `label`, `budget_ms`, `budget_from`; and `tolerance` on `expect_equal`. |
 | 6 | `cases[].covers`. |
 | 7 | The step verb `expect_visual` and its options `max_diff_ratio` and `mask`. |
+| 8 | The step options `timing` and `timing_from`: a graded timing budget on a wait. |
 
 The loader is strict. An unknown top-level or case key is refused by name, and
 a key newer than the file's declared `suite_version` is refused with the version
@@ -106,8 +107,32 @@ span covers the click through the visible confirmation:
 - wait_for_text: { text: "Saved.", budget_ms: 1500, budget_from: save }
 ```
 
-An unknown `budget_from`, or one naming a later step, is refused at compile
-time. Every step records its `started_at_ms` and `duration_ms`; the case result
+(suite_version 8) `timing: { warn_ms: N, fail_ms: M }` on a wait step
+(`wait_for`, a state wait or an event wait) grades how long the step took
+instead of failing at one number. The span runs from the start of the step named
+by `timing_from` (or from the wait's own start) to the wait's end: under
+`warn_ms` it passes, from `warn_ms` up to `fail_ms` it passes with a warning
+finding that never fails the lane, and at or over `fail_ms` it fails. Both are
+positive integers with `warn_ms` below `fail_ms`. A timed wait must outlive
+`fail_ms` so it can observe how slow it really was: its `timeout_ms` defaults to
+`fail_ms + 60000`, and a declared one outside `fail_ms + 10000` to
+`fail_ms + 90000` is refused. A wait that times out anyway fails as a timing
+budget failure (`reason: timeout`) with the elapsed ms, not as a generic step
+error. A case with a timed step may not set `retries`, because a rerun resets
+the clock and hides the regression. Every timed step reports a finding with its
+`step_ms`, which the CSV and Markdown reports carry in a `step_ms` column.
+
+```yaml
+- click: { role: button, selector: "button.next-view" }
+  label: next_view
+- wait_for_text:
+    text: "View B summary"
+    timing: { warn_ms: 5000, fail_ms: 15000 }
+    timing_from: next_view
+```
+
+An unknown `budget_from` or `timing_from`, or one naming a later step, is refused
+at compile time. Every step records its `started_at_ms` and `duration_ms`; the case result
 carries them as `step_durations`.
 
 A selector is a plain Puppeteer selector (CSS, `::-p-text(...)`,
@@ -241,6 +266,9 @@ less than its author believes:
 - a `suite_version` above the installed one, or not a positive integer
 - an unknown top-level or case key, or a key newer than the declared `suite_version`
 - a `retries` above zero without `safe_rerun: true`
+- a `retries` above zero on a case with a `timing` step
+- a `timing` that is not a wait, has `warn_ms` at or above `fail_ms`, lacks either
+  key, or sits beside a `timeout_ms` outside `fail_ms + 10000` to `fail_ms + 90000`
 - a `timeout_ms` outside 1000..600000
 - a duplicate case id within a suite
 - two suite files declaring the same `suite` id

@@ -68,7 +68,16 @@ class ChangeFlowCompiler
   RUNTIME_VERBS = VERBS.to_h { |verb| [ verb, verb.gsub(/_(.)/) { Regexp.last_match(1).upcase } ] }.freeze
 
   # Step-level keys that are options rather than the verb itself.
-  OPTION_KEYS = %w[timeout_ms budget_ms budget_from label].freeze
+  OPTION_KEYS = %w[timeout_ms budget_ms budget_from timing timing_from label].freeze
+
+  # (suite_version 8) A timed step is a wait, graded on how long it took. The
+  # wait's own timeout stays well above `fail_ms` so the step can observe how
+  # slow it really was: it defaults to `fail_ms + TIMING_TIMEOUT_DEFAULT_MS`,
+  # and a declared one must sit within the margin range below `fail_ms`.
+  TIMING_WAITS = (%w[wait_for] + STATE_WAITS + EVENT_WAITS).freeze
+  TIMING_KEYS = %w[warn_ms fail_ms].freeze
+  TIMING_TIMEOUT_DEFAULT_MS = 60_000
+  TIMING_TIMEOUT_MARGIN_MS = (10_000..90_000)
 
   # (suite_version 5) Numeric reads of geometry and scroll position.
   # `rect.*` is the element's getBoundingClientRect(); `scroll_y` is
@@ -679,6 +688,37 @@ class ChangeFlowCompiler
     // `options` lets a caller resume a flow part way (startAt, with the
     // captured vars it had) and stop it after a step (afterStep returns
     // true), which is how the testcases lane resumes a case after a re-login.
+    // A timed wait is graded on the span from its `timingFrom` step (or its own
+    // start) to its end. Under warnMs it passes, from warnMs up to failMs it
+    // warns and still passes, at or over failMs it fails. A wait that timed out
+    // is a timing-budget failure carrying the elapsed ms, never a generic step
+    // error. A resumed walk that lost the origin step cannot be measured.
+    function cfGradeTiming(step, record, startedAt, endedAt, startedAtByTag) {
+      const known = step.timingFrom === undefined || startedAtByTag.has(step.timingFrom);
+      const from = step.timingFrom !== undefined && known ? startedAtByTag.get(step.timingFrom) : startedAt;
+      const stepMs = endedAt - from;
+      const timing = { stepMs, warnMs: step.timing.warnMs, failMs: step.timing.failMs, grade: "pass" };
+      record.timing = timing;
+      const where = step.timingFrom !== undefined ? step.timingFrom + ".." : "";
+      if (!known) {
+        timing.grade = "fail";
+        timing.reason = "unmeasurable";
+        record.ok = false;
+        record.error = `step ${step.index + 1} timing_from ${step.timingFrom} started before this walk resumed, so its span cannot be measured`;
+      } else if (!record.ok) {
+        if (!/Timeout|timed out|within [0-9]+ms|Waiting (for selector|failed)/i.test(String(record.error))) { delete record.timing; return; }
+        timing.grade = "fail";
+        timing.reason = "timeout";
+        record.error = `timing budget: ${where}step ${step.index + 1} timed out after ${stepMs}ms, fail_ms ${step.timing.failMs} (${record.error})`;
+      } else if (stepMs >= step.timing.failMs) {
+        timing.grade = "fail";
+        record.ok = false;
+        record.error = `timing budget: ${where}step ${step.index + 1} took ${stepMs}ms, fail_ms ${step.timing.failMs}`;
+      } else if (stepMs >= step.timing.warnMs) {
+        timing.grade = "warn";
+      }
+    }
+
     async function cfRunFlow(page, steps, options = {}) {
       const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), armed: null };
       const results = [];
@@ -734,6 +774,7 @@ class ChangeFlowCompiler
             record.error = `span ${step.budgetFrom !== undefined ? step.budgetFrom : "step " + (step.index + 1)}..${step.tag || "step " + (step.index + 1)} took ${span}ms, budget ${step.budgetMs}ms`;
           }
         }
+        if (step.timing) cfGradeTiming(step, record, startedAt, endedAt, startedAtByTag);
         results.push(record);
         const stop = (options.afterStep && (await options.afterStep(step, record))) || !record.ok;
         if (stop) break;
@@ -869,9 +910,66 @@ class ChangeFlowCompiler
   def compile_step(raw, index, captured)
     verb, value, timeout, options = split_step(raw, index)
     compiled = with_locator(send(:"compile_#{verb}", value, captured))
+    timing = timing_options(options, verb, timeout, index)
+    timeout = timing[:timeoutMs] if timing
     compiled = compiled.merge(verb: RUNTIME_VERBS.fetch(verb), index: index, timeoutMs: Integer(timeout || @timeout_ms))
     compiled = compiled.merge(tag: tag_for(options['label'], index)) if options['label']
+    compiled = compiled.merge(timing.except(:timeoutMs)) if timing
     options['budget_ms'] ? compiled.merge(budget_options(options, index)) : budget_from_alone(options, compiled, index)
+  end
+
+  # (suite_version 8) `timing: { warn_ms:, fail_ms: }` on a wait step grades the
+  # span from `timing_from`'s step (or its own start) to the wait's end: under
+  # `warn_ms` passes, from `warn_ms` up to `fail_ms` warns, at or over
+  # `fail_ms` fails. Returns nil for an untimed step, else the compiled
+  # `timing`, the optional `timingFrom` and the wait's `timeoutMs`.
+  def timing_options(options, verb, timeout, index)
+    raise Error, "step #{index + 1} timing_from needs a timing" if options['timing_from'] && !options['timing']
+    return nil unless options['timing']
+
+    where = "step #{index + 1} timing"
+    raise Error, "#{where} belongs on a wait (#{TIMING_WAITS.join(', ')}), not on #{verb}" unless TIMING_WAITS.include?(verb)
+
+    warn_ms, fail_ms = timing_budgets(options['timing'], where)
+    result = { timing: { warnMs: warn_ms, failMs: fail_ms }, timeoutMs: timing_timeout(timeout, fail_ms, where) }
+    from = options['timing_from']
+    return result if from.nil?
+
+    raise Error, "step #{index + 1} timing_from #{from} is not the label of an earlier step" unless @tags.key?(from.to_s) && @tags[from.to_s] < index
+
+    result.merge(timingFrom: from.to_s)
+  end
+
+  def timing_budgets(raw, where)
+    raise Error, "#{where} must be a mapping of warn_ms and fail_ms" unless raw.is_a?(Hash)
+
+    spec = raw.to_h { |key, value| [ key.to_s, value ] }
+    unknown = spec.keys - TIMING_KEYS
+    raise Error, "#{where} has unknown key(s): #{unknown.sort.join(', ')}" if unknown.any?
+
+    warn_ms, fail_ms = TIMING_KEYS.map do |key|
+      value = spec[key]
+      raise Error, "#{where} needs #{key}, a positive integer" if value.nil?
+      raise Error, "#{where} #{key} must be a positive integer, got #{value.inspect}" unless value.is_a?(Integer) && value.positive?
+
+      value
+    end
+    raise Error, "#{where} warn_ms (#{warn_ms}) must be below fail_ms (#{fail_ms})" unless warn_ms < fail_ms
+
+    [ warn_ms, fail_ms ]
+  end
+
+  # The timed wait must outlive `fail_ms` by a margin, so a slow step is graded
+  # on how slow it was rather than lost to a generic timeout.
+  def timing_timeout(declared, fail_ms, where)
+    return fail_ms + TIMING_TIMEOUT_DEFAULT_MS if declared.nil?
+
+    declared = Integer(declared.to_s, exception: false)
+    range = (fail_ms + TIMING_TIMEOUT_MARGIN_MS.min)..(fail_ms + TIMING_TIMEOUT_MARGIN_MS.max)
+    return declared if declared && range.cover?(declared)
+
+    raise Error, "#{where} needs a wait timeout_ms from #{range.min} to #{range.max} (fail_ms + 10000 to fail_ms + 90000), " \
+                 "got #{declared.inspect}; leave it unset for #{fail_ms + TIMING_TIMEOUT_DEFAULT_MS}"
   end
 
   # (suite_version 5) A step's own name, which `budget_from` points at. A name
@@ -934,7 +1032,7 @@ class ChangeFlowCompiler
     raise Error, "step #{index + 1} names more than one verb: #{verbs.sort.join(', ')}" if verbs.size > 1
 
     value = keyed.fetch(verbs.first)
-    options = %w[budget_ms budget_from label].to_h { |key| [ key, keyed[key] || inner_option(value, key) ] }.compact
+    options = %w[budget_ms budget_from timing timing_from label].to_h { |key| [ key, keyed[key] || inner_option(value, key) ] }.compact
     [ verbs.first, value, keyed['timeout_ms'] || inner_option(value, 'timeout_ms'), options ]
   end
 

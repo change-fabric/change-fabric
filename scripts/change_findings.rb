@@ -19,13 +19,16 @@
 # `flaky: true` beside it, so a pass bought by a re-run is legible as one
 # instead of being laundered into a clean result. Deliberately not a fourth
 # status: {pass, warn, fail} stays the sole gate signal.
+#
+# `step_ms` is set only by a timed testcase step: the measured milliseconds the
+# step took, whatever its grade, so a slow pass is as visible as a slow fail.
 class Finding
   STATUSES = %w[pass warn fail].freeze
 
-  attr_reader :lane, :target, :check, :status, :severity, :detail, :location, :help, :attempts, :flaky
+  attr_reader :lane, :target, :check, :status, :severity, :detail, :location, :help, :attempts, :flaky, :step_ms
 
   def initialize(lane:, check:, status:, target: '', severity: '', detail: '', location: '', help: '',
-                 attempts: 1, flaky: false)
+                 attempts: 1, flaky: false, step_ms: nil)
     @lane = lane.to_s
     @target = target.to_s
     @check = check.to_s
@@ -36,6 +39,7 @@ class Finding
     @help = help.to_s
     @attempts = normalize_attempts(attempts)
     @flaky = flaky == true
+    @step_ms = step_ms.nil? ? nil : Integer(step_ms)
   end
 
   def fail? = @status == 'fail'
@@ -47,12 +51,13 @@ class Finding
   # took to get there.
   def with_attempt(attempts:, flaky:)
     self.class.new(lane: @lane, check: @check, status: @status, target: @target, severity: @severity,
-                   detail: @detail, location: @location, help: @help, attempts: attempts, flaky: flaky)
+                   detail: @detail, location: @location, help: @help, attempts: attempts, flaky: flaky,
+                   step_ms: @step_ms)
   end
 
   # Column order is the CSV header order; keep the two in lockstep.
   def to_row
-    [ @lane, @status, @severity, @target, @check, @location, @detail, @help, @attempts, @flaky.to_s ]
+    [ @lane, @status, @severity, @target, @check, @location, @detail, @help, @attempts, @flaky.to_s, @step_ms.to_s ]
   end
 
   private
@@ -74,7 +79,7 @@ end
 # An ordered bag of findings with the roll-up predicates the runner and the merge
 # gate both read. It never mutates a Finding; lanes build findings and append.
 class Findings
-  HEADER = %w[lane status severity target check location detail help attempts flaky].freeze
+  HEADER = %w[lane status severity target check location detail help attempts flaky step_ms].freeze
 
   include Enumerable
 

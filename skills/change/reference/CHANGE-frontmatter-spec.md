@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.33.0
+Schema version: 0.34.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -2044,3 +2044,7 @@ root `RELEASING.md`.
 - 0.33.0: additive. `change_config.operations.<op>.row_threshold`: the row
   estimate above which a statement run under an autopilot needs a verified
   recovery artifact (default 1000).
+- 0.34.0: additive. Testcase suites gain `suite_version: 8`: the step options
+  `timing` and `timing_from` grade a wait as pass, warn or fail on its measured
+  time, and a case with a timed step may not retry. Findings gain a `step_ms`
+  column in the CSV and Markdown report. No `change_config` field changes.
