@@ -79,7 +79,7 @@ module ApprovalConsole
       wait(body, expected: expected(attrs, store.machine_id), store: store, client: client, sleeper: sleeper, clock: clock)
     rescue Client::Unreachable => e
       Result.new(error: "the console is unreachable (#{e.message})")
-    rescue Client::Refused => e
+    rescue Client::Refused, Canonical::Invalid => e
       Result.new(error: e.message)
     end
 

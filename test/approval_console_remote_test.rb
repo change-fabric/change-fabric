@@ -541,8 +541,25 @@ class ApprovalConsoleRemoteTest < Minitest::Test
   end
 
   def test_the_client_refuses_a_request_over_the_shared_limit_before_sending
-    error = assert_raises(ApprovalConsole::Client::Refused) { client.create_request("x" * ApprovalConsole::Canonical::MAX_REQUEST_BYTES) }
+    error = assert_raises(ApprovalConsole::Client::Refused) { client.terminal_approve("x" * ApprovalConsole::Canonical::MAX_REQUEST_BYTES, "123456") }
     assert_equal 413, error.status
+  end
+
+  def test_a_refusal_prints_the_servers_detail_without_secrets
+    refusing = ->(*) { [ 400, JSON.generate("error" => "invalid_body", "detail" => "missing fields: gates\nx") ] }
+    refused = ApprovalConsole::Client.for(@store, transport: refusing, clock: -> { @now })
+    error = assert_raises(ApprovalConsole::Client::Refused) { refused.proof("abc") }
+    assert_equal "console refused (400): invalid_body - missing fields: gates x", error.message
+    refute_match(/signature|timestamp/i, error.message)
+  end
+
+  def test_the_client_validates_the_body_locally_before_posting
+    sent = false
+    spy = ->(*) { sent = true; [ 200, "{}" ] }
+    local = ApprovalConsole::Client.for(@store, transport: spy, clock: -> { @now })
+    error = assert_raises(ApprovalConsole::Canonical::Invalid) { local.create_request('{"type":"nope"}') }
+    assert_match(/invalid request body/, error.message)
+    refute sent
   end
 
   def test_request_for_a_carve_out_fails_closed_when_the_pr_facts_are_unreadable
