@@ -172,6 +172,29 @@ class ScheduledLaneCliTest < Minitest::Test
     assert_equal "yes", runner.call("printf %s \"$SECRET_X\"", env: { "SECRET_X" => "yes" }).stdout
   end
 
+  def test_runner_unsets_an_inherited_variable_given_nil
+    ENV["CF_TEST_LEDGER_TOKEN"] = "secret"
+    runner = ScheduledLane::CommandRunner.new(chdir: @dir)
+    assert_equal "secret", runner.call("printf %s \"$CF_TEST_LEDGER_TOKEN\"").stdout
+    assert_equal "", runner.call("printf %s \"$CF_TEST_LEDGER_TOKEN\"", env: { "CF_TEST_LEDGER_TOKEN" => nil }).stdout
+  ensure
+    ENV.delete("CF_TEST_LEDGER_TOKEN")
+  end
+
+  def test_a_child_that_ignores_term_is_killed_and_the_call_returns_promptly
+    started = Time.now
+    marker = "cf-survivor-#{Process.pid}"
+    cmd = "ruby -e 'trap(%q(TERM), %q(IGNORE)); sleep 30' #{marker} & wait"
+    outcome = ScheduledLane::CommandRunner.new(chdir: @dir).call(cmd, timeout: 0.3)
+    assert outcome.timed_out
+    assert_operator Time.now - started, :<, 12
+    survivors = 20.times.map do
+      sleep 0.1
+      `ps -axo command | grep "[c]f-survivor-#{Process.pid}"`.strip
+    end
+    assert_equal "", survivors.last, "the TERM-ignoring child is gone"
+  end
+
   def test_runner_reports_failures_without_raising
     runner = ScheduledLane::CommandRunner.new(chdir: @dir)
     outcome = runner.call("echo boom >&2; exit 4")

@@ -5,9 +5,11 @@ require 'open3'
 module ScheduledLane
   # Runs one repo-declared command through /bin/sh -c in its own process group,
   # stdout and stderr captured apart (adapters print data on stdout), optional
-  # stdin, optional timeout. A timeout kills the whole group, TERM then KILL.
-  # Never raises for a failed command: spawn problems come back as `error`, so
-  # the caller classifies them as infra rather than crashing mid-matrix.
+  # stdin, optional timeout. A timeout kills the whole group: TERM, a grace
+  # period, then KILL whether or not the shell itself is still alive, since a
+  # child that ignores TERM can outlive its shell. Never raises for a failed
+  # command: spawn problems come back as `error`, so the caller classifies them
+  # as infra rather than crashing mid-matrix.
   #
   # An exception raised into the calling thread while a command runs (the
   # matrix driver's signal handler does this) kills the child group before it
@@ -19,6 +21,9 @@ module ScheduledLane
     end
 
     KILL_GRACE_SECONDS = 5
+    # How long to keep reading after the shell is gone. A background child that
+    # still holds the pipes must not hold the caller with them.
+    DRAIN_SECONDS = 2
 
     def initialize(chdir: Dir.pwd, env: {})
       @chdir = chdir
@@ -28,7 +33,7 @@ module ScheduledLane
     # `env` entries with a nil value are removed from the child environment.
     def call(cmd, env: {}, stdin: nil, timeout: nil)
       merged = ENV.to_h.merge(@base_env.transform_keys(&:to_s)).merge(env.transform_keys(&:to_s))
-      Open3.popen3(merged.compact, '/bin/sh', '-c', cmd.to_s, chdir: @chdir, pgroup: true) do |input, out, err, wait|
+      Open3.popen3(merged, '/bin/sh', '-c', cmd.to_s, chdir: @chdir, pgroup: true) do |input, out, err, wait|
         run_child(input, out, err, wait, stdin, timeout)
       end
     rescue SystemCallError => e
@@ -38,16 +43,26 @@ module ScheduledLane
     private
 
     def run_child(input, out, err, wait, stdin, timeout)
-      readers = [ Thread.new { out.read }, Thread.new { err.read } ]
+      buffers = [ +'', +'' ]
+      readers = [ drain(out, buffers[0]), drain(err, buffers[1]) ]
       write_stdin(input, stdin)
-      finished = wait.join(timeout)
-      timed_out = finished.nil?
+      timed_out = wait.join(timeout).nil?
       kill_group(wait.pid, wait) if timed_out
-      Outcome.new(stdout: readers[0].value.to_s, stderr: readers[1].value.to_s,
-                  exit_code: timed_out ? nil : wait.value.exitstatus, timed_out: timed_out, error: nil)
+      readers.each { |reader| reader.join(DRAIN_SECONDS) || reader.kill }
+      Outcome.new(stdout: buffers[0], stderr: buffers[1], exit_code: timed_out ? nil : wait.value.exitstatus, timed_out: timed_out, error: nil)
     rescue Exception # rubocop:disable Lint/RescueException
       kill_group(wait.pid, wait)
       raise
+    end
+
+    def drain(io, buffer)
+      Thread.new do
+        while (chunk = io.readpartial(65_536))
+          buffer << chunk
+        end
+      rescue EOFError, IOError
+        nil
+      end
     end
 
     def write_stdin(input, stdin)
@@ -60,8 +75,7 @@ module ScheduledLane
 
     def kill_group(pid, wait)
       signal('TERM', pid)
-      return if wait.join(KILL_GRACE_SECONDS)
-
+      wait.join(KILL_GRACE_SECONDS)
       signal('KILL', pid)
       wait.join(KILL_GRACE_SECONDS)
     end

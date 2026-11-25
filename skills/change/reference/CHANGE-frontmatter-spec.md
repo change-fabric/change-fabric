@@ -98,7 +98,7 @@ matrix through repo-declared adapter commands, and reports to sinks.
 | `scheduled_lanes[].matrix.ledger_credential_env` | string | no | Name of the env var holding the write-scoped credential `ledger_cmd` uses. The driver hands it to `ledger_cmd` only and refuses a matrix run when it is unset; every other command, `run` included, runs without it. |
 | `scheduled_lanes[].matrix.lock_group` | string | with `touched-one-at-a-time` | The concurrency group every workflow that flips flags in the env must share. |
 | `scheduled_lanes[].matrix.max_flags` | integer 1 to 50 | no (default 5) | More keys than this refuse the run. |
-| `scheduled_lanes[].matrix.revert_headroom_seconds` | integer 0 to 3600 | no (default 300) | Time reserved per key for the revert. |
+| `scheduled_lanes[].matrix.revert_headroom_seconds` | integer 0 to 3600 | no (default 300) | Time reserved per key for the revert. Each adapter command runs under a timeout of a sixteenth of it (at least 5 seconds), so a stalled adapter ends in a classified failure and the restore step still runs. |
 | `scheduled_lanes[].matrix.settle_seconds` | integer 0 to 3600 | no (default 90) | Wait between a confirmed flip and the lane run. |
 | `scheduled_lanes[].matrix.forbid_envs` | list of strings | no (default `[production]`) | Envs the driver refuses. `production` cannot be removed. |
 | `scheduled_lanes[].sinks[].type` | `github_issue`, `release_comment` or `chat_dm` | yes (per sink) | `github_issue` upserts one open issue per lane; `release_comment` posts diligence results when a release tag is given; `chat_dm` pipes the report to a repo command. |

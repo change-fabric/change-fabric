@@ -230,9 +230,3 @@ Enforcer: scripts/walkthrough_story.rb, scripts/walkthrough_render.rb, scripts/e
 A long run is checked for a pass that proves nothing, not only for a worker that is alive. Deterministic checks flag a zero-row PASS, skipped counted as pass, a narrowed run called comprehensive, and a gate not bound to the head SHA, with no model call. A P0 integrity finding interrupts the human; everything else is queued. Pulse acts alone only inside the `pulse-allow:` line of the plan.
 
 Enforcer: test/pulse_integrity_test.rb, scripts/pulse_integrity.rb
-
-## A scheduled flag matrix never leaves a flag on
-
-`scripts/scheduled_lane.rb` flips one flag at a time in a non-production env. It refuses production, writes a revert ledger row before each flip, restores the seed state on any error or trapped signal, and sweeps leftovers first. A scheduled run only detects, and a revert needs a decided dispatch or a standing receipt.
-
-Enforcer: test/scheduled_lane_flag_matrix_test.rb, scripts/scheduled_lane/flag_matrix.rb

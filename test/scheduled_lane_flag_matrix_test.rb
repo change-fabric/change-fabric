@@ -12,7 +12,7 @@ class ScheduledLaneFlagMatrixTest < Minitest::Test
   # An in-memory flag system and ledger behind the adapter commands. Every
   # command is logged in order, so a test can assert the exact sequence.
   class FakeAdapter
-    attr_reader :log, :flags, :ledger, :envs
+    attr_reader :log, :flags, :ledger, :envs, :timeouts
 
     def initialize(flags: {}, seeded_on: [], ledger_rows: [])
       @flags = flags
@@ -20,23 +20,30 @@ class ScheduledLaneFlagMatrixTest < Minitest::Test
       @ledger = { "rows" => ledger_rows }
       @log = []
       @envs = []
+      @timeouts = []
+      @hang = []
       @fail = {}
       @stuck = []
     end
 
     def fail_command(text) = @fail[text] = true
 
+    # A command that never returns in time: the runner reports a timeout.
+    def hang(entry) = @hang << entry
+
     # A flag that ignores revert commands, so a revert cannot confirm.
     def stick(key) = @stuck << key
 
     def call(cmd, env: {}, stdin: nil, timeout: nil)
       @envs << [ cmd, env ]
+      @timeouts << timeout
       verb, key = cmd.split
       entry = key ? "#{verb} #{key}" : verb
       entry = "ledger put" if cmd == "ledger put"
       entry = "ledger get" if cmd == "ledger get"
       @log << entry
       return failed if @fail[entry]
+      return Outcome.new(stdout: "", stderr: "", exit_code: nil, timed_out: true) if @hang.include?(entry)
 
       dispatch(verb, key, cmd, stdin)
     end
@@ -283,7 +290,26 @@ class ScheduledLaneFlagMatrixTest < Minitest::Test
     assert_equal [ 1, 2 ], numbers
   end
 
-  def test_a_trapped_term_reverts_before_the_process_goes
+def test_every_adapter_command_runs_under_a_timeout
+  adapter = FakeAdapter.new(flags: { "a" => "off" })
+  matrix_for(adapter).run([ "a" ])
+  assert_equal [ 5 ], adapter.timeouts.uniq, "a 60s headroom gives 3s a call, floored at 5s"
+  adapter = FakeAdapter.new(flags: { "a" => "off" })
+  matrix_for(adapter, lane_def: lane("revert_headroom_seconds" => 320)).run([ "a" ])
+  assert_equal [ 20 ], adapter.timeouts.uniq
+end
+
+def test_a_flip_that_hangs_is_restored_and_stops
+  adapter = FakeAdapter.new(flags: { "a" => "off", "b" => "off" })
+  adapter.hang("flip a")
+  result = matrix_for(adapter).run(%w[a b])
+  assert_equal "infra", result.failure_class
+  assert_includes result.notes.join, "timed out"
+  assert_includes adapter.log, "revert a", "the restore runs even though the flip never confirmed"
+  refute_includes adapter.log, "flip b"
+end
+
+def test_a_trapped_term_reverts_before_the_process_goes
     adapter = FakeAdapter.new(flags: { "a" => "off", "b" => "off" })
     result = matrix_for(adapter) do
       Process.kill("TERM", Process.pid)

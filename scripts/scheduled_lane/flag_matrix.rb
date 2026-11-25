@@ -41,6 +41,11 @@ module ScheduledLane
 
     SIGNALS = %w[TERM INT].freeze
     SLACK_MINUTES = 10
+    # Adapter commands one key can run: isolation read, seed read, ledger reads and writes,
+    # flip and its confirmation, restore and its confirmation. Each gets an equal share of
+    # revert_headroom_seconds as its timeout, so a hung adapter cannot outlast the headroom.
+    ADAPTER_CALLS_PER_KEY = 16
+    MIN_ADAPTER_TIMEOUT = 5
     STATES = %w[on off].freeze
 
     # `rows` has one entry per key; `iterations` the LaneRun::Iteration list.
@@ -246,7 +251,7 @@ module ScheduledLane
 
     def flip(key, row)
       row['flip_attempted'] = true
-      outcome = @runner.call(LaneConfig.fill(@matrix['flip_cmd'], flag: key, env: @env_name), env: scrub)
+      outcome = adapter_call(LaneConfig.fill(@matrix['flip_cmd'], flag: key, env: @env_name), env: scrub)
       row['adapter_stdout'] = outcome.stdout.to_s.strip
       raise AdapterError, "flip_cmd failed for #{key}: #{outcome.summary}" unless outcome.ok?
       raise AdapterError, "#{key} did not read on after the flip" unless read_state(key) == 'on'
@@ -290,7 +295,7 @@ module ScheduledLane
 
     def restore(key, seed_state)
       cmd = seed_state == 'on' ? @matrix['flip_cmd'] : @matrix['revert_cmd']
-      outcome = @runner.call(LaneConfig.fill(cmd, flag: key, env: @env_name), env: scrub)
+      outcome = adapter_call(LaneConfig.fill(cmd, flag: key, env: @env_name), env: scrub)
       state = read_state(key)
       return { ok: true, stdout: outcome.stdout.to_s.strip } if state == seed_state
 
@@ -300,17 +305,27 @@ module ScheduledLane
     end
 
     def read_state(key)
-      outcome = @runner.call(LaneConfig.fill(@matrix['read_cmd'], flag: key, env: @env_name), env: scrub)
+      outcome = adapter_call(LaneConfig.fill(@matrix['read_cmd'], flag: key, env: @env_name), env: scrub)
       state = outcome.stdout.to_s.strip.downcase
       outcome.ok? && STATES.include?(state) ? state : nil
     end
 
     # [keys, nil] or [nil, error].
     def on_keys
-      outcome = @runner.call(LaneConfig.fill(@matrix['list_on_cmd'], env: @env_name), env: scrub)
+      outcome = adapter_call(LaneConfig.fill(@matrix['list_on_cmd'], env: @env_name), env: scrub)
       return [ nil, "list_on_cmd failed: #{outcome.summary}" ] unless outcome.ok?
 
       [ outcome.stdout.to_s.lines.map(&:strip).reject(&:empty?), nil ]
+    end
+
+    # Every adapter command runs under a timeout, so a stalled flip, read or
+    # ledger call ends in a classified failure and the restore step still runs.
+    def adapter_call(cmd, **options)
+      @runner.call(cmd, timeout: adapter_timeout, **options)
+    end
+
+    def adapter_timeout
+      [ @matrix['revert_headroom_seconds'] / ADAPTER_CALLS_PER_KEY, MIN_ADAPTER_TIMEOUT ].max
     end
 
     def scrub
@@ -323,7 +338,7 @@ module ScheduledLane
     def ledger_id(key) = "#{@run_id}:#{key}"
 
     def ledger_get
-      outcome = @runner.call("#{LaneConfig.fill(@matrix['ledger_cmd'], env: @env_name)} get")
+      outcome = adapter_call("#{LaneConfig.fill(@matrix['ledger_cmd'], env: @env_name)} get")
       return [ nil, "ledger get failed: #{outcome.summary}" ] unless outcome.ok?
 
       text = outcome.stdout.to_s.strip
@@ -338,7 +353,7 @@ module ScheduledLane
     end
 
     def ledger_put(doc)
-      outcome = @runner.call("#{LaneConfig.fill(@matrix['ledger_cmd'], env: @env_name)} put", stdin: JSON.generate(doc))
+      outcome = adapter_call("#{LaneConfig.fill(@matrix['ledger_cmd'], env: @env_name)} put", stdin: JSON.generate(doc))
       outcome.ok? ? nil : "ledger put failed: #{outcome.summary}"
     end
 
