@@ -578,7 +578,7 @@ module WalkthroughLive
       // frame_clock: rAF steps exactly one frame per tick and each tick is a
       // fresh screenshot, so rAF-driven motion moves in even steps.
       const frameClock = #{frame_clock?(scene)};
-      #{frame_clock?(scene) ? "const frameClockJs = #{JSON.generate(BrowserlessJs::FRAME_CLOCK_JS)};" : ''}
+      const frameClockJs = #{JSON.generate(BrowserlessJs::FRAME_CLOCK_JS)};
       #{BrowserlessJs::SCREENCAST_SAMPLER_JS}
       const runDevice = async (job) => {
         const dev = job.dev;
@@ -619,10 +619,16 @@ module WalkthroughLive
         };
         // CDP takes whole pixels; a full-bleed phone's dpr (2.7692) is not.
         const sampler = ScreencastSampler({ quality: #{JPEG_QUALITY}, maxWidth: Math.ceil(dev.w * dev.dpr), maxHeight: Math.ceil(dev.h * dev.dpr) });
-        if (job.shots) {
+        // A fresh still, then the screencast again; under the frame clock each
+        // tick shoots its own frame, which must replace this JPEG even when the
+        // picture is unchanged.
+        let lastShot = null;
+        const reseed = async () => {
           sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
           if (!frameClock) await sampler.attach(client);
-        }
+          lastShot = null;
+        };
+        if (job.shots) await reseed();
         const lintAt = new Set(job.lint);
         const cursor = [], lint = [], devices = [], links = [];
         const overlays = {};
@@ -648,9 +654,8 @@ module WalkthroughLive
         const st = { pos: { x: dev.w / 2, y: dev.h / 2 }, from: null, down: false, resting: null };
         st.from = st.pos;
         const dispatch = (#{PrototypeCapture::DISPATCH_JS})(page, { aim, mobile: !!dev.mobile, st });
-        const frameCall = (name, ms) => safe(() => page.evaluate((n, v) => window[n] && window[n](v), name, ms), null);
-        if (frameClock) await frameCall("__cfFrameHold");
-        let lastShot = null;
+        const frameCall = (name, ms) => (frameClock ? safe(() => page.evaluate((n, v) => window[n] && window[n](v), name, ms), null) : null);
+        await frameCall("__cfFrameHold");
         let t0 = Date.now();
         for (let i = 0; i < job.events.length; i++) {
           const leaving = job.cutFrame !== undefined && i === job.cutFrame ? page.url() : null;
@@ -668,7 +673,7 @@ module WalkthroughLive
           // shifts by the wait, so it adds no video time.
           if (leaving !== null) {
             const paused = Date.now();
-            if (frameClock) await frameCall("__cfFrameRelease");
+            await frameCall("__cfFrameRelease");
             if (job.shots) await sampler.detach();
             const until = paused + #{NAVIGATE_WAIT_MS};
             while (page.url() === leaving && Date.now() < until) await sleep(25);
@@ -677,12 +682,8 @@ module WalkthroughLive
             await safe(() => page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))), null);
             // The next scene's own frame-0 input, on the painted destination.
             for (const ev of job.entryEvents || []) await dispatch(ev);
-            if (frameClock) await frameCall("__cfFrameHold");
-            if (job.shots) {
-              sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
-              if (!frameClock) await sampler.attach(client);
-            }
-            lastShot = null;
+            await frameCall("__cfFrameHold");
+            if (job.shots) await reseed();
             t0 += Date.now() - paused;
           }
           await sleep(t0 + i * stepMs - Date.now());
@@ -723,11 +724,7 @@ module WalkthroughLive
             if (!vp || vp.w !== dev.w || vp.h !== dev.h || vp.dpr !== (dev.dpr || 1)) {
               await page.setViewport({ width: dev.w, height: dev.h, deviceScaleFactor: dev.dpr, isMobile: !!dev.mobile, hasTouch: !!dev.mobile });
             }
-            if (job.shots) {
-              sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
-              if (!frameClock) await sampler.attach(client);
-            }
-            lastShot = null;
+            if (job.shots) await reseed();
           }
           if (frameClock && job.shots) {
             await frameCall("__cfFrameStep", stepMs);
@@ -742,7 +739,7 @@ module WalkthroughLive
           cursor.push({ x: st.pos.x, y: st.pos.y, down: st.down });
           st.down = false;
         }
-        if (frameClock) await frameCall("__cfFrameRelease");
+        await frameCall("__cfFrameRelease");
         if (job.shots) await sampler.detach();
         const sampled = sampler.result();
         // The built-in page's end state, so a run can confirm what was sent

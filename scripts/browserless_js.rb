@@ -121,6 +121,7 @@ module BrowserlessJs
       const queue = new Map();
       let held = false, now = 0, lastReal = 0, nextId = 1;
       const viaBrowser = (fn) => realRaf((t) => { lastReal = Math.max(lastReal, t); fn(t); });
+      const drain = () => { const due = [...queue.values()]; queue.clear(); return due; };
       window.requestAnimationFrame = (fn) => {
         if (!held) return viaBrowser(fn);
         const id = -(nextId++);
@@ -136,16 +137,12 @@ module BrowserlessJs
       window.__cfFrameStep = (ms) => {
         if (!held) return now;
         now = Math.max(now, lastReal) + ms;
-        const due = [...queue.values()];
-        queue.clear();
-        for (const fn of due) { try { fn(now); } catch (e) { setTimeout(() => { throw e; }); } }
+        for (const fn of drain()) { try { fn(now); } catch (e) { setTimeout(() => { throw e; }); } }
         return now;
       };
       window.__cfFrameRelease = () => {
         held = false;
-        const due = [...queue.values()];
-        queue.clear();
-        for (const fn of due) viaBrowser(fn);
+        for (const fn of drain()) viaBrowser(fn);
       };
     })();
   JS

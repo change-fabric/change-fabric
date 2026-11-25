@@ -663,7 +663,7 @@ class WalkthroughLiveTest < Minitest::Test
     assert_includes stepped, 'client.send("Page.captureScreenshot", { format: "png" })'
     plain = WalkthroughLive.run_device_js(board, live("a", 1))
     assert_includes plain, "const frameClock = false;"
-    refute_includes plain, "__cfFrameHold = "
+    assert_includes plain, "if (frameClock) await page.evaluateOnNewDocument(frameClockJs);"
   end
 
   # The browser launches at the scene's capture scale (its screencast ignores
