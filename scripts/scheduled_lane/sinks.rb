@@ -236,15 +236,16 @@ module ScheduledLane
 
   # Pipes the body to a repo-declared command on stdin. Posts nowhere itself.
   class ChatDmSink
-    def initialize(config, runner)
+    def initialize(config, runner, env: {})
       @cmd = config['cmd']
       @runner = runner
+      @env = env
     end
 
     def report(report)
       return if report.pass?
 
-      outcome = @runner.call(@cmd, stdin: SinkBody.render(report))
+      outcome = @runner.call(@cmd, env: @env, stdin: SinkBody.render(report))
       raise SinkError, "chat_dm cmd failed: #{outcome.summary}" unless outcome.ok?
     end
   end
@@ -258,7 +259,7 @@ module ScheduledLane
         case config['type']
         when 'github_issue' then GithubIssueSink.new(config, store)
         when 'release_comment' then ReleaseCommentSink.new(gh, store)
-        when 'chat_dm' then ChatDmSink.new(config, runner)
+        when 'chat_dm' then ChatDmSink.new(config, runner, env: lane.scrub_env)
         end
       end
     end

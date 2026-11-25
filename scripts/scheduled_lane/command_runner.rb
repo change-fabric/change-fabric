@@ -45,10 +45,10 @@ module ScheduledLane
     def run_child(input, out, err, wait, stdin, timeout)
       buffers = [ +'', +'' ]
       readers = [ drain(out, buffers[0]), drain(err, buffers[1]) ]
-      write_stdin(input, stdin)
+      writer = Thread.new { write_stdin(input, stdin) }
       timed_out = wait.join(timeout).nil?
       kill_group(wait.pid, wait) if timed_out
-      readers.each { |reader| reader.join(DRAIN_SECONDS) || reader.kill }
+      (readers + [ writer ]).each { |thread| thread.join(DRAIN_SECONDS) || thread.kill }
       Outcome.new(stdout: buffers[0], stderr: buffers[1], exit_code: timed_out ? nil : wait.value.exitstatus, timed_out: timed_out, error: nil)
     rescue Exception # rubocop:disable Lint/RescueException
       kill_group(wait.pid, wait)

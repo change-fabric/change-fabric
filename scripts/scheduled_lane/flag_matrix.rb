@@ -328,10 +328,7 @@ module ScheduledLane
       [ @matrix['revert_headroom_seconds'] / ADAPTER_CALLS_PER_KEY, MIN_ADAPTER_TIMEOUT ].max
     end
 
-    def scrub
-      cred = @matrix['ledger_credential_env']
-      cred ? { cred => nil } : {}
-    end
+    def scrub = @lane.scrub_env
 
     # --- ledger -----------------------------------------------------------------
 

@@ -31,6 +31,12 @@ module ScheduledLane
     def matrix_declared? = raw.key?('matrix')
     def matrix_touched? = matrix['mode'] == 'touched-one-at-a-time'
 
+    # Env overrides that take the ledger's write credential away from every command but ledger_cmd.
+    def scrub_env
+      cred = matrix['ledger_credential_env']
+      cred ? { cred => nil } : {}
+    end
+
     # Every adapter the nightly detection pass needs.
     def detection_ready?
       %w[list_on_cmd ledger_cmd].all? { |key| matrix[key] }

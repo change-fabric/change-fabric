@@ -47,6 +47,7 @@ module ScheduledLane
 
       opts = parse(argv.drop(1))
       lane = LaneConfig.find(opts.fetch(:config), opts.fetch(:lane))
+      @scrub = lane.scrub_env
       send(command.tr('-', '_'), lane, opts)
     rescue OptionParser::ParseError, KeyError => e
       usage(e.is_a?(KeyError) ? "missing required option: #{e.key.to_s.tr('_', '-')}" : e.message)
@@ -95,7 +96,7 @@ module ScheduledLane
 
     def build_lane_run(lane, opts, base)
       LaneRun.new(lane: lane, runner: @runner, base_run_id: base, env_name: opts[:env], ref: opts[:ref], workdir: @workdir,
-                  release: release(opts[:release_tag]), scrub: scrub(lane))
+                  release: release(opts[:release_tag]), scrub: lane.scrub_env)
     end
 
     def single_report(lane, opts, base, lane_run)
@@ -211,15 +212,9 @@ module ScheduledLane
 
       @releases ||= {}
       @releases[tag] ||= begin
-        outcome = @runner.call("git rev-parse --verify --quiet #{Shellwords.escape("#{tag}^{commit}")}")
+        outcome = @runner.call("git rev-parse --verify --quiet #{Shellwords.escape("#{tag}^{commit}")}", env: @scrub)
         { tag: tag, sha: outcome.ok? ? outcome.stdout.strip : nil }
       end
-    end
-
-    # Adapter and lane commands never see the ledger's write credential.
-    def scrub(lane)
-      cred = lane.matrix['ledger_credential_env']
-      cred ? { cred => nil } : {}
     end
 
     # --- dry run ----------------------------------------------------------------
@@ -244,7 +239,7 @@ module ScheduledLane
       @out.puts("forbidden envs: #{lane.forbidden_envs.join(', ')}")
       @out.puts("max_flags: #{matrix['max_flags']}  settle: #{matrix['settle_seconds']}s  revert headroom: #{matrix['revert_headroom_seconds']}s")
       @out.puts("lock_group: #{matrix['lock_group']}")
-      outcome = @runner.call(LaneConfig.fill(matrix['touched_cmd'], env: opts[:env]))
+      outcome = @runner.call(LaneConfig.fill(matrix['touched_cmd'], env: opts[:env]), env: lane.scrub_env)
       return @out.puts("touched_cmd failed: #{outcome.summary}") unless outcome.ok?
 
       keys = outcome.stdout.lines.map(&:strip).reject(&:empty?)
