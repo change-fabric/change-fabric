@@ -18,6 +18,18 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.36.0] - 2026-11-25
+
+Policy files are always carve-outs. No CHANGE.md field changes.
+
+### Changed
+
+- The merge guard treats the repo-root `CHANGE.md` and every app config that
+  `change_config.apps` registers as carve-out paths in every gated repo, even
+  when `change_policy.admin_bypass.carve_out_paths` is unset. A PR touching one
+  merges only at a phone-approved head, and an autopilot never waives it.
+  Explicit `carve_out_paths` add to this set.
+
 ## [0.35.0] - 2026-11-25
 
 Scheduled lanes. Additive for CHANGE.md: the new field is optional and outside

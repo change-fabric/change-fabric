@@ -3,6 +3,7 @@
 
 require 'yaml'
 require 'open3'
+require 'pathname'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
 require_relative 'tracker_policy'
@@ -170,9 +171,25 @@ class ChangePolicy
   # Psych::AliasesNotEnabled, a syntax error) becomes Unreadable so gating
   # callers fail closed instead of a stray exception being swallowed.
   def self.parse_ref_policy(out, ref)
-    new(ChangeFrontmatter.parse(out)['change_policy'], "#{ref}:CHANGE.md")
+    front = ChangeFrontmatter.parse(out)
+    new(front['change_policy'], "#{ref}:CHANGE.md", app_configs: registered_app_configs(front['change_config']))
   rescue StandardError => e
     raise Unreadable, "cannot parse CHANGE.md at #{ref}: #{e.class}: #{e.message}"
+  end
+
+  # The repo-relative config paths change_config.apps registers (0.36.0
+  # implicit carve-outs). Raises on a malformed registry so callers fail closed.
+  def self.registered_app_configs(config)
+    apps = config.is_a?(Hash) ? config['apps'] : nil
+    return [] if apps.nil?
+    raise ArgumentError, 'change_config.apps is not a mapping' unless apps.is_a?(Hash)
+
+    apps.values.filter_map { |entry| entry.is_a?(Hash) ? normalize_repo_path(entry['config']) : nil }
+  end
+
+  def self.normalize_repo_path(path)
+    clean = Pathname.new(path.to_s).cleanpath.to_s
+    clean.empty? || clean == '.' ? nil : clean
   end
 
   def self.git_show_change_md(root, ref)
@@ -182,9 +199,10 @@ class ChangePolicy
     [ '', false, e.message ]
   end
 
-  def initialize(policy, path)
+  def initialize(policy, path, app_configs: [])
     @policy = policy.is_a?(Hash) ? policy : {}
     @path = path
+    @app_configs = Array(app_configs).map(&:to_s)
   end
 
   def path = @path
@@ -410,9 +428,17 @@ class ChangePolicy
     paths.is_a?(Array) ? paths.map(&:to_s).reject(&:empty?) : []
   end
 
-  # Whether `path` matches a carve-out glob (FNM_PATHNAME, so `*` stays in one
-  # directory; a trailing `/**` covers everything below that directory).
+  # The policy files (0.36.0): the repo-root CHANGE.md and every app config
+  # change_config.apps registers. Always carve-outs, listed or not.
+  def policy_files = ([ 'CHANGE.md' ] + @app_configs).uniq
+
+  def policy_file?(path) = policy_files.include?(ChangePolicy.normalize_repo_path(path))
+
+  # Whether `path` is a policy file or matches a carve-out glob (FNM_PATHNAME,
+  # so `*` stays in one directory; a trailing `/**` covers everything below).
   def carve_out?(path)
+    return true if policy_file?(path)
+
     carve_out_paths.any? do |glob|
       glob = "#{glob}/*" if glob.end_with?('/**')
       File.fnmatch?(glob, path.to_s, File::FNM_PATHNAME | File::FNM_DOTMATCH)
