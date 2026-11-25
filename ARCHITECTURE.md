@@ -45,8 +45,13 @@ Wired by `install.rb` per lifecycle event (Claude Code names shown):
 | PostToolUse | `skill_inject.rb`, `secret_ack.rb`, `change_post_merge_check.rb`, `pulse_stamp.rb` |
 | UserPromptSubmit | `key_paste_guard.rb`, `prune_remind.rb`, `inbox_prompt_hook.rb` |
 | SessionEnd | `telemetry_emit.rb`, `inbox_session_end.rb` |
-| Stop | `skill_review.rb`, `pulse_stamp.rb` |
+| Stop | `skill_review.rb`, `doctrine_review_surface.rb`, `pulse_stamp.rb` |
 | SubagentStart, SubagentStop | `pulse_stamp.rb` (claude only) |
+
+`doctrine_review_surface.rb` announces new items from the shared leased inbox
+(`scripts/leased_inbox.rb`: pending, leased, delivered, resolved, upsert on a
+stable dedup key) and `cf:inbox` announce items once; a delivered item stays open
+until acknowledged and is never re-announced.
 
 `pulse_stamp.rb` is wired by `native_hook_install.rb` as its own command (not
 through `cf_host_hook.rb`). It stamps activity into the session record and

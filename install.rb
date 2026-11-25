@@ -567,7 +567,7 @@ module Install
       'PostToolUse' => %w[skill_inject.rb secret_ack.rb change_post_merge_check.rb],
       'UserPromptSubmit' => %w[key_paste_guard.rb prune_remind.rb inbox_prompt_hook.rb],
       'SessionEnd' => %w[telemetry_emit.rb inbox_session_end.rb],
-      'Stop' => %w[skill_review.rb]
+      'Stop' => %w[skill_review.rb doctrine_review_surface.rb]
     }.freeze
 
     # Tool matcher per PreToolUse and PostToolUse script. Deny guards err wide:
