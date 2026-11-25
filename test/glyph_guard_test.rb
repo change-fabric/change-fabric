@@ -49,6 +49,11 @@ class GlyphGuardTest < Minitest::Test
     assert_nil bash("gh pr create --title '#{'a' * 60}' --body ok")
   end
 
+  def test_checks_each_chained_pr_invocation_on_its_own
+    assert_denied bash("gh pr create --title ok --body ok && gh pr edit 3 --title #{'a' * 61}"), "title_len"
+    assert_nil bash("echo --title #{'a' * 61} && gh pr create --title ok --body ok")
+  end
+
   def test_advises_on_a_long_body_without_denying
     out = bash("gh pr create --title ok --body '#{'b' * 641}'")
     assert_nil out["permissionDecision"]
@@ -60,6 +65,9 @@ class GlyphGuardTest < Minitest::Test
     long = "gh pr create --title ok --body \"$(cat <<'EOF'\n#{'c' * 700}\nEOF\n)\""
     assert_includes bash(long)["additionalContext"], "700 characters"
     assert_nil bash("gh pr create --title ok --body \"$(cat <<'EOF'\nshort\nEOF\n)\"")
+    chained = "gh pr create --title ok --body \"$(cat <<'EOF'\nshort\nEOF\n)\" && " \
+              "gh pr edit 3 --body \"$(cat <<'EOF'\n#{'c' * 700}\nEOF\n)\""
+    assert_includes bash(chained)["additionalContext"], "700 characters"
   end
 
   def test_ignores_other_commands_that_mention_glyphs

@@ -25,6 +25,7 @@ class GlyphGuard
   TITLE_FLAGS = %w[--title -t].freeze
   BODY_FLAGS = %w[--body -b].freeze
   INVOCATIONS = [ %w[git commit], %w[gh pr create], %w[gh pr edit] ].freeze
+  PR_INVOCATIONS = [ %w[gh pr create], %w[gh pr edit] ].freeze
   OPERATORS = [ ';', '&', '|', '&&', '||' ].freeze
   HEREDOC = /<<-?\s*['"]?(\w+)['"]?[^\n]*\n(.*?)\n[ \t]*\1\b/m
 
@@ -75,41 +76,50 @@ class GlyphGuard
   # heredoc body. A glyph in an unrelated command chained beside it (an
   # `echo` before the commit) is not authored text and is left alone.
   def authored_text(cmd)
+    (invocations(cmd, INVOCATIONS).flatten + cmd.scan(HEREDOC).map(&:last)).join("\n")
+  end
+
+  # Each matching invocation as its own token list, from the command words up
+  # to the next shell operator, so flags of one never leak into another.
+  def invocations(cmd, kinds)
     tokens = GuardedCommand.tokens(cmd)
-    args = tokens.each_index.flat_map do |index|
-      next [] unless INVOCATIONS.any? { |words| tokens[index, words.size] == words }
+    tokens.each_index.filter_map do |index|
+      next unless kinds.any? { |words| tokens[index, words.size] == words }
 
       tokens[index..].take_while { |token| !OPERATORS.include?(token) }
     end
-    ([ *args ] + cmd.scan(HEREDOC).map(&:last)).join("\n")
   end
 
   def pr_length_verdict(cmd)
-    title = flag_value(cmd, TITLE_FLAGS)
+    verdicts = invocations(cmd, PR_INVOCATIONS).map { |args| pr_args_verdict(args) }
+    verdicts.find { |verdict| deny?(verdict) } || verdicts.compact.first
+  end
+
+  def pr_args_verdict(args)
+    title = flag_value(args, TITLE_FLAGS)
     if title && title.length > TITLE_MAX
       return deny('title_len', "[cf] PR title is #{title.length} characters; the cap is #{TITLE_MAX}. " \
                                'Shorten it: say what changed, not how or why.')
     end
 
-    body = body_value(cmd)
+    body = body_value(args)
     return nil unless body && body.length > BODY_MAX
 
     advise("[cf] PR body is #{body.length} characters; keep it to #{BODY_MAX} unless a code snippet or test-plan " \
            'checklist needs more, and keep the core description inside the limit.')
   end
 
-  def body_value(cmd)
-    value = flag_value(cmd, BODY_FLAGS)
+  def body_value(args)
+    value = flag_value(args, BODY_FLAGS)
     return value unless value&.include?('<<')
 
     # A heredoc body: the tokenizer sees the whole `$(cat <<'EOF' ...)` string,
     # so measure the heredoc text itself.
-    cmd.match(HEREDOC)&.captures&.last
+    value.match(HEREDOC)&.captures&.last
   end
 
   # The value of the first of `flags`, in `--flag value` or `--flag=value` form.
-  def flag_value(cmd, flags)
-    tokens = GuardedCommand.tokens(cmd)
+  def flag_value(tokens, flags)
     tokens.each_with_index do |token, index|
       flags.each do |flag|
         return tokens[index + 1] if token == flag && tokens[index + 1]
@@ -141,6 +151,8 @@ class GlyphGuard
     { hookSpecificOutput: { hookEventName: EVENT, permissionDecision: 'deny',
                             permissionDecisionReason: "#{reason} (glyph_guard/#{rule})" } }
   end
+
+  def deny?(verdict) = verdict&.dig(:hookSpecificOutput, :permissionDecision) == 'deny'
 
   def advise(text)
     { hookSpecificOutput: { hookEventName: EVENT, additionalContext: "#{text} (glyph_guard/body_len)" } }
