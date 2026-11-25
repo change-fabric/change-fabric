@@ -277,7 +277,28 @@ class ScheduledLaneFlagMatrixTest < Minitest::Test
     assert matrix_for(FakeAdapter.new(flags: { "a" => "off", "b" => "off" }), job: 33).run(%w[a b]).pass?
   end
 
-  def test_unsafe_keys_are_refused
+def test_deployed_sha_reads_count_toward_the_time_budget
+  with_sha = lane.raw.merge("deployed_sha_cmd" => "sha")
+  # 1 key x (7 + 600 + 60 + 120) = 787s; a 23 minute job leaves 780s.
+  adapter = FakeAdapter.new(flags: { "a" => "off" })
+  result = matrix_for(adapter, lane_def: ScheduledLane::Lane.new(with_sha), job: 23).run([ "a" ])
+  assert_includes result.notes.join, "matrix needs 787s"
+  assert_empty adapter.log.grep(/\Aflip/)
+end
+
+def test_two_runs_sharing_a_run_id_each_close_their_own_ledger_row
+  adapter = FakeAdapter.new(flags: { "a" => "off" })
+  2.times { assert matrix_for(adapter).run([ "a" ]).pass? }
+  assert_equal %w[reverted reverted], adapter.ledger["rows"].map { |row| row["state"] }
+end
+
+def test_ledger_ids_carry_the_lane_and_env
+  adapter = FakeAdapter.new(flags: { "a" => "off" })
+  matrix_for(adapter, env: "qa").run([ "a" ])
+  assert_match(/\Ar:x:qa:a:\h{6}\z/, adapter.ledger["rows"].first["id"])
+end
+
+def test_unsafe_keys_are_refused
     adapter = FakeAdapter.new
     result = matrix_for(adapter).run([ "a; rm -rf /" ])
     assert_includes result.notes.join, "unsafe flag key"

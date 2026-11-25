@@ -135,7 +135,8 @@ stuck flag. A revert needs authority: a decided matrix dispatch
 (`--receipt <id>`) or `scheduled_lane.rb recover --env <env> --receipt <id>`
 under a standing `revert-to-seed` receipt; a scheduled run with `--matrix off`
 only detects (unreverted ledger rows, stray on flags) and reports. The required
-time, `keys * (settle + timeout_minutes * 60 + headroom)`, must fit the workflow
+time, `keys * (settle + timeout_minutes * 60 + headroom)` plus 120 seconds per key when
+`deployed_sha_cmd` is declared (two reads, each limited to 60 seconds), must fit the workflow
 job's `timeout-minutes` (`--job-timeout-minutes`) minus 10 minutes. The driver
 checks that a receipt id is present, not that it is valid; the workflow gates
 the dispatch on the decision that issued it.

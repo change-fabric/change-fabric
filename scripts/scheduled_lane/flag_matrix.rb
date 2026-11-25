@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'securerandom'
 require 'time'
 require_relative 'lane_config'
 require_relative 'lane_run'
@@ -74,6 +75,7 @@ module ScheduledLane
       @iterations = []
       @notes = []
       @signal = nil
+      @ledger_ids = {}
     end
 
     # The matrix run: sweep, then each approved key alone.
@@ -170,16 +172,19 @@ module ScheduledLane
       infra("refusing env '#{@env_name}': it is in forbid_envs (production is always forbidden)")
     end
 
+    # Each lane run reads the deployed SHA twice, each read bounded by LaneRun::SHA_TIMEOUT_SECONDS.
+    def sha_read_seconds = @lane.deployed_sha_cmd ? 2 * LaneRun::SHA_TIMEOUT_SECONDS : 0
+
     def cap_problem(keys)
       bad = keys.reject { |key| key.match?(FLAG_PATTERN) }
       return "unsafe flag key(s): #{bad.join(', ')}" unless bad.empty?
       return "#{keys.length} keys exceed max_flags #{@matrix['max_flags']}" if keys.length > @matrix['max_flags']
 
-      needed = keys.length * (@matrix['settle_seconds'] + @lane.timeout_seconds + @matrix['revert_headroom_seconds'])
+      needed = keys.length * (@matrix['settle_seconds'] + @lane.timeout_seconds + @matrix['revert_headroom_seconds'] + sha_read_seconds)
       allowed = (@job_timeout_minutes - SLACK_MINUTES) * 60
       return nil if needed <= allowed
 
-      "matrix needs #{needed}s (#{keys.length} keys x settle, lane timeout and revert headroom) but the job leaves #{allowed}s " \
+      "matrix needs #{needed}s (#{keys.length} keys x settle, lane timeout, deployed SHA reads and revert headroom) but the job leaves #{allowed}s " \
         "(timeout #{@job_timeout_minutes} min minus #{SLACK_MINUTES} min slack)"
     end
 
@@ -332,7 +337,9 @@ module ScheduledLane
 
     # --- ledger -----------------------------------------------------------------
 
-    def ledger_id(key) = "#{@run_id}:#{key}"
+    # Unique per invocation: lane and env keep two lanes of one workflow run apart, the
+    # nonce keeps a repeat of the same key under the same run id from closing the wrong row.
+    def ledger_id(key) = (@ledger_ids[key] ||= "#{@run_id}:#{@lane.id}:#{@env_name}:#{key}:#{SecureRandom.hex(3)}")
 
     def ledger_get
       outcome = adapter_call("#{LaneConfig.fill(@matrix['ledger_cmd'], env: @env_name)} get")
