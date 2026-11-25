@@ -354,9 +354,14 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
 11. **Execute (admin-bypass or yolo only).** Read the session's merge mode
     from the `[cf]` context line. Under merge-ready or local-only this step
     does not run; the skill ended at step 10. Otherwise read
-    `<plan_dir>/workflow.js` and call `Workflow` with its contents unchanged,
-    starting Phase 1 at once. Do not ask first: the merge mode and the plan
-    just landing are the authorization. On a `resource-floor` stop, ask the
+    `<plan_dir>/workflow.js` and check it against the final plan.md, as the
+    handoff requires: step 7b may have changed the plan after the script
+    was written. Fix a wrong verification command, a missing phase
+    dependency, or a phase the roast changed, and say what changed; if the
+    script needs replacing wholesale, stop and say so. Then call `Workflow`
+    with `args: {pulseSession: <this session id>}`, starting Phase 1 at
+    once. Do not ask first: the merge mode and the plan just landing are
+    the authorization. On a `resource-floor` stop, ask the
     user about tier 2 reclaim and resume with `only`, as the handoff
     describes.
 
