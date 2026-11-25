@@ -237,6 +237,18 @@ class CtxExpiryTest < Minitest::Test
     refute File.exist?(File.join(CtxPaths.class_dir("archive", cwd, home: @home), "stack-a.md"))
   end
 
+  def test_unarchive_restores_raw_bytes_that_parsing_would_normalize
+    pointer("stack-a", "x")
+    stack("a", %w[merged])
+    path = File.join(CtxPaths.class_dir("active", cwd, home: @home), "stack-a.md")
+    head = File.read(path).chomp.delete_suffix("x")
+    File.write(path, "#{head}    indented\n\n\n")
+    before = File.read(path)
+    assert store.archive("stack-a", nil, restorable: true)
+    assert store.unarchive("stack-a")
+    assert_equal before, File.read(path)
+  end
+
   def test_unarchive_refuses_a_plain_archive_and_a_taken_name
     pointer("plain")
     store.archive("plain")

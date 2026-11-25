@@ -187,7 +187,8 @@ class CtxStore
       next false unless doc
 
       path = path_for(name)
-      write_archive(doc, digest || default_digest(doc), restorable:)
+      original = File.read(path) if restorable
+      write_archive(doc, digest || default_digest(doc), original:)
       File.delete(path)
       after_mutation("archive #{name}")
       true
@@ -205,7 +206,7 @@ class CtxStore
       original = archived_original(path)
       next false unless original
 
-      persist(Doc.parse(original))
+      write_atomically(doc_path(Doc.parse(original)), original)
       File.delete(path)
       after_mutation("unarchive #{name}")
       true
@@ -283,15 +284,15 @@ class CtxStore
 
   def archive_path(name) = File.join(CtxPaths.class_dir(CtxPaths::ARCHIVE, @cwd, home: @home), "#{name}.md")
 
-  def write_archive(doc, digest, restorable: false)
-    write_atomically(archive_path(doc.name), archive_markdown(doc, digest, restorable))
+  def write_archive(doc, digest, original: nil)
+    write_atomically(archive_path(doc.name), archive_markdown(doc, digest, original))
   end
 
-  def archive_markdown(doc, digest, restorable = false)
+  def archive_markdown(doc, digest, original = nil)
     front = { 'name' => doc.name, 'description' => doc.description,
               'class' => CtxPaths::ARCHIVE, 'status' => 'archived',
               'archived_from' => doc.klass, 'last_touched' => doc.last_touched,
-              'original' => (doc.to_markdown if restorable) }.compact
+              'original' => original }.compact
     CtxStore.render(front, digest)
   end
 
