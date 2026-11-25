@@ -90,7 +90,7 @@ class GuardEventsTest < Minitest::Test
   end
 
   def test_the_cli_parses_summary_json
-    out, status = Open3.capture2e({ "HOME" => @home }, RbConfig.ruby, File.expand_path("../scripts/guard_events.rb", __dir__),
+    out, status = Open3.capture2e({ "HOME" => @home, "CF_GUARD_EVENTS_PATH" => nil }, RbConfig.ruby, File.expand_path("../scripts/guard_events.rb", __dir__),
                                   "summary", "--since-days", "1", "--json")
     assert status.success?, out
     assert_equal 0, JSON.parse(out)["events"]
