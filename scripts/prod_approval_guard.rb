@@ -45,7 +45,7 @@ class ProdApprovalGuard
     return unless @event['tool_name'] == 'Bash'
 
     input = @event['tool_input']
-    command = input.is_a?(Hash) ? input['command'].to_s : ''
+    command = without_data(input.is_a?(Hash) ? input['command'].to_s : '')
     list = words(command)
     stream = stream_denial(list)
     return stream if stream
@@ -56,10 +56,36 @@ class ProdApprovalGuard
 
     inspect_words(list, command)
   rescue ArgumentError
-    'an unparseable shell command naming a prod approval path'
+    'an unparseable shell command naming a prod approval path' if UNPARSEABLE_MARKERS.any? { |marker| command.include?(marker) }
   end
 
   private
+
+  UNPARSEABLE_MARKERS = [ *MARKERS, 'approval_console.rb', 'cf_run_approved.rb' ].freeze
+  HEREDOC = /<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
+  HERESTRING = /<<<[ \t]*(?:'[^']*'|"(?:\\.|[^"\\])*"|\S+)/
+  SHELL_FEED = /(?:\A|[\s;&|(])(?:bash|sh|zsh|dash|ksh)\b[^;&|\n]*<</
+
+  # The command with heredoc bodies and here-string words removed: they are
+  # stdin data, not argv. A line feeding one to a shell keeps it, since that
+  # data runs as commands.
+  def without_data(command)
+    pending = []
+    command.each_line(chomp: true).filter_map { |line| pending.empty? ? command_line(line, pending) : body_line(line, pending) }.join("\n")
+  end
+
+  def command_line(line, pending)
+    shell = line.match?(SHELL_FEED)
+    line.scan(HEREDOC) { |dash, _quote, word| pending << { word:, tabs: dash == '-', shell: } }
+    shell ? line : line.gsub(HERESTRING, '<<< _')
+  end
+
+  def body_line(line, pending)
+    heredoc = pending.first
+    return pending.shift && nil if (heredoc[:tabs] ? line.sub(/\A\t+/, '') : line) == heredoc[:word]
+
+    line if heredoc[:shell]
+  end
 
   # Shell words, plus the words inside any quoted argument (`bash -c '...'`).
   def words(command)

@@ -161,6 +161,22 @@ class ProdApprovalGuardTest < Minitest::Test
 
   def test_an_unparseable_command_naming_an_approval_path_is_denied
     assert_denied "ruby change_prod_approve.rb 'unterminated"
+    assert_denied "ruby approval_console.rb approve 'unterminated"
+    assert_denied "ruby cf_run_approved.rb x.sh 'unterminated"
+  end
+
+  def test_heredoc_and_here_string_bodies_are_data_not_argv
+    assert_allowed "python3 - <<'EOF'\n# it's infra/envs/prod/main.tf\nprint('refs/cf-prod/claims')\nEOF"
+    assert_allowed "cat <<-EOF > notes.txt\n\tdon't touch infra/envs/prod\n\tEOF\ngit status"
+    assert_allowed "git commit -F- <<<\"it's infra/envs/prod and cf-prod\""
+    assert_allowed "echo it\\'s unrelated 'unterminated"
+  end
+
+  def test_a_real_invocation_beside_or_inside_a_heredoc_is_still_denied
+    assert_denied "cat <<'EOF'\nit's prod\nEOF\nruby change_prod_approve.rb 1234"
+    assert_denied "bash <<'EOF'\nruby change_prod_approve.rb 1234\nEOF"
+    assert_denied "bash <<< 'ruby change_prod_approve.rb 1234'"
+    assert_denied "python3 - <<'EOF'\nit's data\nEOF\nruby change_prod_approve.rb 'unterminated"
   end
 
   def test_a_quoted_mention_in_a_commit_message_is_not_an_invocation
