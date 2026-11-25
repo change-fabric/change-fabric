@@ -18,6 +18,18 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.34.0] - 2026-11-25
+
+Timed testcase steps. Additive for CHANGE.md: no `change_config` field changes.
+
+### Added
+
+- Testcase suites at `suite_version: 8`: the step options `timing` (`warn_ms`,
+  `fail_ms`) and `timing_from` grade a wait as pass, warn or fail on its
+  measured time. A timed wait's timeout defaults to `fail_ms + 60000`, and a
+  case with a timed step may not set `retries`.
+- A `step_ms` column in the findings CSV and the Markdown report.
+
 ## [0.33.0] - 2026-11-24
 
 Per-operation row threshold for the prod runner. Additive for CHANGE.md: the new

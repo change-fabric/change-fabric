@@ -52,7 +52,7 @@ class ChangeVisualBaselineTest < Minitest::Test
     step = compile("name" => "hero", "selector" => ".hero", "mask" => [ ".clock" ], "viewport" => { "width" => 800, "height" => 600 })
 
     assert_equal [ "expectVisual", 0.001, [ ".clock" ], { width: 800, height: 600 } ], step.values_at(:verb, :maxDiffRatio, :mask, :viewport)
-    assert_equal [ 7, 7 ], [ ChangeSuiteSchema.verb_version("expect_visual"), ChangeSuiteSchema::SUITE_VERSION ]
+    assert_equal [ 7, true ], [ ChangeSuiteSchema.verb_version("expect_visual"), ChangeSuiteSchema::SUITE_VERSION >= 7 ]
   end
 
   def test_a_ratio_of_zero_is_exact_and_anything_outside_zero_to_one_is_refused

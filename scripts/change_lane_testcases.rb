@@ -129,13 +129,15 @@ class ChangeLaneTestcases < ChangeLane
   end
 
   # `{index, verb, label, started_at_ms, duration_ms}` per step the final
-  # attempt ran. `label` is the author's own name for the step when it has one.
+  # attempt ran, plus the `timing` grade of a timed step. `label` is the
+  # author's own name for the step when it has one.
   def step_durations(record)
     Array(record&.dig('steps')).filter_map do |step|
       next unless step['durationMs']
 
-      { 'index' => step['index'], 'verb' => step['verb'], 'label' => step['tag'] || step['label'],
-        'started_at_ms' => step['startedAtMs'], 'duration_ms' => step['durationMs'] }
+      entry = { 'index' => step['index'], 'verb' => step['verb'], 'label' => step['tag'] || step['label'],
+                'started_at_ms' => step['startedAtMs'], 'duration_ms' => step['durationMs'] }
+      step['timing'] ? entry.merge('timing' => step['timing']) : entry
     end
   end
 
@@ -322,7 +324,15 @@ class ChangeLaneTestcases < ChangeLane
   # lane's, mirroring how the compiler resolves it.
   def step_timeout(step)
     inner = step.values.find { |value| value.is_a?(Hash) && value.key?('timeout_ms') }
-    Integer(step['timeout_ms'] || inner&.fetch('timeout_ms') || timeout_ms)
+    Integer(step['timeout_ms'] || inner&.fetch('timeout_ms') || timed_timeout(step) || timeout_ms)
+  end
+
+  # A timed wait with no timeout of its own waits `fail_ms` plus the compiler's
+  # margin, so the case's call budget has to cover that and not the lane default.
+  def timed_timeout(step)
+    timing = step['timing'] || step.values.filter_map { |value| value['timing'] if value.is_a?(Hash) }.first
+    fail_ms = timing['fail_ms'] if timing.is_a?(Hash)
+    fail_ms + ChangeFlowCompiler::TIMING_TIMEOUT_DEFAULT_MS if fail_ms.is_a?(Integer)
   end
 
   # How many cases run at once (lanes.testcases.parallel, validated 1..10).
@@ -408,7 +418,36 @@ class ChangeLaneTestcases < ChangeLane
     end
     finish_video
     @results = selected.each_with_index.map { |item, index| graded(item, runs[index]) }
-    @results.map { |graded| case_finding(graded) }
+    @results.flat_map { |graded| [ case_finding(graded), *timing_findings(graded) ] }
+  end
+
+  # One finding per timed step the final attempt ran, carrying the measured
+  # `step_ms`. A pass is info, a warn is a low-severity warning that never fails
+  # the lane, and a fail (over `fail_ms`, or a wait that timed out) fails like
+  # the case it sits in: a case the gate does not cover only warns.
+  def timing_findings(graded)
+    item = graded[:case]
+    Array(graded[:record]&.dig('steps')).filter_map do |step|
+      timing = step['timing']
+      next unless timing.is_a?(Hash)
+
+      timing_finding(item, step, timing)
+    end
+  end
+
+  def timing_finding(item, step, timing)
+    grade = timing['grade'].to_s
+    status = grade == 'fail' && !gated?(item) ? 'warn' : grade
+    Finding.new(lane: LANE, check: "#{item.qualified_id} step #{step['index'].to_i + 1} timing", status: status,
+                severity: { 'pass' => 'info', 'warn' => 'low' }.fetch(grade, 'high'), target: base_url,
+                location: "step #{step['index'].to_i + 1}: #{step['label']}", step_ms: timing['stepMs'],
+                detail: timing_detail(timing, status))
+  end
+
+  def timing_detail(timing, status)
+    reason = timing['reason'] ? " (#{timing['reason']})" : ''
+    "#{timing['grade']}#{reason}: #{timing['stepMs']}ms against warn_ms #{timing['warnMs']}, fail_ms #{timing['failMs']}" \
+      "#{' (reported, not gated)' if status == 'warn' && timing['grade'] == 'fail'}"
   end
 
   def run_pool(count)

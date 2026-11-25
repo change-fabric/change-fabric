@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.34.0": {
+    version: "0.34.0",
+    date: "2026-11-25",
+    headline: "Timed testcase steps: a wait can pass, warn or fail on how long it took.",
+    highlights: [
+      {
+        title: "Step timing with a warning band",
+        body:
+          "A testcase wait may declare timing with warn_ms and fail_ms. Under warn_ms it passes, up to fail_ms it passes with a warning, and at fail_ms it fails. The wait's timeout defaults to fail_ms plus 60 seconds so a slow step is measured, and a case with a timed step cannot retry. Reports gain a step_ms column.",
+      },
+    ],
+    upgrade: "Additive for CHANGE.md. Nothing changes until a suite file declares suite_version 8 and a timing.",
+  },
   "0.33.0": {
     version: "0.33.0",
     date: "2026-11-24",

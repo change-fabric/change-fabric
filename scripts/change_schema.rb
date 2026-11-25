@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.33.0'
+  VERSION = '0.34.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).

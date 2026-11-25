@@ -24,13 +24,13 @@ class ChangeFindingsTest < Minitest::Test
   end
 
   def test_header_is_the_row_column_order
-    assert_equal %w[lane status severity target check location detail help attempts flaky], Findings::HEADER
+    assert_equal %w[lane status severity target check location detail help attempts flaky step_ms], Findings::HEADER
   end
 
   def test_row_serializes_columns_in_header_order
     finding = make_finding(lane: "zap", check: "CSP", status: "warn", severity: "low",
                            target: "http://app", location: "/login", detail: "missing header", help: "url")
-    assert_equal [ "zap", "warn", "low", "http://app", "CSP", "/login", "missing header", "url", 1, "false" ],
+    assert_equal [ "zap", "warn", "low", "http://app", "CSP", "/login", "missing header", "url", 1, "false", "" ],
                  finding.to_row
   end
 

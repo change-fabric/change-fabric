@@ -111,6 +111,13 @@ paint; and `budget_ms` with `budget_from` for a timed interaction.
 A UI fix ships with a case like this, whose measured read fails on the base and
 passes on the head.
 
+For a budget with a warning band, declare `suite_version: 8` and put `timing:
+{ warn_ms, fail_ms }` (with `timing_from` naming the action's label) on the wait
+that confirms the action. It passes under `warn_ms`, warns up to `fail_ms`, and
+fails at `fail_ms`; the wait's timeout defaults to `fail_ms + 60000` so a slow
+step is measured, and a case with a timed step cannot retry. Each timed step
+reports its `step_ms` in the CSV and Markdown.
+
 ### Run cases as different users
 
 Name logins once in `CHANGE.md` and let a case pick one (suite_version 3):

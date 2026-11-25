@@ -203,15 +203,32 @@ class ChangeSuite
 
     where = "suite '#{name}' case '#{id}' (#{path})"
     safe_rerun = safe_rerun(raw_case['safe_rerun'], where)
+    retries = retries(raw_case['retries'], safe_rerun, where)
     TestCase.new(suite: name, id: id, tags: string_list(raw_case['tags']), acceptance: acceptance,
-                 retries: retries(raw_case['retries'], safe_rerun, where), safe_rerun: safe_rerun,
+                 retries: retries, safe_rerun: safe_rerun,
                  timeout_ms: case_timeout(raw_case['timeout_ms'], where),
                  persona: persona(raw_case['persona'], where),
                  safe_retry: boolean(raw_case['safe_retry'], 'safe_retry', where),
                  expects_logout: boolean(raw_case['expects_logout'], 'expects_logout', where),
                  covers: covers(raw_case['covers'], where),
                  quarantine: quarantine(raw_case, name, id, path),
-                 steps: steps(raw_case['steps'], name, id, path, version))
+                 steps: timed_steps(steps(raw_case['steps'], name, id, path, version), retries, where))
+  end
+
+  # (v8) A rerun resets the clock a timing budget measures and hides the
+  # regression it exists to catch, so a case with a timed step never reruns.
+  def self.timed_steps(steps, retries, where)
+    return steps unless retries.positive? && steps.any? { |step| timed_step?(step) }
+
+    raise Error, "#{where} sets `retries: #{retries}` on a case with a `timing` step; a rerun resets the clock " \
+                 'and hides the regression, so remove retries (or the timing)'
+  end
+
+  # `timing` beside the verb or inside its mapping, as the compiler reads it.
+  def self.timed_step?(step)
+    verb = (step.keys.map(&:to_s) & ChangeSuiteSchema::STEP_VERBS).first
+    inner = step[verb] || step[verb.to_sym]
+    [ step, inner.is_a?(Hash) ? inner : {} ].any? { |hash| hash.key?('timing') || hash.key?(:timing) }
   end
 
   # The `covers` globs: nil when absent (the case always runs under --changed),
