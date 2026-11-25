@@ -189,7 +189,7 @@ module ApprovalConsole
     # Adds (or re-pins) the console at `rp_id`: base URL and rpId in its
     # console.json, the passkey public keys and the receipt public key in its
     # credentials.json. Other consoles are kept; this one becomes the default.
-    def pin!(base_url:, rp_id:, credentials:, receipt_public_key:, receipt_key_id:)
+    def pin!(base_url:, rp_id:, credentials:, receipt_public_key:, receipt_key_id:, now: Time.now)
       require_enrolled!
       raise ArgumentError, "#{rp_id.inspect} is not an rpId" unless self.class.rp_id?(rp_id)
 
@@ -201,6 +201,9 @@ module ApprovalConsole
                                                               'receipt_public_key' => receipt_public_key, 'receipt_key_id' => receipt_key_id
                                                             ))
       write_atomic(console_path(rp_id, 'console.json'), JSON.pretty_generate('base_url' => base_url, 'rp_id' => rp_id))
+      # Enrolling just talked to this console, so its offline bound starts now
+      # rather than inheriting the machine-level age from another console.
+      write_last_sync(File.join(root, 'sync_state.json'), now)
       write_atomic(path('console.json'), JSON.pretty_generate(machine_config.merge('default_console' => rp_id)))
     end
 
@@ -437,10 +440,12 @@ module ApprovalConsole
         if file == path('totp_state.json')
           write_state(read_state.merge('last_sync' => now.utc.iso8601))
         elsif File.directory?(File.dirname(file))
-          write_atomic(file, JSON.pretty_generate('last_sync' => now.utc.iso8601))
+          write_last_sync(file, now)
         end
       end
     end
+
+    def write_last_sync(file, now) = write_atomic(file, JSON.pretty_generate('last_sync' => now.utc.iso8601))
 
     def append_pending(entry) = write_durable(pending_path, "#{JSON.generate(entry)}\n", File::APPEND)
 

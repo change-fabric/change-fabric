@@ -34,9 +34,11 @@ class ApprovalConsoleMultiConsoleTest < Minitest::Test
     FileUtils.remove_entry(@home)
   end
 
-  def pin(rp_id, store: @store)
+  T0 = Time.at(1_800_000_000)
+
+  def pin(rp_id, store: @store, now: T0)
     store.pin!(base_url: "https://#{rp_id}/", rp_id: rp_id, credentials: { "cred-#{rp_id[0, 5]}" => "cose" },
-               receipt_public_key: @keys[rp_id].public_to_pem, receipt_key_id: "arn:aws:kms:test:key/#{rp_id[0, 5]}")
+               receipt_public_key: @keys[rp_id].public_to_pem, receipt_key_id: "arn:aws:kms:test:key/#{rp_id[0, 5]}", now: now)
   end
 
   def expect_for(rp_id) = { "rp_id" => rp_id, "receipt_key_fingerprint" => ApprovalConsole::LocalStore.key_fingerprint(@keys[rp_id].public_to_pem) }
@@ -209,6 +211,15 @@ class ApprovalConsoleMultiConsoleTest < Minitest::Test
     assert_equal BETA, store.migrate!
     assert_equal %w[x y], store.pending.map { |e| e["body_sha256"] }
     refute File.exist?(legacy)
+  end
+
+  def test_a_new_console_starts_its_own_offline_bound
+    pin(ALPHA)
+    @store.for_console(ALPHA).observe_step(1, now: T0)
+    later = T0 + (3 * 86_400)
+    pin(BETA, now: later)
+    outcome = @store.for_console(BETA).consume(totp_now(@store, time: later), now: later, entry: { "type" => "step" })
+    assert_predicate outcome, :ok?
   end
 
   def test_migration_waits_for_the_totp_lock
