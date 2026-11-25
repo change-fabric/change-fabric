@@ -20,7 +20,7 @@ REPO_SKILLS = File.expand_path("../skills", __dir__)
 # Redirects HOME to a temp dir so session state under ~/.claude/cf is isolated.
 module SkillTempHome
   def setup
-    @home = Dir.mktmpdir
+    @home = File.realpath(Dir.mktmpdir)
     @prev_home = Dir.home
     ENV["HOME"] = @home
   end

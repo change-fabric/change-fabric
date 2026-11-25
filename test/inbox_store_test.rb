@@ -9,8 +9,8 @@ require_relative "../scripts/inbox_store"
 
 class InboxStoreTest < Minitest::Test
   def setup
-    @home = Dir.mktmpdir
-    @root = Dir.mktmpdir
+    @home = File.realpath(Dir.mktmpdir)
+    @root = File.realpath(Dir.mktmpdir)
     @prev_home = ENV["HOME"]
     @prev_root = ENV["INBOX_ROOT"]
     ENV["HOME"] = @home
