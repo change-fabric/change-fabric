@@ -19,20 +19,21 @@ Enforcer: scripts/docker_doctrine_guard.rb
 ## No slop glyphs in authored prose
 
 Commits, PRs, comments, and docs carry no em-dash, bullet glyph, ellipsis, or
-smart quotes. `scripts/slop_remind.rb` prompts at git and gh authoring time;
-the glyph set is `PlanCheck::GLYPHS`, which also fails plans and the living
-docs. Product copy in a downstream repo follows that repo's own rules.
+smart quotes. `scripts/glyph_guard.rb` denies them in commit messages, PR
+titles and bodies, and .md writes; the glyph set is `PlanCheck::GLYPHS`, which
+also fails plans and the living docs. Product copy in a downstream repo follows
+that repo's own rules (`CF_ALLOW_GLYPH=1`).
 
-Enforcer: scripts/plan_check.rb, scripts/docs_check.rb
+Enforcer: scripts/glyph_guard.rb, scripts/plan_check.rb, scripts/docs_check.rb
 
 ## Short PRs
 
 PR titles are at most 60 characters. Descriptions are at most 640 characters
 unless a code snippet or test-plan checklist needs more, and the core
-description still fits in 640. `scripts/slop_remind.rb` prompts at
-`gh pr create` and `gh pr edit`; nothing denies.
+description still fits in 640. `scripts/glyph_guard.rb` denies a title over 60
+and advises on a body over 640.
 
-Enforcer: advisory
+Enforcer: scripts/glyph_guard.rb
 
 ## One roast stop rule
 

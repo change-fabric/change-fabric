@@ -41,7 +41,7 @@ Wired by `install.rb` per lifecycle event (Claude Code names shown):
 | Event | Scripts |
 | --- | --- |
 | SessionStart | `skill_detect.rb`, `ctx_session_start.rb`, `doctrine_digest.rb`, `secret_alert_poll.rb` |
-| PreToolUse | `secrets_read_guard.rb`, `force_push_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `approval_watch_remind.rb`, `presence_probe.rb`, `prod_approval_guard.rb`, `model_role_guard.rb`, `resource_floor_guard.rb` |
+| PreToolUse | `secrets_read_guard.rb`, `force_push_guard.rb`, `client_name_guard.rb`, `slop_remind.rb`, `review_gate.rb`, `noreply_guard.rb`, `docker_doctrine_guard.rb`, `change_merge_guard.rb`, `change_tag_guard.rb`, `change_stale_remind.rb`, `approval_watch_remind.rb`, `presence_probe.rb`, `prod_approval_guard.rb`, `model_role_guard.rb`, `resource_floor_guard.rb`, `glyph_guard.rb` |
 | PostToolUse | `skill_inject.rb`, `secret_ack.rb`, `change_post_merge_check.rb`, `pulse_stamp.rb` |
 | UserPromptSubmit | `key_paste_guard.rb`, `prune_remind.rb`, `inbox_prompt_hook.rb` |
 | SessionEnd | `telemetry_emit.rb`, `inbox_session_end.rb` |
