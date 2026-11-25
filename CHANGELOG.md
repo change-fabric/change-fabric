@@ -18,6 +18,20 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.35.0] - 2026-11-25
+
+Scheduled lanes. Additive for CHANGE.md: the new field is optional and outside
+`change_config`.
+
+### Added
+
+- A top-level `scheduled_lanes` list: lanes run on a cadence or on request by
+  `scripts/scheduled_lane.rb`, each with a `run` command, a required
+  `result_file` graded under the `cf-lane-result/1` contract, a required
+  `timeout_minutes`, an optional `deployed_sha_cmd`, an optional one-flag-at-a-time
+  `matrix` driven by repo-declared adapter commands, and `sinks` (`github_issue`,
+  `release_comment`, `chat_dm`).
+
 ## [0.34.0] - 2026-11-25
 
 Timed testcase steps. Additive for CHANGE.md: no `change_config` field changes.
