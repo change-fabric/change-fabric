@@ -613,6 +613,20 @@ class WalkthroughLiveTest < Minitest::Test
     end
   end
 
+  # A frame-clock run hands back PNG frames, which reach FFmpeg as a .png sequence.
+  def test_scene_writer_composites_png_frames_as_png
+    secrets = Object.new.tap { |o| o.define_singleton_method(:mask_deep) { |v| v } }
+    Dir.mktmpdir do |work|
+      argvs = []
+      docker = ->(argv) { argvs << argv; [ "", Status.new(true) ] }
+      png = Base64.strict_encode64("\x89PNG\r\n\x1a\nimg".b)
+      runs = [ { "name" => "desktop", "frames" => [ png ], "ticks" => [ 0, 0 ], "links" => [], "lint" => [],
+                 "cursor" => [ { "x" => 1, "y" => 1, "down" => false } ] * 2 } ]
+      WalkthroughLive::SceneWriter.new(board: {}, scene: { "id" => "s" }, secrets: secrets, docker: docker, work: work).write(runs, File.join(work, "out"))
+      assert_includes argvs.first.join(" "), "%06d.png -filter_complex"
+    end
+  end
+
   def test_cursor_false_is_live_only_and_re_keys
     b = board
     b["scenes"][2]["cursor"] = true
@@ -622,6 +636,34 @@ class WalkthroughLiveTest < Minitest::Test
     refute_equal key(board, "inbox"), key(b, "inbox")
     proto = live("proto", 1, "screen" => { "html" => "screens/a.html" }, "cursor" => false)
     assert(errors_for(board([ proto ])).any? { |e| e.include?("cursor needs a screen.url") })
+  end
+
+  def test_frame_clock_is_live_only_true_only_and_re_keys
+    b = board
+    b["scenes"][2]["frame_clock"] = false
+    assert(errors_for(b).any? { |e| e.include?("frame_clock must be true") })
+    b = board
+    b["scenes"][2]["frame_clock"] = true
+    refute(errors_for(b).any? { |e| e.include?("frame_clock") })
+    refute_equal key(board, "inbox"), key(b, "inbox"), "the frame clock recaptures the scene"
+    assert_equal key(board, "reports"), key(b, "reports"), "other scenes keep their keys"
+    proto = live("proto", 1, "screen" => { "html" => "screens/a.html" }, "frame_clock" => true)
+    assert(errors_for(board([ proto ])).any? { |e| e.include?("frame_clock needs a screen.url") })
+  end
+
+  # Under the frame clock each tick steps rAF one frame and shoots its own
+  # still; the screencast never starts. Without it the capture is unchanged.
+  def test_frame_clock_steps_and_shoots_every_tick
+    stepped = WalkthroughLive.run_device_js(board, live("a", 1, "frame_clock" => true))
+    assert_includes stepped, "const frameClock = true;"
+    assert_includes stepped, BrowserlessJs::FRAME_CLOCK_JS.lines.first.chomp
+    assert_includes stepped, 'await frameCall("__cfFrameStep", stepMs);'
+    assert_includes stepped, "if (!frameClock) await sampler.attach(client);"
+    assert_operator stepped.index('frameCall("__cfFrameStep"'), :<, stepped.index("sampler.tick();")
+    assert_includes stepped, 'client.send("Page.captureScreenshot", { format: "png" })'
+    plain = WalkthroughLive.run_device_js(board, live("a", 1))
+    assert_includes plain, "const frameClock = false;"
+    refute_includes plain, "__cfFrameHold = "
   end
 
   # The browser launches at the scene's capture scale (its screencast ignores
@@ -662,6 +704,14 @@ class WalkthroughLiveRetryTest < Minitest::Test
     assert_equal 300_000 + WalkthroughLive::CAPTURE_MARGIN_MS, WalkthroughLive.capture_timeout_ms({}, long, long)
   end
 
+  # Each frame-clock tick is a screenshot, so the budget is per frame, not per second.
+  def test_frame_clock_capture_is_budgeted_per_frame
+    stepped = { "id" => "s", "screen" => { "url" => "https://app.localhost/s" }, "frame_clock" => true, "timing" => { "min_ms" => 10_000 } }
+    frames = (10_000 / PrototypeCapture.frame_ms(30)).ceil
+    assert_equal (frames * WalkthroughLive::FRAME_SHOT_MS) + WalkthroughLive::CAPTURE_MARGIN_MS,
+                 WalkthroughLive.capture_timeout_ms({ "fps" => 30 }, stepped)
+  end
+
   def test_run_with_retry_passes_a_scene_timeout_to_the_call
     seen = nil
     session = Object.new
@@ -674,6 +724,10 @@ class WalkthroughLiveRetryTest < Minitest::Test
     session = ChangeDocker::Browserless.new(port: 4321, token: "tok")
     assert_includes session.function_url, "timeout=#{ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS}"
     assert_includes session.function_url([], timeout_ms: 200_000), "timeout=200000"
+    launch = ->(url) { JSON.parse(URI.decode_www_form(URI(url).query).to_h.fetch("launch", "{}")) }
+    assert_equal({ "protocolTimeout" => 200_000 }, launch.call(session.function_url([], timeout_ms: 200_000)),
+                 "a call past puppeteer's 180 s protocol default raises it to match")
+    assert_equal({ "args" => [ "--x" ] }, launch.call(session.function_url([ "--x" ], timeout_ms: 170_000)))
     assert_equal 120, ChangeDocker::Browserless.read_timeout_s(ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS)
     assert_equal 205, ChangeDocker::Browserless.read_timeout_s(200_000)
   end

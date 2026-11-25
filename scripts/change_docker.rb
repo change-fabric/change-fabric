@@ -489,13 +489,21 @@ module ChangeDocker
       unwrap(JSON.parse(response.body))
     end
 
+    # browserless runs the whole module as one puppeteer protocol call, which
+    # gives up at puppeteer's default protocolTimeout however long `timeout`
+    # allows. A call budgeted past it raises protocolTimeout to match.
+    PROTOCOL_TIMEOUT_MS = 180_000
+
     # Chromium flags (e.g. --ignore-certificate-errors) go in browserless's
-    # `launch` query parameter, which starts this call's browser with them.
+    # `launch` query parameter, which starts this call's browser with them;
+    # so does a protocolTimeout for a call longer than PROTOCOL_TIMEOUT_MS.
     def function_url(launch_args = [], timeout_ms: FUNCTION_TIMEOUT_MS)
       url = "http://127.0.0.1:#{@port}/function?token=#{@token}&timeout=#{timeout_ms}"
-      return url if launch_args.empty?
+      launch = launch_args.empty? ? {} : { 'args' => launch_args }
+      launch['protocolTimeout'] = timeout_ms if timeout_ms > PROTOCOL_TIMEOUT_MS
+      return url if launch.empty?
 
-      "#{url}&launch=#{URI.encode_www_form_component(JSON.generate('args' => launch_args))}"
+      "#{url}&launch=#{URI.encode_www_form_component(JSON.generate(launch))}"
     end
 
     # browserless echoes the module's `{ data, type }` return value back as the

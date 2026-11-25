@@ -22,6 +22,18 @@ class FrameVideoTest < Minitest::Test
     end
   end
 
+  def test_write_sequence_names_frames_by_their_bytes
+    png = Base64.strict_encode64("\x89PNG\r\n\x1a\nimg".b)
+    Dir.mktmpdir do |dir|
+      assert_equal "png", FrameVideo.write_sequence(File.join(dir, "p"), [ png ], [ 0, 0 ])
+      assert_equal %w[000001.png 000002.png], Dir.children(File.join(dir, "p")).sort
+      assert_equal "jpg", FrameVideo.write_sequence(File.join(dir, "j"), FRAMES, [ 1 ])
+      assert_equal %w[000001.jpg], Dir.children(File.join(dir, "j"))
+      err = assert_raises(FrameVideo::EncodeError) { FrameVideo.write_sequence(File.join(dir, "m"), [ png, FRAMES[0] ], [ 0, 1 ]) }
+      assert_includes err.message, "mixes png and jpg"
+    end
+  end
+
   def test_write_jpgs_reads_frame_zero_for_a_tick_before_the_first_frame
     Dir.mktmpdir do |dir|
       FrameVideo.write_jpgs(dir, FRAMES, [ -1 ])

@@ -104,6 +104,52 @@ module BrowserlessJs
     "await #{page_var}.createCDPSession()"
   end
 
+  # A frame clock for requestAnimationFrame in a live page, installed before
+  # the page's own scripts. It passes rAF straight through until
+  # __cfFrameHold(); from then on rAF callbacks wait in a queue and only
+  # __cfFrameStep(ms) runs them, each time with a timestamp exactly ms later
+  # than the last. A capture that steps once per frame and then screenshots
+  # gets rAF-driven motion in even steps, however long each shot takes.
+  # __cfFrameRelease() hands the queue back to the browser (a navigate cut
+  # waits on real frames). Timestamps never go backward: holding resumes
+  # from the last real rAF time. Only rAF is held; timers, Date, and
+  # performance.now keep real time, so the app itself runs normally.
+  FRAME_CLOCK_JS = <<~JS.chomp
+    (() => {
+      const realRaf = window.requestAnimationFrame.bind(window);
+      const realCancel = window.cancelAnimationFrame.bind(window);
+      const queue = new Map();
+      let held = false, now = 0, lastReal = 0, nextId = 1;
+      const viaBrowser = (fn) => realRaf((t) => { lastReal = Math.max(lastReal, t); fn(t); });
+      window.requestAnimationFrame = (fn) => {
+        if (!held) return viaBrowser(fn);
+        const id = -(nextId++);
+        queue.set(id, fn);
+        return id;
+      };
+      window.cancelAnimationFrame = (id) => { if (id < 0) queue.delete(id); else realCancel(id); };
+      window.__cfFrameHold = () => {
+        if (held) return;
+        held = true;
+        now = Math.max(now, lastReal, performance.now());
+      };
+      window.__cfFrameStep = (ms) => {
+        if (!held) return now;
+        now = Math.max(now, lastReal) + ms;
+        const due = [...queue.values()];
+        queue.clear();
+        for (const fn of due) { try { fn(now); } catch (e) { setTimeout(() => { throw e; }); } }
+        return now;
+      };
+      window.__cfFrameRelease = () => {
+        held = false;
+        const due = [...queue.values()];
+        queue.clear();
+        for (const fn of due) viaBrowser(fn);
+      };
+    })();
+  JS
+
   # Defines ScreencastSampler(opts), the CDP screencast recorder shared by
   # cf:walkthrough and cf:change. opts: { quality, maxWidth, maxHeight } plus
   # optional caps { maxFrames, maxBytes }. attach(client) starts a JPEG
