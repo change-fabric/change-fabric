@@ -13,6 +13,7 @@ require_relative 'approval_console/local_store'
 require_relative 'approval_console/proof_check'
 require_relative 'approval_console/recorder'
 require_relative 'approval_console/remote'
+require_relative 'approval_console/route'
 require_relative 'approval_console/sync'
 require_relative 'approval_console/totp'
 require_relative 'change_approval_store'
@@ -31,10 +32,17 @@ require_relative 'cf_project_identity'
 #   record       wait for a request this machine made, then record its receipt
 #   sync         upload offline terminal approvals for console receipts
 #   verify       check the proofs recorded for a sha (read-only)
-#   status       enrollment, fence, lockout, sync queue and host health
+#   status       enrollment, every console, fence, lockout, sync queue and host health
+#
+# One machine can be enrolled on several consoles. request, wait, record,
+# sync, verify and status use the console the repo's authoritative
+# approval_pins.rp_id names (--repo, default the cwd), or the default (most
+# recently enrolled) one for a repo with no pins; wait and record first use
+# the console the request was sent to.
+#   migrate      move a single-console enrollment into the per-console layout
 #   unlock       refused: needs a passkey approval not offered yet
 #
-# `totp-enroll`, `enroll` and `unlock` refuse without a real TTY and inside an
+# `totp-enroll`, `enroll`, `migrate` and `unlock` refuse without a real TTY and inside an
 # agent harness. The others never print a secret, so agents may run them: an
 # agent asks for an approval with `request`, and the human answers on the
 # phone. As elsewhere in this repo the guards are friction, not a sandbox.
@@ -59,9 +67,10 @@ module ApprovalConsoleCli
     when 'request' then request(argv.drop(1), ctx)
     when 'wait' then wait(argv.drop(1), ctx)
     when 'record' then record(argv.drop(1), ctx)
-    when 'sync' then sync(ctx)
+    when 'sync' then sync(argv.drop(1), ctx)
     when 'verify' then verify(argv.drop(1), ctx)
-    when 'status' then status(store, stdout, now)
+    when 'status' then status(argv.drop(1), ctx, now)
+    when 'migrate' then migrate(ctx)
     when 'unlock' then unlock(store, stdin, stderr, env, parents)
     else usage(stderr)
     end
@@ -71,13 +80,31 @@ module ApprovalConsoleCli
     def client = io.key?(:client) ? io[:client] : ApprovalConsole::Client.for(store)
     def sleeper = io[:sleeper] || ->(seconds) { sleep(seconds) }
     def clock = io[:clock] || -> { Time.now }
+    def authority = io.key?(:authority) ? io[:authority] : :default
+  end
+
+  # Binds ctx.store to the console a request was sent to, else to the one
+  # the repo at `root` pins. Returns a refusal when that console is not
+  # enrolled here.
+  def route!(ctx, root, request_id: nil, authority: ctx.authority)
+    rp = request_id && ctx.store.request_console(request_id)
+    rp ||= ApprovalConsole::Route.rp_id(root, authority: authority)
+    ctx.store = ctx.store.for_console(rp) if rp
+    ctx.store.unenrolled_reason
+  end
+
+  def repo_opt(args)
+    root = Dir.pwd
+    OptionParser.new { |o| o.on('--repo PATH') { |value| root = File.expand_path(value) } }.parse!(args)
+    root
   end
 
   def usage(stderr)
     stderr.puts 'usage: approval_console.rb totp-enroll | enroll --url URL --profile NAME | ' \
                 'request --type prod-op|carve-out|money|release|override|run-script|grant|autopilot [--summary TEXT] [--expires 8h|ISO --scope a,b (grant, autopilot)] [--script PATH --title TEXT [--account ID]] [--pr-url URL] [--tag TAG] ' \
                 '[--reason TEXT] [--scope merge|tag] [--profile NAME] [--sha SHA] [--no-wait] [-- argv...] | ' \
-                'wait <request_id> | record <request_id> [--repo PATH] | sync | verify <sha> [--repo PATH] [--profile NAME] | status | unlock'
+                'wait <request_id> [--repo PATH] | record <request_id> [--repo PATH] | sync [--repo PATH] | ' \
+                'verify <sha> [--repo PATH] [--profile NAME] | status [--repo PATH] | migrate | unlock'
     1
   end
 
@@ -95,6 +122,9 @@ module ApprovalConsoleCli
   def request(args, ctx)
     opts = parse_request(args, ctx.stderr) or return 1
     opts[:now] = ctx.clock.call
+    unrouted = route!(ctx, File.expand_path(opts[:repo] || Dir.pwd))
+    return refuse(ctx.stderr, 'request', unrouted) if unrouted
+
     refusal = request_refusal(opts, ctx)
     return refuse(ctx.stderr, 'request', refusal) if refusal
 
@@ -294,12 +324,18 @@ module ApprovalConsoleCli
   end
 
   def wait(args, ctx)
+    root = repo_opt(args = args.dup)
     body = ctx.store.saved_request(args.first)
     return refuse(ctx.stderr, 'wait', 'no request with that id was made from this machine') unless body
+
+    unrouted = route!(ctx, root, request_id: args.first)
+    return refuse(ctx.stderr, 'wait', unrouted) if unrouted
     return refuse(ctx.stderr, 'wait', 'no console is configured') unless ctx.client
 
     finish(ApprovalConsole::Remote.wait(body, expected: ApprovalConsole::Remote.expected_from_body(body), store: ctx.store,
                                               client: ctx.client, sleeper: ctx.sleeper, clock: ctx.clock), ctx)
+  rescue OptionParser::ParseError
+    usage(ctx.stderr)
   end
 
   # Resumes a request this machine made (by change_approve --remote,
@@ -308,13 +344,15 @@ module ApprovalConsoleCli
   # default branch's policy for the repo at --repo (default: cwd) and writes
   # the store for its signed type.
   def record(args, ctx)
-    root = Dir.pwd
-    OptionParser.new { |o| o.on('--repo PATH') { |value| root = File.expand_path(value) } }.parse!(args = args.dup)
+    root = repo_opt(args = args.dup)
     body = ctx.store.saved_request(args.first)
     return refuse(ctx.stderr, 'record', 'no request with that id was made from this machine') unless body
+
+    authority = ctx.authority == :default ? ApprovalConsole::Recorder.authority_for(root) : ctx.authority
+    unrouted = route!(ctx, root, request_id: args.first, authority: authority)
+    return refuse(ctx.stderr, 'record', unrouted) if unrouted
     return refuse(ctx.stderr, 'record', 'no console is configured') unless ctx.client
 
-    authority = ctx.io.key?(:authority) ? ctx.io[:authority] : ApprovalConsole::Recorder.authority_for(root)
     expected = ApprovalConsole::Remote.expected_from_body(body)
     waited = ApprovalConsole::Remote.wait(body, expected: expected, store: ctx.store, client: ctx.client,
                                                 sleeper: ctx.sleeper, clock: ctx.clock)
@@ -340,7 +378,9 @@ module ApprovalConsoleCli
     0
   end
 
-  def sync(ctx)
+  def sync(args, ctx)
+    unrouted = route!(ctx, repo_opt(args.dup))
+    return refuse(ctx.stderr, 'sync', unrouted) if unrouted
     return refuse(ctx.stderr, 'sync', 'no console is configured') unless ctx.client
     return refuse(ctx.stderr, 'sync', 'this machine has no TOTP seed') unless ctx.store.enrolled?
 
@@ -349,6 +389,8 @@ module ApprovalConsoleCli
     ctx.stdout.puts "conflicts: #{report.conflicts}"
     ctx.stdout.puts 'console unreachable; the rest stay queued' if report.unreachable
     report.unreachable || report.conflicts.positive? ? 1 : 0
+  rescue OptionParser::ParseError
+    usage(ctx.stderr)
   end
 
   # Checks every proof recorded for a sha at the strictest level each passes,
@@ -363,6 +405,9 @@ module ApprovalConsoleCli
     sha = args.first.to_s
     sha = git_rev(root, sha) unless sha.match?(/\A[0-9a-f]{40}\z/)
     return usage(ctx.stderr) if sha.to_s.empty?
+
+    unrouted = route!(ctx, root)
+    ctx.stdout.puts "console: #{unrouted}" if unrouted
 
     report_proofs(sha, root, profile, ctx)
   end
@@ -448,17 +493,48 @@ module ApprovalConsoleCli
     tty.flush
   end
 
-  def status(store, stdout, now)
+  def status(args, ctx, now)
+    unrouted = route!(ctx, repo_opt(args.dup))
+    store = ctx.store
+    stdout = ctx.stdout
     info = store.status(now: now)
     report = ApprovalConsole::HostHealth.check(store: store)
     stdout.puts "enrolled: #{info[:enrolled] ? 'yes' : 'no (run totp-enroll from a real terminal)'}"
     stdout.puts "machine: #{info[:machine_id]}" if info[:machine_id]
     stdout.puts "last accepted step: #{info[:last_step] || 'none'}"
     stdout.puts "locked until: #{info[:locked_until].iso8601}" if info[:locked_until]
-    stdout.puts "console: #{info[:console_configured] ? store.base_url : 'not configured (terminal only)'}"
+    stdout.puts "console: #{unrouted || (info[:console_configured] ? store.base_url : 'not configured (terminal only)')}"
     stdout.puts "pending sync: #{info[:pending]}"
     stdout.puts "conflicts: #{info[:conflicts]}" if info[:conflicts].positive?
+    consoles_report(store, info, stdout)
     stdout.puts "host: #{report.degraded? ? "degraded (#{report.reasons.join('; ')}); prod-op, carve-out, money, release and override are refused" : 'ok'}"
+    0
+  rescue OptionParser::ParseError
+    usage(ctx.stderr)
+  end
+
+  # One line per enrolled console: rpId, URL and queue, marking the default
+  # and the one this repo uses.
+  def consoles_report(store, info, stdout)
+    return if info[:consoles].empty?
+
+    stdout.puts "consoles: #{info[:consoles].size}"
+    info[:consoles].each do |rp|
+      view = store.for_console(rp)
+      marks = [ (rp == info[:default_console] ? 'default' : nil), (rp == store.console_id ? 'this repo' : nil) ].compact
+      stdout.puts "  #{rp} #{view.base_url} pending #{view.unsynced.size}#{marks.empty? ? '' : " (#{marks.join(', ')})"}"
+    end
+  end
+
+  # Rewrites the store layout, so it is human-only like enroll. Reads never
+  # migrate: an unmigrated store keeps working as one console.
+  def migrate(ctx)
+    refusal = human_only_refusal(ctx.stdin, ctx.env, ctx.parents)
+    return refuse(ctx.stderr, 'migrate', refusal) if refusal
+    return refuse(ctx.stderr, 'migrate', 'this machine has no TOTP seed') unless ctx.store.enrolled?
+
+    moved = ctx.store.migrate!
+    ctx.stderr.puts(moved ? "[approval_console] moved the #{moved} enrollment into consoles/#{moved}/." : '[approval_console] nothing to migrate.')
     0
   end
 

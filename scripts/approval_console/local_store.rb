@@ -7,18 +7,42 @@ require 'openssl'
 require 'securerandom'
 require 'socket'
 require 'time'
+require 'uri'
 require_relative '../cf_secret_store'
 require_relative 'totp'
 
 module ApprovalConsole
   # The terminal path's protected state, kept under the cf secret store at
   # ~/.claude/cf/secrets/<machine slug>/approval/ (0700 dirs, 0600 files, read
-  # denied to agent tools by secrets_read_guard.rb): the TOTP seed, the
-  # fencing and lockout counters, the machine id and the offline sync queue.
-  # No OS keychain API and no platform branch. Every read, check and write of
-  # the counters runs under an exclusive flock on a stable lock file and is
-  # fsynced before the lock is released. Only `enroll!` and `seed` ever return
-  # the seed, and nothing here logs it.
+  # denied to agent tools by secrets_read_guard.rb). No OS keychain API and no
+  # platform branch. Every read, check and write of the counters runs under an
+  # exclusive flock on a stable lock file and is fsynced before the lock is
+  # released. Only `enroll!` and `seed` ever return the seed, and nothing here
+  # logs it.
+  #
+  # One machine can be enrolled on several consoles (one per self-hosted
+  # account), so the state splits in two:
+  #
+  #   approval/                      per machine
+  #     totp_seed, machine_key.pem   one seed and one signing key; each console
+  #                                  holds its own M#<id>/SEED and META rows
+  #     console.json                 machine_id, label, default_console
+  #     totp_state.json              the replay fence and lockout counters
+  #     requests/                    bodies sent with --no-wait (+ .console)
+  #   approval/consoles/<rp_id>/     per console
+  #     console.json                 base_url, rp_id
+  #     credentials.json             passkey and receipt key pins
+  #     sync_state.json              last successful contact (offline bound)
+  #     pending_sync.jsonl           offline approvals queued for this console
+  #
+  # A store is bound to one console: the one named by `console:`, else the
+  # default (most recently enrolled). `pins(expect:)` on an unbound store
+  # reads the console the authoritative pins name.
+  #
+  # Reads never rewrite the store. A single-console layout (base_url and rp_id
+  # in approval/console.json, credentials.json beside it) is read in place as
+  # one console, so released code and this code share it; only `migrate!`,
+  # run by `enroll` or the `migrate` verb, moves it into consoles/<rp_id>/.
   class LocalStore
     class NotEnrolled < StandardError; end
     class AlreadyEnrolled < StandardError; end
@@ -32,6 +56,9 @@ module ApprovalConsole
     LOCK_MAX = 86_400
     OFFLINE_GRACE = 86_400
     MAX_PENDING = 10
+    # An rpId is a DNS name. It also names a directory, so anything else
+    # (a slash, '..', upper case) is never turned into a path.
+    RP_ID = /\A[a-z0-9][a-z0-9-]{0,62}(\.[a-z0-9][a-z0-9-]{0,62})+\z/
 
     Outcome = Struct.new(:reason, :step, :locked_until, keyword_init: true) do
       def ok? = reason.nil?
@@ -42,15 +69,67 @@ module ApprovalConsole
 
     attr_reader :slug
 
-    def initialize(slug: self.class.machine_slug)
+    def initialize(slug: self.class.machine_slug, console: nil)
       @slug = slug
+      @console = console&.to_s
     end
+
+    def self.rp_id?(value) = value.is_a?(String) && value.match?(RP_ID)
 
     def dir = File.join(CfSecretStore.dir(@slug), 'approval')
 
     def path(name) = File.join(dir, name)
 
     def enrolled? = File.file?(path('totp_seed'))
+
+    # The same machine store bound to the console at `rp_id`.
+    def for_console(rp_id) = self.class.new(slug: @slug, console: rp_id)
+
+    # The rpId of every console this machine is enrolled on, sorted. A
+    # single-console layout not yet migrated counts as one.
+    def consoles
+      root = path('consoles')
+      listed = File.directory?(root) ? Dir.children(root).select { |name| self.class.rp_id?(name) && File.file?(File.join(root, name, 'console.json')) } : []
+      (listed + [ legacy_console ].compact).uniq.sort
+    end
+
+    # Moves a single-console layout into consoles/<rp_id>/ and makes it the
+    # default. Returns the moved rpId, or nil when there was nothing to move.
+    # New files are written before old ones go, so an interrupted run is
+    # finished by the next one. Only `enroll` and the `migrate` verb call it.
+    def migrate!
+      return nil unless legacy?
+
+      File.open(path('consoles.lock'), File::RDWR | File::CREAT, FILE_MODE) do |lock|
+        lock.flock(File::LOCK_EX)
+        # Also take the TOTP lock: consume and settle append to the queue under it,
+        # and an append between the queue move and the console.json switch
+        # would land in the legacy path and be orphaned.
+        with_lock { legacy? ? migrate_locked : nil }
+      end
+    end
+
+    def console_enrolled?(rp_id) = self.class.rp_id?(rp_id) && consoles.include?(rp_id)
+
+    # The console a `pin!` set last, else the last one listed; nil with none.
+    def default_console
+      list = consoles
+      named = read_json(path('console.json'))['default_console']
+      list.include?(named) ? named : list.last
+    end
+
+    # The console this store is bound to: the one asked for, else the default.
+    def console_id = @console || default_console
+
+    def bound? = !@console.nil?
+
+    # nil, or why a bound store cannot reach its console here.
+    def unenrolled_reason
+      return nil unless bound? && !console_enrolled?(console_id)
+
+      "this repo's approval_pins.rp_id #{console_id.inspect} is not enrolled on this machine " \
+        "(enrolled: #{consoles.empty? ? 'none' : consoles.join(', ')}); run enroll --url https://#{console_id}/ from a real terminal"
+    end
 
     # Never overwrites an existing seed. Returns the raw bytes for the one-time reveal.
     def enroll!(label: Socket.gethostname)
@@ -67,7 +146,7 @@ module ApprovalConsole
     # Removes a seed whose reveal failed, so a value the human never saw is not
     # left enrolled.
     def discard!
-      FileUtils.rm_f(Dir.glob(File.join(dir, '*')))
+      FileUtils.rm_rf(Dir.glob(File.join(dir, '*')))
     end
 
     def seed
@@ -76,16 +155,19 @@ module ApprovalConsole
       File.binread(path('totp_seed'))
     end
 
-    def console = read_json(path('console.json'))
+    # The machine's config merged with the bound console's (base_url, rp_id).
+    def console = machine_config.merge(console_config)
 
-    def machine_id = console['machine_id']
+    def machine_id = machine_config['machine_id']
 
-    def label = console['label']
+    def label = machine_config['label']
 
     # Without a console URL the local fence is the only channel.
-    def console_configured? = !console['base_url'].to_s.empty?
+    def console_configured? = !console_config['base_url'].to_s.empty?
 
-    def base_url = console['base_url']
+    def base_url = console_config['base_url']
+
+    def console_config = console_file('console.json') { |file| read_json(file) } || {}
 
     # The P-256 key this machine signs console calls with. Created once at
     # `enroll`; its public half lives in the console's M#<id>/META row.
@@ -104,24 +186,38 @@ module ApprovalConsole
       key
     end
 
-    # Pins the console for this machine: base URL and rpId in console.json, the
-    # passkey public keys and the receipt public key in credentials.json.
-    def pin!(base_url:, rp_id:, credentials:, receipt_public_key:, receipt_key_id:)
+    # Adds (or re-pins) the console at `rp_id`: base URL and rpId in its
+    # console.json, the passkey public keys and the receipt public key in its
+    # credentials.json. Other consoles are kept; this one becomes the default.
+    def pin!(base_url:, rp_id:, credentials:, receipt_public_key:, receipt_key_id:, now: Time.now)
       require_enrolled!
-      write_atomic(path('credentials.json'), JSON.pretty_generate(
-                                               'rp_id' => rp_id, 'credentials' => credentials,
-                                               'receipt_public_key' => receipt_public_key, 'receipt_key_id' => receipt_key_id
-                                             ))
-      write_atomic(path('console.json'), JSON.pretty_generate(console.merge('base_url' => base_url, 'rp_id' => rp_id)))
+      raise ArgumentError, "#{rp_id.inspect} is not an rpId" unless self.class.rp_id?(rp_id)
+
+      migrate!
+      root = File.join(dir, 'consoles', rp_id)
+      ensure_console_dir(rp_id)
+      write_atomic(File.join(root, 'credentials.json'), JSON.pretty_generate(
+                                                              'rp_id' => rp_id, 'credentials' => credentials,
+                                                              'receipt_public_key' => receipt_public_key, 'receipt_key_id' => receipt_key_id
+                                                            ))
+      write_atomic(console_path(rp_id, 'console.json'), JSON.pretty_generate('base_url' => base_url, 'rp_id' => rp_id))
+      # Enrolling just talked to this console, so its offline bound starts now
+      # rather than inheriting the machine-level age from another console.
+      write_last_sync(File.join(root, 'sync_state.json'), now)
+      write_atomic(path('console.json'), JSON.pretty_generate(machine_config.merge('default_console' => rp_id)))
     end
 
     # { 'rp_id', 'credentials' => {id => cose}, 'receipt_public_key' } or {}.
     # credentials.json is agent-writable, so a gate passes `expect:`, the
     # authoritative { 'receipt_key_fingerprint', 'rp_id' } from the base or
     # default branch's change_policy.approval_pins, and a mismatch raises.
+    # An unbound store reads the console `expect` names; a bound one must be
+    # that console.
     def pins(expect: nil)
-      data = read_json(path('credentials.json'))
-      check_pins!(data, expect) if expect
+      return read_pins(console_id) unless expect
+
+      data = read_pins(pinned_console(expect['rp_id'].to_s))
+      check_pins!(data, expect)
       data
     end
 
@@ -138,8 +234,8 @@ module ApprovalConsole
       with_lock do
         state = read_state
         state['last_step'] = [ state['last_step'], step ].compact.max
-        state['last_sync'] = now.utc.iso8601
         write_state(state)
+        touch_sync(now)
       end
     end
 
@@ -154,25 +250,28 @@ module ApprovalConsole
 
           entry.except('code').merge('status' => 'conflict', 'reason' => reason.to_s)
         end
-        write_atomic(path('pending_sync.jsonl'), entries.map { |entry| "#{JSON.generate(entry)}\n" }.join)
-        state = read_state
-        state['last_sync'] = now.utc.iso8601 if status == :synced
-        write_state(state)
+        write_atomic(pending_path, entries.map { |entry| "#{JSON.generate(entry)}\n" }.join) if pending_path
+        touch_sync(now) if status == :synced
       end
     end
 
-    # Request bodies this machine sent with `request --no-wait`, for `wait`.
+    # Request bodies this machine sent with `request --no-wait`, for `wait`,
+    # with the rpId of the console each was sent to beside it.
     def save_request(request_id, body)
       FileUtils.mkdir_p(path('requests'), mode: DIR_MODE)
-      write_atomic(File.join(path('requests'), "#{request_id}.json"), body)
+      write_atomic(request_path(request_id, "json"), body)
+      rp = console_id
+      write_atomic(request_path(request_id, "console"), rp) if self.class.rp_id?(rp)
     end
 
-    def saved_request(request_id)
-      return nil unless request_id.to_s.match?(/\A[0-9a-f-]{36}\z/)
-
-      file = File.join(path('requests'), "#{request_id}.json")
-      File.file?(file) ? File.read(file) : nil
+    # The rpId a saved request was sent to, or nil (unknown, or saved before
+    # multi-console).
+    def request_console(request_id)
+      rp = request_file(request_id, 'console')&.strip
+      self.class.rp_id?(rp) ? rp : nil
     end
+
+    def saved_request(request_id) = request_file(request_id, 'json')
 
     # Checks `code` against the seed under the lock and, on success, commits the
     # fence (`last_step`) and the optional `entry` for the sync queue in the
@@ -192,10 +291,12 @@ module ApprovalConsole
       locked = locked_until(state)
       { enrolled: enrolled?, machine_id: machine_id, label: label, last_step: state['last_step'],
         failures: state['failures'].to_i, locked_until: locked && locked > now ? locked : nil,
-        pending: unsynced.size, conflicts: conflicts.size, console_configured: console_configured? }
+        pending: unsynced.size, conflicts: conflicts.size, console_configured: console_configured?,
+        consoles: consoles, default_console: default_console }
     end
 
-    def pending = read_lines(path('pending_sync.jsonl'))
+    # The bound console's queue; [] with no console.
+    def pending = (file = pending_path) ? read_lines(file) : []
 
     def conflicts = pending.select { |entry| entry['status'] == 'conflict' }
 
@@ -204,9 +305,59 @@ module ApprovalConsole
 
     private
 
+    # Where the unmigrated single-console layout keeps each per-console file.
+    # Its last_sync lives in totp_state.json, as released code writes it.
+    LEGACY_FILES = { 'console.json' => 'console.json', 'credentials.json' => 'credentials.json',
+                     'pending_sync.jsonl' => 'pending_sync.jsonl', 'sync_state.json' => 'totp_state.json' }.freeze
+
+    def console_path(rp_id, name)
+      return path(LEGACY_FILES.fetch(name)) if legacy_layout?(rp_id)
+
+      File.join(dir, 'consoles', rp_id, name)
+    end
+
+    def legacy_layout?(rp_id) = rp_id == legacy_console && !File.file?(File.join(dir, 'consoles', rp_id, 'console.json'))
+
+    # The rpId of the unmigrated single-console layout, or nil.
+    def legacy_console
+      return nil unless legacy?
+
+      legacy_rp_id(read_json(path('console.json')), read_json(path('credentials.json')))
+    end
+
+    def machine_config = read_json(path('console.json'))
+
+    def read_pins(rp_id) = self.class.rp_id?(rp_id) ? read_json(console_path(rp_id, 'credentials.json')) : {}
+
+    # Yields the bound console's file `name` when the store has a console with a
+    # valid rpId; nil otherwise. The one place an rpId becomes a path.
+    def console_file(name)
+      rp = console_id
+      self.class.rp_id?(rp) ? yield(console_path(rp, name)) : nil
+    end
+
+    def request_path(request_id, ext) = File.join(path('requests'), "#{request_id}.#{ext}")
+
+    def request_file(request_id, ext)
+      return nil unless request_id.to_s.match?(/\A[0-9a-f-]{36}\z/)
+
+      file = request_path(request_id, ext)
+      File.file?(file) ? File.read(file) : nil
+    end
+
+    # The console whose pins a gate checks against the authoritative `wanted`.
+    def pinned_console(wanted)
+      return @console if bound?
+      return wanted if console_enrolled?(wanted)
+
+      raise PinMismatch, "no local rpId pin matches the authoritative approval_pins.rp_id #{wanted.inspect} " \
+                         "(enrolled: #{consoles.empty? ? 'none' : consoles.join(', ')}); run enroll for it from a real terminal"
+    end
+
     def check_pins!(data, expect)
       unless data['rp_id'].to_s == expect['rp_id'].to_s && !data['rp_id'].to_s.empty?
-        raise PinMismatch, "the local rpId pin does not match the authoritative approval_pins.rp_id #{expect['rp_id'].inspect}"
+        raise PinMismatch, "the local rpId pin #{(data['rp_id'] || console_id).to_s.inspect} does not match the authoritative " \
+                           "approval_pins.rp_id #{expect['rp_id'].to_s.inspect}"
       end
       return if self.class.key_fingerprint(data['receipt_public_key']) == expect['receipt_key_fingerprint'].to_s
 
@@ -254,7 +405,7 @@ module ApprovalConsole
     def offline_limit?(now, state)
       return false unless console_configured?
 
-      last = readable_time(state['last_sync'])
+      last = readable_time(sync_state['last_sync'] || state['last_sync'])
       unsynced.size >= MAX_PENDING || (!last.nil? && now - last > OFFLINE_GRACE)
     end
 
@@ -279,12 +430,24 @@ module ApprovalConsole
       nil
     end
 
-    def append_pending(entry)
-      File.open(path('pending_sync.jsonl'), File::WRONLY | File::CREAT | File::APPEND, FILE_MODE) do |file|
-        file.write("#{JSON.generate(entry)}\n")
-        file.fsync
+    def pending_path = console_file('pending_sync.jsonl') { |file| file }
+
+    def sync_state = console_file('sync_state.json') { |file| read_json(file) } || {}
+
+    # Records a successful contact with the bound console.
+    def touch_sync(now)
+      console_file('sync_state.json') do |file|
+        if file == path('totp_state.json')
+          write_state(read_state.merge('last_sync' => now.utc.iso8601))
+        elsif File.directory?(File.dirname(file))
+          write_last_sync(file, now)
+        end
       end
     end
+
+    def write_last_sync(file, now) = write_atomic(file, JSON.pretty_generate('last_sync' => now.utc.iso8601))
+
+    def append_pending(entry) = write_durable(pending_path, "#{JSON.generate(entry)}\n", File::APPEND)
 
     def read_lines(file)
       return [] unless File.file?(file)
@@ -324,20 +487,79 @@ module ApprovalConsole
       File.chmod(DIR_MODE, dir)
     end
 
-    def write_new(file, bytes)
-      File.open(file, File::WRONLY | File::CREAT | File::EXCL, FILE_MODE) do |f|
+    def ensure_console_dir(rp_id)
+      [ path('consoles'), File.join(path('consoles'), rp_id) ].each do |sub|
+        FileUtils.mkdir_p(sub, mode: DIR_MODE)
+        File.chmod(DIR_MODE, sub)
+      end
+    end
+
+    def legacy?
+      return true if File.file?(path('credentials.json'))
+
+      config = read_json(path('console.json'))
+      config.key?('base_url') || config.key?('rp_id')
+    end
+
+    def migrate_locked
+      config = read_json(path('console.json'))
+      creds = read_json(path('credentials.json'))
+      rp = legacy_rp_id(config, creds)
+      move_legacy(rp, config, creds) if rp
+      write_atomic(path('console.json'), JSON.pretty_generate(config.except('base_url', 'rp_id')
+                                                                    .merge(rp ? { 'default_console' => rp } : {})))
+      FileUtils.rm_f(path('credentials.json'))
+      rp
+    end
+
+    def legacy_rp_id(config, creds)
+      host = config['base_url'] ? URI(config['base_url'].to_s).host : nil
+      [ creds['rp_id'], config['rp_id'], host ].map(&:to_s).find { |rp| self.class.rp_id?(rp) }
+    rescue URI::InvalidURIError
+      nil
+    end
+
+    def move_legacy(rp_id, config, creds)
+      root = File.join(dir, 'consoles', rp_id)
+      ensure_console_dir(rp_id)
+      write_atomic(File.join(root, 'credentials.json'), JSON.pretty_generate(creds)) unless creds.empty?
+      last_sync = read_json(path('totp_state.json'))['last_sync']
+      write_atomic(File.join(root, 'sync_state.json'), JSON.pretty_generate('last_sync' => last_sync)) if last_sync
+      move_queue(path('pending_sync.jsonl'), File.join(root, 'pending_sync.jsonl'))
+      # console.json last: once it exists the console reads from consoles/<rp_id>/.
+      # A retry after an interrupted move finds base_url already gone from the
+      # machine config, so keep the one the first pass wrote.
+      moved = read_json(File.join(root, 'console.json'))
+      base_url = config['base_url'] || moved['base_url']
+      write_atomic(File.join(root, 'console.json'), JSON.pretty_generate('base_url' => base_url, 'rp_id' => rp_id))
+    end
+
+    # A retry after an interrupted move can find a queue at both ends: approvals
+    # accepted in between went to the legacy path. Append, never replace, and
+    # skip lines already present so a crash before the delete cannot double them.
+    def move_queue(old, new)
+      return unless File.file?(old)
+      return File.rename(old, new) unless File.file?(new)
+
+      kept = File.readlines(new)
+      write_atomic(new, (kept + (File.readlines(old) - kept)).join)
+      File.delete(old)
+    end
+
+    # Opens `file` 0600 with `mode` added to WRONLY|CREAT, writes and fsyncs.
+    def write_durable(file, content, mode)
+      File.open(file, File::WRONLY | File::CREAT | mode, FILE_MODE) do |f|
         f.binmode
-        f.write(bytes)
+        f.write(content)
         f.fsync
       end
     end
 
+    def write_new(file, bytes) = write_durable(file, bytes, File::EXCL)
+
     def write_atomic(file, content)
       tmp = "#{file}.#{SecureRandom.hex(4)}.tmp"
-      File.open(tmp, File::WRONLY | File::CREAT | File::EXCL, FILE_MODE) do |f|
-        f.write(content)
-        f.fsync
-      end
+      write_durable(tmp, content, File::EXCL)
       File.rename(tmp, file)
     ensure
       FileUtils.rm_f(tmp) if tmp

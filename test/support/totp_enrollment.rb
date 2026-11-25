@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require_relative "../home_fixture"
 require_relative "../../scripts/approval_console/local_store"
 require_relative "../../scripts/approval_console/totp"
 

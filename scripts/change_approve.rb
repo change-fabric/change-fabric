@@ -10,6 +10,7 @@ require_relative 'approval_console/terminal_prompt'
 require_relative 'approval_console/remote'
 require_relative 'approval_console/proof_check'
 require_relative 'approval_console/recorder'
+require_relative 'approval_console/route'
 require_relative 'change_policy'
 
 # Human-run approval of host-run step definitions (boot.up, boot.down, command
@@ -78,9 +79,11 @@ module ChangeApprove
     end
 
     describe(pending, sha, base, stdout)
-    client = remote && console_client(console, stdin, stderr)
+    store = remote && ApprovalConsole::Route.store(root, authority: authority)
+    return unenrolled(store, stderr) if store && store.unenrolled_reason
+    client = remote && console_client(console, store, stdin, stderr)
     return 1 if remote && !client && !stdin.tty?
-    return approve_remote(pending, root, sha, client, authority, stdout: stdout, stderr: stderr, **io) if client
+    return approve_remote(pending, root, sha, client, authority, store: store, stdout: stdout, stderr: stderr, **io) if client
     return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
     proof = prove(pending, root, sha, stdin: stdin, stdout: stdout, stderr: stderr)
@@ -98,10 +101,10 @@ module ChangeApprove
   # The phone path, runnable without a TTY: the authoritative policy is
   # resolved first (so a missing pin fails before the phone is asked), then
   # the receipt goes through ApprovalConsole::Recorder, the only writer.
-  def approve_remote(pending, root, sha, client, authority, stdout:, stderr:, **opts)
+  def approve_remote(pending, root, sha, client, authority, stdout:, stderr:, store: ApprovalConsole::LocalStore.new, **opts)
     authority = ApprovalConsole::Recorder.authority_for(root) if authority == :default
     attrs = attrs(pending, root, sha)
-    proof = prove_remote(attrs, client, stdout: stdout, stderr: stderr, **opts)
+    proof = prove_remote(attrs, client, store, stdout: stdout, stderr: stderr, **opts)
     return 1 unless proof
 
     recorder = ApprovalConsole::Recorder.new(authority: authority, recorded_by: approver(root), clock: opts[:clock] || -> { Time.now })
@@ -117,8 +120,15 @@ module ChangeApprove
 
   # The console client, or nil (with a note) when none is configured: a real
   # terminal falls back to the TOTP path, anything else is refused.
-  def console_client(console, stdin, stderr)
-    client = console == :default ? ApprovalConsole::Client.for(ApprovalConsole::LocalStore.new) : console
+  # The repo pins a console this machine is not enrolled on: refused before
+  # the phone is asked.
+  def unenrolled(store, stderr)
+    stderr.puts "[change] refusing: #{store.unenrolled_reason}; nothing recorded."
+    1
+  end
+
+  def console_client(console, store, stdin, stderr)
+    client = console == :default ? ApprovalConsole::Client.for(store) : console
     return client if client
 
     stderr.puts(stdin.tty? ? '[change] no approval console is configured; using the terminal TOTP path.' : '[change] refusing: no approval console is configured.')
@@ -131,8 +141,8 @@ module ChangeApprove
   end
 
   # The console path: passkey plus TOTP on the phone, verified here.
-  def prove_remote(attrs, client, stdout:, stderr:, **opts)
-    result = ApprovalConsole::Remote.approve(attrs, store: ApprovalConsole::LocalStore.new, client: client, out: stdout, **opts)
+  def prove_remote(attrs, client, store, stdout:, stderr:, **opts)
+    result = ApprovalConsole::Remote.approve(attrs, store: store, client: client, out: stdout, **opts)
     return result.proof if result.ok?
 
     stderr.puts "[change] #{result.error}; nothing recorded."
