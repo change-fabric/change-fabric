@@ -520,14 +520,25 @@ module ApprovalConsole
       write_atomic(File.join(root, 'credentials.json'), JSON.pretty_generate(creds)) unless creds.empty?
       last_sync = read_json(path('totp_state.json'))['last_sync']
       write_atomic(File.join(root, 'sync_state.json'), JSON.pretty_generate('last_sync' => last_sync)) if last_sync
-      old = path('pending_sync.jsonl')
-      File.rename(old, File.join(root, 'pending_sync.jsonl')) if File.file?(old)
+      move_queue(path('pending_sync.jsonl'), File.join(root, 'pending_sync.jsonl'))
       # console.json last: once it exists the console reads from consoles/<rp_id>/.
       # A retry after an interrupted move finds base_url already gone from the
       # machine config, so keep the one the first pass wrote.
       moved = read_json(File.join(root, 'console.json'))
       base_url = config['base_url'] || moved['base_url']
       write_atomic(File.join(root, 'console.json'), JSON.pretty_generate('base_url' => base_url, 'rp_id' => rp_id))
+    end
+
+    # A retry after an interrupted move can find a queue at both ends: approvals
+    # accepted in between went to the legacy path. Append, never replace, and
+    # skip lines already present so a crash before the delete cannot double them.
+    def move_queue(old, new)
+      return unless File.file?(old)
+      return File.rename(old, new) unless File.file?(new)
+
+      kept = File.readlines(new)
+      write_atomic(new, (kept + (File.readlines(old) - kept)).join)
+      File.delete(old)
     end
 
     # Opens `file` 0600 with `mode` added to WRONLY|CREAT, writes and fsyncs.

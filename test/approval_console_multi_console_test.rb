@@ -194,6 +194,23 @@ class ApprovalConsoleMultiConsoleTest < Minitest::Test
     assert_predicate store, :console_configured?
   end
 
+  # Interrupted after the queue moved, an approval landed in the legacy queue
+  # before the retry: both entries survive once, even if the legacy queue
+  # still holds a line already merged by a pass that crashed before the delete.
+  def test_a_retried_migration_keeps_both_queues
+    dir = @store.dir
+    write_single_console_layout(dir)
+    legacy = File.join(dir, "pending_sync.jsonl")
+    moved = File.join(dir, "consoles", BETA, "pending_sync.jsonl")
+    FileUtils.mkdir_p(File.dirname(moved))
+    File.write(moved, File.read(legacy))
+    File.write(legacy, File.read(legacy) + "#{JSON.generate('body_sha256' => 'y', 'step' => 2)}\n")
+    store = ApprovalConsole::LocalStore.new
+    assert_equal BETA, store.migrate!
+    assert_equal %w[x y], store.pending.map { |e| e["body_sha256"] }
+    refute File.exist?(legacy)
+  end
+
   def test_migration_waits_for_the_totp_lock
     dir = @store.dir
     write_single_console_layout(dir)
