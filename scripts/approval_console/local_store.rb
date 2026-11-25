@@ -253,8 +253,9 @@ module ApprovalConsole
     # with the rpId of the console each was sent to beside it.
     def save_request(request_id, body)
       FileUtils.mkdir_p(path('requests'), mode: DIR_MODE)
-      write_atomic(File.join(path('requests'), "#{request_id}.json"), body)
-      console_file('') { write_atomic(File.join(path('requests'), "#{request_id}.console"), console_id) }
+      write_atomic(request_path(request_id, "json"), body)
+      rp = console_id
+      write_atomic(request_path(request_id, "console"), rp) if self.class.rp_id?(rp)
     end
 
     # The rpId a saved request was sent to, or nil (unknown, or saved before
@@ -329,10 +330,12 @@ module ApprovalConsole
       self.class.rp_id?(rp) ? yield(console_path(rp, name)) : nil
     end
 
+    def request_path(request_id, ext) = File.join(path('requests'), "#{request_id}.#{ext}")
+
     def request_file(request_id, ext)
       return nil unless request_id.to_s.match?(/\A[0-9a-f-]{36}\z/)
 
-      file = File.join(path('requests'), "#{request_id}.#{ext}")
+      file = request_path(request_id, ext)
       File.file?(file) ? File.read(file) : nil
     end
 

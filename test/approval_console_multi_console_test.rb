@@ -169,6 +169,17 @@ class ApprovalConsoleMultiConsoleTest < Minitest::Test
     refute File.exist?(File.join(dir, "consoles"))
   end
 
+  # Remote.submit saves the request after posting; on an unmigrated store that
+  # save must not raise, or the phone link is never printed.
+  def test_saving_a_request_on_an_unmigrated_store_records_its_console
+    dir = @store.dir
+    write_single_console_layout(dir)
+    id = "0f0e0d0c-0b0a-4908-8706-050403020100"
+    ApprovalConsole::LocalStore.new.save_request(id, "{}")
+    assert_equal BETA, File.read(File.join(dir, "requests", "#{id}.console"))
+    refute File.exist?(File.join(dir, "consoles"))
+  end
+
   def test_migrate_needs_a_human_and_enroll_migrates
     write_single_console_layout(@store.dir)
     status, _out, err = cli([ "migrate" ], auth: nil)
