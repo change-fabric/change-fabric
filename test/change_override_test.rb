@@ -208,7 +208,7 @@ class ChangeOverrideRemoteTest < Minitest::Test
     wrong = authority(pins: authoritative_pins.merge("rp_id" => "evil.example.com"))
     status, _out, err = run_remote([ SHA, "--remote", "--reason", REASON ], auth: wrong)
     assert_equal 1, status
-    assert_match(/rpId pin.*nothing recorded/, err)
+    assert_match(/"evil.example.com" is not enrolled on this machine.*nothing recorded/, err)
     refute ChangeOverrideStore.new(SHA).authorized?
   end
 

@@ -8,6 +8,7 @@ require_relative 'cf_project_identity'
 require_relative 'approval_console/terminal_prompt'
 require_relative 'approval_console/remote'
 require_relative 'approval_console/recorder'
+require_relative 'approval_console/route'
 
 # Human-run companion to change_merge_guard.rb's CF_ALLOW_UNGATED_MERGE escape
 # hatch, for the case that hatch is documented but unreachable: the guard reads
@@ -53,10 +54,12 @@ module ChangeOverride
     end
     return 1 unless enrolled?(stderr)
 
-    client = remote && console_client(console, stdin, stderr)
+    store = remote && ApprovalConsole::Route.store(Dir.pwd, authority: authority)
+    return unenrolled(store, stderr) if store && store.unenrolled_reason
+    client = remote && console_client(console, store, stdin, stderr)
     return 1 if remote && !client && !stdin.tty?
     return 1 if scope && !client && !scoped_remote_only(stderr)
-    return override_remote(attrs(sha, reason, profile, scope), client, authority, stdout: stdout, stderr: stderr, **io) if client
+    return override_remote(attrs(sha, reason, profile, scope), client, authority, store: store, stdout: stdout, stderr: stderr, **io) if client
     return 1 unless confirmed?(sha, stdin: stdin, stdout: stdout, stderr: stderr)
 
     proof = prove(sha, reason, profile, stdin: stdin, stdout: stdout, stderr: stderr)
@@ -77,9 +80,9 @@ module ChangeOverride
   # The phone path, runnable without a TTY. The authoritative policy is
   # resolved before the phone is asked; ApprovalConsole::Recorder checks and
   # writes the receipt.
-  def override_remote(attrs, client, authority, stdout:, stderr:, **opts)
+  def override_remote(attrs, client, authority, stdout:, stderr:, store: ApprovalConsole::LocalStore.new, **opts)
     authority = ApprovalConsole::Recorder.authority_for(Dir.pwd) if authority == :default
-    proof = prove_remote(attrs, client, stdout: stdout, stderr: stderr, **opts)
+    proof = prove_remote(attrs, client, store, stdout: stdout, stderr: stderr, **opts)
     return 1 unless proof
 
     expected = ApprovalConsole::Remote.expected(attrs, ApprovalConsole::LocalStore.new.machine_id)
@@ -114,16 +117,23 @@ module ChangeOverride
 
   # The console client, or nil: a real terminal falls back to the TOTP path,
   # anything else is refused.
-  def console_client(console, stdin, stderr)
-    client = console == :default ? ApprovalConsole::Client.for(ApprovalConsole::LocalStore.new) : console
+  # The repo pins a console this machine is not enrolled on: refused before
+  # the phone is asked.
+  def unenrolled(store, stderr)
+    stderr.puts "[change] refusing: #{store.unenrolled_reason}; nothing recorded."
+    1
+  end
+
+  def console_client(console, store, stdin, stderr)
+    client = console == :default ? ApprovalConsole::Client.for(store) : console
     return client if client
 
     stderr.puts(stdin.tty? ? '[change] no approval console is configured; using the terminal TOTP path.' : '[change] refusing: no approval console is configured.')
     nil
   end
 
-  def prove_remote(attrs, client, stdout:, stderr:, **opts)
-    result = ApprovalConsole::Remote.approve(attrs, store: ApprovalConsole::LocalStore.new, client: client, out: stdout, **opts)
+  def prove_remote(attrs, client, store, stdout:, stderr:, **opts)
+    result = ApprovalConsole::Remote.approve(attrs, store: store, client: client, out: stdout, **opts)
     return result.proof if result.ok?
 
     stderr.puts "[change] #{result.error}; nothing recorded."

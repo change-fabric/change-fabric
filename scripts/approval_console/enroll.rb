@@ -41,6 +41,7 @@ module ApprovalConsoleCli
         return ApprovalConsoleCli.refuse(ctx.stderr, 'enroll', 'no TOTP seed on this machine; run totp-enroll first')
       end
 
+      ctx.store.migrate!
       enroll(opts, ctx)
     rescue ApprovalConsole::AwsOperator::Failed => e
       ApprovalConsoleCli.refuse(ctx.stderr, 'enroll', e.message)

@@ -154,6 +154,8 @@ class CfRunApproved
                  'script_sha256' => Digest::SHA256.hexdigest(text.b), 'script_path' => path, 'script_text' => text,
                  'title' => signed['title'], 'account' => signed['account'] }
     authority = @authority || ApprovalConsole::Recorder.authority_for(root)
+    # The receipt is consumed on the console the authoritative pins name.
+    @console_rp = authority.policy&.approval_pins&.fetch('rp_id', nil)
     check = ApprovalConsole::ProofCheck.new(level: 'passkey', store: store, pins: authority.policy&.approval_pins, now: @clock.call)
     problem = check.receipt_problem(proof, expected)
     raise Refused, "the recorded receipt is refused: #{problem}" if problem
@@ -209,7 +211,8 @@ class CfRunApproved
   end
 
   def console_consume(id, mark)
-    client = @client || ApprovalConsole::Client.for(store) or raise Refused, 'no console is configured, so the receipt cannot be consumed'
+    console = @console_rp.to_s.empty? ? store : store.for_console(@console_rp)
+    client = @client || ApprovalConsole::Client.for(console) or raise Refused, 'no console is configured, so the receipt cannot be consumed'
     client.consume(id)
   rescue ApprovalConsole::Client::Unreachable => e
     FileUtils.rm_f(mark)

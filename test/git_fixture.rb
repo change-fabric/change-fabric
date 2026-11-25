@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "open3"
+require_relative "home_fixture"
 
 # Git-environment isolation for tests that build throwaway repos in temp dirs.
 #
