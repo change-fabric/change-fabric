@@ -78,4 +78,7 @@ class ResourceFloorGuard
   end
 end
 
-ResourceFloorGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('resource_floor_guard', event) { ResourceFloorGuard.new(event).emit }
+end

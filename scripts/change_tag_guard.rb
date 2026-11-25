@@ -373,4 +373,7 @@ class ChangeTagGuard
   end
 end
 
-ChangeTagGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('change_tag_guard', event) { ChangeTagGuard.new(event).emit }
+end

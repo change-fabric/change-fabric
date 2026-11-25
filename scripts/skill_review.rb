@@ -92,5 +92,5 @@ end
 if __FILE__ == $PROGRAM_NAME
   event = HookEvent.read
   HookEvent.debug_keys(event, 'skill_review')
-  SkillReview.new(event).emit
+  HookEvent.instrument('skill_review', event) { SkillReview.new(event).emit }
 end

@@ -302,4 +302,7 @@ class ChangeMergeGuard
   end
 end
 
-ChangeMergeGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('change_merge_guard', event) { ChangeMergeGuard.new(event).emit }
+end

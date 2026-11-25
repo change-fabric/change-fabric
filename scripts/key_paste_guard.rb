@@ -41,4 +41,7 @@ class KeyPasteGuard
   end
 end
 
-KeyPasteGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('key_paste_guard', event) { KeyPasteGuard.new(event).emit }
+end

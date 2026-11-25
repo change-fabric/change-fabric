@@ -142,4 +142,7 @@ class ClientNameGuard
   end
 end
 
-ClientNameGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('client_name_guard', event) { ClientNameGuard.new(event).emit }
+end

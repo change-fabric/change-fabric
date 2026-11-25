@@ -76,6 +76,13 @@ precondition and the audit record live in `change_prod_recovery.rb`
 (statement classifier: `change_prod_sql.rb`).
 
 Every hook reads its event through `scripts/hook_event.rb` and fails silent.
+Every hook in `Installer::HOOKS` runs inside `HookEvent.instrument`, which
+appends content-free `session_start`, `session_end`, `evaluation`,
+`intervention` and `rubric_surfaced` events to
+`~/.claude/cf/state/guard_events.jsonl` (rule IDs from `config/rule_ids.yml`;
+`scripts/guard_events.rb summary|idle` reads it). Deny and gate guards are
+never proposed for deletion. Every PreToolUse and PostToolUse entry carries a
+matcher (`Installer::MATCHERS`); deny guards err wide.
 SessionStart hooks state rules up front (`doctrine_digest.rb` holds the
 session-global tenets as a Ruby constant, kept in sync with `PRINCIPLES.md` by
 `test/docs_check_test.rb`). PreToolUse guards deny after the fact. The two

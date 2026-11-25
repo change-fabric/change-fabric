@@ -93,5 +93,5 @@ end
 if __FILE__ == $PROGRAM_NAME
   event = HookEvent.read
   HookEvent.debug_keys(event, 'review_gate')
-  ReviewGate.new(event).emit
+  HookEvent.instrument('review_gate', event) { ReviewGate.new(event).emit }
 end

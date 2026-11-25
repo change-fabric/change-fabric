@@ -87,4 +87,7 @@ class DoctrineDigest
   end
 end
 
-DoctrineDigest.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('doctrine_digest', event) { DoctrineDigest.new(event).emit }
+end

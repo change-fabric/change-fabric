@@ -150,5 +150,5 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   event = HookEvent.read
-  InboxPromptHook.run(event)
+  HookEvent.instrument('inbox_prompt_hook', event) { InboxPromptHook.run(event) }
 end

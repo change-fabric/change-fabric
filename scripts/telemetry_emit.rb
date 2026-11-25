@@ -177,4 +177,7 @@ class TelemetryEmit
   end
 end
 
-TelemetryEmit.new(HookEvent.read).run if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('telemetry_emit', event) { TelemetryEmit.new(event).run }
+end

@@ -188,4 +188,7 @@ class ForcePushGuard
   end
 end
 
-ForcePushGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('force_push_guard', event) { ForcePushGuard.new(event).emit }
+end

@@ -1,0 +1,130 @@
+# Stable rule IDs for the guard firing log (scripts/hook_event.rb,
+# scripts/guard_events.rb). `<hook>/<rule>` for guards, `rubric/<name>` for
+# rubrics (declared by pattern below), `doctrine/<section>` for digest sections.
+#
+# kind:
+#   deny      a safety or policy denial. Never proposed for deletion.
+#   gate      a blocking review step. Never proposed for deletion.
+#   advisory  warns or reminds. Proposed when idle (60 days and 200 sessions).
+#   inject    adds context at a lifecycle event. Never proposed.
+#   service   housekeeping, no rule text. Never proposed.
+# starts_session marks the hook that records session_start; turn marks the one
+# hook per prompt that counts turns for session_end.
+version: 1
+rubric_pattern: "rubric/"
+rubric_kind: advisory
+rules:
+  skill_detect/inject:
+    hook: skill_detect
+    event: SessionStart
+    kind: inject
+  ctx_session_start/inject:
+    hook: ctx_session_start
+    event: SessionStart
+    kind: inject
+  doctrine_digest/inject:
+    hook: doctrine_digest
+    event: SessionStart
+    kind: inject
+    starts_session: true
+  secret_alert_poll/remind:
+    hook: secret_alert_poll
+    event: SessionStart
+    kind: advisory
+  secrets_read_guard/deny:
+    hook: secrets_read_guard
+    event: PreToolUse
+    kind: deny
+  force_push_guard/deny:
+    hook: force_push_guard
+    event: PreToolUse
+    kind: deny
+  client_name_guard/deny:
+    hook: client_name_guard
+    event: PreToolUse
+    kind: deny
+  slop_remind/remind:
+    hook: slop_remind
+    event: PreToolUse
+    kind: advisory
+  review_gate/deny:
+    hook: review_gate
+    event: PreToolUse
+    kind: deny
+  noreply_guard/deny:
+    hook: noreply_guard
+    event: PreToolUse
+    kind: deny
+  docker_doctrine_guard/deny:
+    hook: docker_doctrine_guard
+    event: PreToolUse
+    kind: deny
+  change_merge_guard/deny:
+    hook: change_merge_guard
+    event: PreToolUse
+    kind: deny
+  change_tag_guard/deny:
+    hook: change_tag_guard
+    event: PreToolUse
+    kind: deny
+  change_stale_remind/remind:
+    hook: change_stale_remind
+    event: PreToolUse
+    kind: advisory
+  approval_watch_remind/remind:
+    hook: approval_watch_remind
+    event: PreToolUse
+    kind: advisory
+  presence_probe/deny:
+    hook: presence_probe
+    event: PreToolUse
+    kind: deny
+  prod_approval_guard/deny:
+    hook: prod_approval_guard
+    event: PreToolUse
+    kind: deny
+  model_role_guard/remind:
+    hook: model_role_guard
+    event: PreToolUse
+    kind: advisory
+  resource_floor_guard/remind:
+    hook: resource_floor_guard
+    event: PreToolUse
+    kind: advisory
+  skill_inject/inject:
+    hook: skill_inject
+    event: PostToolUse
+    kind: inject
+  secret_ack/run:
+    hook: secret_ack
+    event: PostToolUse
+    kind: service
+  change_post_merge_check/remind:
+    hook: change_post_merge_check
+    event: PostToolUse
+    kind: advisory
+  key_paste_guard/deny:
+    hook: key_paste_guard
+    event: UserPromptSubmit
+    kind: deny
+    turn: true
+  prune_remind/remind:
+    hook: prune_remind
+    event: UserPromptSubmit
+    kind: advisory
+  inbox_prompt_hook/inject:
+    hook: inbox_prompt_hook
+    event: UserPromptSubmit
+    kind: inject
+  telemetry_emit/run:
+    hook: telemetry_emit
+    event: SessionEnd
+    kind: service
+  inbox_session_end/run:
+    hook: inbox_session_end
+    event: SessionEnd
+    kind: service
+  skill_review/gate:
+    hook: skill_review
+    event: Stop
+    kind: gate

@@ -53,4 +53,7 @@ class CtxSessionStart
   end
 end
 
-CtxSessionStart.run(HookEvent.read) if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('ctx_session_start', event) { CtxSessionStart.run(event) }
+end

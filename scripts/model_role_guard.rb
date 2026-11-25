@@ -65,4 +65,7 @@ class ModelRoleGuard
   end
 end
 
-ModelRoleGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('model_role_guard', event) { ModelRoleGuard.new(event).emit }
+end

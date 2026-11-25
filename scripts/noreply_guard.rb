@@ -107,4 +107,7 @@ class NoreplyGuard
   end
 end
 
-NoreplyGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('noreply_guard', event) { NoreplyGuard.new(event).emit }
+end

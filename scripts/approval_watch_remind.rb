@@ -53,4 +53,7 @@ class ApprovalWatchRemind
   end
 end
 
-ApprovalWatchRemind.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.instrument('approval_watch_remind', event) { ApprovalWatchRemind.new(event).emit }
+end
