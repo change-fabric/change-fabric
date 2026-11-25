@@ -24,6 +24,8 @@ class GlyphGuard
   BODY_MAX = 640
   TITLE_FLAGS = %w[--title -t].freeze
   BODY_FLAGS = %w[--body -b].freeze
+  INVOCATIONS = [ %w[git commit], %w[gh pr create], %w[gh pr edit] ].freeze
+  OPERATORS = [ ';', '&', '|', '&&', '||' ].freeze
   HEREDOC = /<<-?\s*['"]?(\w+)['"]?[^\n]*\n(.*?)\n[ \t]*\1\b/m
 
   def initialize(event) = @event = event
@@ -60,10 +62,26 @@ class GlyphGuard
     pr = GuardedCommand.invokes?(cmd, 'gh', 'pr', 'create') || GuardedCommand.invokes?(cmd, 'gh', 'pr', 'edit')
     return nil unless commit || pr
 
-    return deny('glyph', glyph_reason(commit ? 'commit message' : 'PR title or body')) if cmd.match?(PlanCheck::GLYPHS) && !glyph_allowed?
+    return deny('glyph', glyph_reason(commit ? 'commit message' : 'PR title or body')) if glyph_in?(authored_text(cmd))
     return nil unless pr
 
     pr_length_verdict(cmd)
+  end
+
+  def glyph_in?(text) = !glyph_allowed? && text.match?(PlanCheck::GLYPHS)
+
+  # The text this command authors: the arguments of the git commit or gh pr
+  # create|edit invocation itself, up to the next shell operator, plus any
+  # heredoc body. A glyph in an unrelated command chained beside it (an
+  # `echo` before the commit) is not authored text and is left alone.
+  def authored_text(cmd)
+    tokens = GuardedCommand.tokens(cmd)
+    args = tokens.each_index.flat_map do |index|
+      next [] unless INVOCATIONS.any? { |words| tokens[index, words.size] == words }
+
+      tokens[index..].take_while { |token| !OPERATORS.include?(token) }
+    end
+    ([ *args ] + cmd.scan(HEREDOC).map(&:last)).join("\n")
   end
 
   def pr_length_verdict(cmd)

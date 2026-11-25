@@ -67,6 +67,13 @@ class GlyphGuardTest < Minitest::Test
     assert_nil bash("gh pr view 3")
   end
 
+  def test_ignores_a_glyph_in_an_unrelated_chained_command
+    assert_nil bash("echo '#{EM}' && git commit -m 'clean'")
+    assert_nil bash("git commit -m 'clean' && echo '#{EM}'")
+    assert_nil bash("gh pr create --title ok --body ok; echo #{BULLET}")
+    assert_denied bash("echo hi && git commit -m 'a #{EM} b' && git status"), "glyph"
+  end
+
   def test_denies_glyphs_in_markdown_writes_and_edits_only
     assert_denied file("Write", "content", "a #{EM} b"), "glyph"
     assert_denied file("Edit", "new_string", "a #{ELLIPSIS}"), "glyph"
