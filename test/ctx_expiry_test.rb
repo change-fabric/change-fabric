@@ -306,6 +306,11 @@ class CtxExpiryTest < Minitest::Test
     assert one.with_lock { one.archive("nested") }
   end
 
+  def test_inbox_slug_survives_long_names_with_a_shared_prefix
+    slugs = %w[one two].map { |suffix| CtxExpiry::InboxQueue.slug_for(cwd, "stack-#{'a' * 30}-#{suffix}") }
+    refute_equal slugs.first, slugs.last
+  end
+
   def test_inbox_queue_runs_from_the_expired_project
     seen = nil
     original = InboxStore.method(:humans)

@@ -225,11 +225,18 @@ module CtxExpiry
       Dir.chdir(cwd) { queue_in_cwd(verdict, cwd) }
     end
 
+    # Digest first: slugify truncates, so long names sharing a prefix would
+    # otherwise collide and suppress each other's item.
+    def slug_for(cwd, name)
+      identity = Digest::SHA256.hexdigest("#{cwd}|#{name}")[0, 10]
+      InboxStore.slugify("ctx-#{identity}-#{name}")
+    end
+
     def queue_in_cwd(verdict, cwd)
       role = InboxStore.humans.first
       return false if role.nil? || InboxStore.no_roster?
 
-      slug = InboxStore.slugify("ctx-ambiguous-#{verdict.name}")
+      slug = slug_for(cwd, verdict.name)
       dir = InboxStore.inbox_dir(role)
       return false if Dir.glob(File.join(dir, "*-#{slug}.md")).any?
 

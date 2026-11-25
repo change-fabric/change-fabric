@@ -215,14 +215,14 @@ class CtxStore
   # Exclusive store lock shared by every mutator and by ctx expiry's
   # revalidate-then-archive step. Re-entrant per instance because flock on a
   # second descriptor of the same file would deadlock a nested call.
-  def with_lock(&block)
+  def with_lock
     return yield if @lock_held
 
     FileUtils.mkdir_p(@store_dir)
     File.open(@store_dir) do |dir|
       dir.flock(File::LOCK_EX)
       @lock_held = true
-      block.call
+      yield
     ensure
       @lock_held = false
     end
