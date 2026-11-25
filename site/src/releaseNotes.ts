@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+"0.35.0": {
+  version: "0.35.0",
+  date: "2026-11-25",
+  headline: "Scheduled lanes: nightly and on-request checks with a one-flag-at-a-time matrix.",
+  highlights: [
+    {
+      title: "A scheduled_lanes list in CHANGE.md",
+      body:
+        "A repo declares lanes that run on a cadence or on request. Each lane is graded only from a result file, records the deployed SHA around the run, and reports to a GitHub issue, a release comment or a chat command. An optional matrix turns on each listed flag alone in a non-production env and restores it, with a revert ledger written before every flip.",
+    },
+  ],
+  upgrade: "Additive for CHANGE.md. Nothing changes until a repo declares scheduled_lanes and runs scripts/scheduled_lane.rb from a workflow.",
+},
   "0.34.0": {
     version: "0.34.0",
     date: "2026-11-25",

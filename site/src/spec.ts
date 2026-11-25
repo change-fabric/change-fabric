@@ -33,6 +33,7 @@ import archivedV0_29_0 from "./archive/0.29.0.md?raw";
 import archivedV0_30_0 from "./archive/0.30.0.md?raw";
 import archivedV0_32_0 from "./archive/0.32.0.md?raw";
 import archivedV0_33_0 from "./archive/0.33.0.md?raw";
+import archivedV0_34_0 from "./archive/0.34.0.md?raw";
 import archivedV0_31_0 from "./archive/0.31.0.md?raw";
 
 // The canonical CHANGE.md frontmatter spec, embedded at build time (see
@@ -72,6 +73,7 @@ export interface SpecVersion {
 
 export const VERSIONS: SpecVersion[] = [
   { version: CURRENT_VERSION, date: "2026-11-25", status: "current", markdown: specMarkdown },
+  { version: "0.34.0", date: "2026-11-25", status: "superseded", markdown: archivedV0_34_0 },
   { version: "0.33.0", date: "2026-11-24", status: "superseded", markdown: archivedV0_33_0 },
   { version: "0.32.0", date: "2026-11-22", status: "superseded", markdown: archivedV0_32_0 },
   { version: "0.31.0", date: "2026-11-20", status: "superseded", markdown: archivedV0_31_0 },

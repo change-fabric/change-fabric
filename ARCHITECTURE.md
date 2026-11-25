@@ -147,6 +147,12 @@ and tag guards read. The full contract is `skills/change/SKILL.md`; the
 frontmatter spec is `skills/change/reference/CHANGE-frontmatter-spec.md`, whose
 version is `ChangeSchema::VERSION` in `scripts/change_schema.rb`.
 
+Scheduled lanes: a top-level `scheduled_lanes:` list in the same file declares
+lanes that run nightly or on request. `scripts/scheduled_lane.rb` runs one,
+grades it from a versioned result file, can walk a flag matrix through
+repo-declared adapter commands (`scripts/scheduled_lane/flag_matrix.rb`), and
+reports through issue, release-comment and chat sinks.
+
 ## Release model
 
 Merging to `main` stages work. Nothing ships until a human pushes a tag. Three
