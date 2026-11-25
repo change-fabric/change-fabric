@@ -178,7 +178,7 @@ module CtxExpiry
     end
 
     def attempt(verdict)
-      locked do
+      @store.with_lock do
         reason = stale_reason(verdict)
         next result(verdict, 'skipped', reason) if reason
 
@@ -204,13 +204,6 @@ module CtxExpiry
       'evidence_changed'
     end
 
-    def locked
-      File.open(@store.store_dir) do |dir|
-        dir.flock(File::LOCK_EX)
-        yield
-      end
-    end
-
     def queue_one(verdict)
       queued = @queue.call(verdict, @cwd)
       verdict.to_h.merge('kind' => 'ctx_ambiguous', 'queued' => queued)
@@ -227,6 +220,12 @@ module CtxExpiry
     module_function
 
     def queue(verdict, cwd)
+      # InboxStore resolves the roster and inbox from Dir.pwd, so run it from
+      # the project being expired, not the caller's directory.
+      Dir.chdir(cwd) { queue_in_cwd(verdict, cwd) }
+    end
+
+    def queue_in_cwd(verdict, cwd)
       role = InboxStore.humans.first
       return false if role.nil? || InboxStore.no_roster?
 

@@ -130,8 +130,10 @@ class CtxStore
     review_after = review_after&.to_s
     validate!(name: name.to_s, description: description.to_s, klass:, ttl:, review_after:)
     doc = build(name.to_s, description.to_s, klass, status.to_s, ttl, review_after, supersedes, body.to_s)
-    persist(doc)
-    after_mutation("capture #{doc.name}")
+    with_lock do
+      persist(doc)
+      after_mutation("capture #{doc.name}")
+    end
     doc
   end
 
@@ -160,12 +162,14 @@ class CtxStore
   end
 
   def delete(name)
-    path = path_for(name)
-    return false unless path
+    with_lock do
+      path = path_for(name)
+      next false unless path
 
-    File.delete(path)
-    after_mutation("remove #{name}")
-    true
+      File.delete(path)
+      after_mutation("remove #{name}")
+      true
+    end
   end
 
   # Compact a live doc into a short digest under archive/ and drop the live copy.
@@ -178,30 +182,50 @@ class CtxStore
   # copy first, then drop the live doc) means a crash between the two leaves
   # both copies, never neither.
   def archive(name, digest = nil, restorable: false)
-    doc = read(name)
-    return false unless doc
+    with_lock do
+      doc = read(name)
+      next false unless doc
 
-    path = path_for(name)
-    write_archive(doc, digest || default_digest(doc), restorable:)
-    File.delete(path)
-    after_mutation("archive #{name}")
-    true
+      path = path_for(name)
+      write_archive(doc, digest || default_digest(doc), restorable:)
+      File.delete(path)
+      after_mutation("archive #{name}")
+      true
+    end
   end
 
   # Reverses a restorable archive: rewrites the embedded original under its
   # class directory and drops the digest. False when there is no archive, it
   # carries no embedded original, or a live doc already holds the name.
   def unarchive(name)
-    path = archive_path(name.to_s)
-    return false if !File.file?(path) || path_for(name)
+    with_lock do
+      path = archive_path(name.to_s)
+      next false if !File.file?(path) || path_for(name)
 
-    original = archived_original(path)
-    return false unless original
+      original = archived_original(path)
+      next false unless original
 
-    persist(Doc.parse(original))
-    File.delete(path)
-    after_mutation("unarchive #{name}")
-    true
+      persist(Doc.parse(original))
+      File.delete(path)
+      after_mutation("unarchive #{name}")
+      true
+    end
+  end
+
+  # Exclusive store lock shared by every mutator and by ctx expiry's
+  # revalidate-then-archive step. Re-entrant per instance because flock on a
+  # second descriptor of the same file would deadlock a nested call.
+  def with_lock(&block)
+    return yield if @lock_held
+
+    FileUtils.mkdir_p(@store_dir)
+    File.open(@store_dir) do |dir|
+      dir.flock(File::LOCK_EX)
+      @lock_held = true
+      block.call
+    ensure
+      @lock_held = false
+    end
   end
 
   # The raw frontmatter of a live doc as a Hash (so a field Doc does not model,
@@ -216,8 +240,6 @@ class CtxStore
   rescue StandardError
     nil
   end
-
-  def store_dir = @store_dir
 
   def device = @device ||= read_or_init_device
 

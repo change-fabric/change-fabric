@@ -290,6 +290,34 @@ class CtxExpiryTest < Minitest::Test
     assert_equal %w[archived archived], rerun
   end
 
+  def test_store_mutators_wait_for_the_expiry_lock
+    entered = Queue.new
+    holder = Thread.new { store.with_lock { entered << true; sleep 0.3 } }
+    entered.pop
+    started = Time.now
+    pointer("late")
+    holder.join
+    assert_operator Time.now - started, :>=, 0.2
+  end
+
+  def test_with_lock_is_reentrant_for_nested_mutators
+    pointer("nested")
+    one = store
+    assert one.with_lock { one.archive("nested") }
+  end
+
+  def test_inbox_queue_runs_from_the_expired_project
+    seen = nil
+    original = InboxStore.method(:humans)
+    InboxStore.define_singleton_method(:humans) { seen = Dir.pwd; [] }
+    begin
+      CtxExpiry::InboxQueue.queue(CtxExpiry::Verdict.new("x", :queue, "r", "f"), cwd)
+    ensure
+      InboxStore.define_singleton_method(:humans, original)
+    end
+    assert_equal File.realpath(cwd), File.realpath(seen)
+  end
+
   def test_queued_pointers_reach_the_queue_hook_only_on_apply
     pointer("stack-ghost")
     queue = []
