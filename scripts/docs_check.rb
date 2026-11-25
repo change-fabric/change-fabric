@@ -25,6 +25,7 @@ module DocsCheck
     workflows/modes/*.md scripts/CF_TEAM_SETUP.md
     telemetry/infra/lambda/SIGNING.md */infra/README.md walkthrough/*/brief.md
     walkthrough/*/storyboard.md walkthrough/*/ASSUMPTIONS.md
+    packs/*/README.md packs/*/skills/*/SKILL.md
     test/fixtures/**/* platform/**/*
   ].freeze
 

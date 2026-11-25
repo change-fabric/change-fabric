@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install for realtors</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --muted: #555; --card: #f4f4f1; --accent: #1f5f8b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121212; --fg: #eee; --muted: #aaa; --card: #1e1e1e; --accent: #7fb6dd; }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 17px/1.45 system-ui, sans-serif; }
+  main { max-width: 34rem; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.lede { color: var(--muted); margin: 0 0 16px; }
+  section { background: var(--card); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  h2 { font-size: 1.1rem; margin: 0 0 8px; }
+  ol { margin: 0 0 12px; padding-left: 1.2rem; }
+  a.button { display: block; text-align: center; padding: 12px; border-radius: 8px;
+             background: var(--accent); color: var(--bg); font-weight: 600; text-decoration: none; }
+  small { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Change Fabric for realtors</h1>
+  <p class="lede">Listing roast, fair-housing check, lead replies, buyer consults, seller updates.</p>
+
+  <section>
+    <h2>Claude and Claude Duet</h2>
+    <ol>
+      <li>Tap the button and download the 5 skill files (.zip). Needs a paid Claude plan with "Code execution and file creation" on.</li>
+      <li>In Claude: Customize, Skills, +, Upload a skill.</li>
+      <li>Upload each zip and switch it on. Duet picks them up from your Claude account.</li>
+    </ol>
+    <a class="button" href="dist/">Get the Claude skills</a>
+  </section>
+
+  <section>
+    <h2>ChatGPT</h2>
+    <ol>
+      <li>Download the same 5 skill files. Skills upload needs a ChatGPT Business, Enterprise or Edu plan.</li>
+      <li>In ChatGPT: Plugins, Skills tab, Create, Upload from your computer. Wait for the scan, then repeat for each file.</li>
+      <li>No Skills tab? Make a Project, paste the instructions file into its instructions, and add the 5 skill files.</li>
+    </ol>
+    <a class="button" href="dist/">Get the skill files</a>
+    <p><a href="chatgpt/instructions.txt">Project instructions (no Skills tab)</a></p>
+  </section>
+
+  <p><small>The fair-housing check is not legal advice. Nothing is sent until you say "send". Stuck? Ask the presenter after the talk.</small></p>
+</main>
+</body>
+</html>
