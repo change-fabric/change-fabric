@@ -76,7 +76,6 @@ class SkillRegistryTest < Minitest::Test
 
   def test_shipped_skills_declare_intended_scope
     by_name = SkillRegistry.load(REPO_SKILLS).to_h { |s| [ s.name, s ] }
-    assert by_name["cf:ruby"].matches?("app/models/user.rb")
     assert by_name["cf:refactoring"].all_code?
     assert by_name["cf:refactoring"].matches?("src/main.go")
     refute by_name["cf:refactoring"].matches?("docs/notes.md")

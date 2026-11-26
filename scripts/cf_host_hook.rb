@@ -258,7 +258,8 @@ class CfHostHook
       event = event.merge('tool_name' => 'Bash', 'tool_input' => tool['input'])
       return [ capture(SlopRemind.new(event, skills: @skills)).dig('hookSpecificOutput', 'additionalContext') ].compact
     end
-    if @event == 'SessionStart'
+    if %w[SessionStart PostCompact].include?(@event)
+      event = event.merge('hook_event_name' => @event)
       return [ capture(SkillDetect.new(event, skills: @skills)).dig('hookSpecificOutput', 'additionalContext') ].compact
     end
     return [] unless @event == 'PostToolUse' && successful_tool?

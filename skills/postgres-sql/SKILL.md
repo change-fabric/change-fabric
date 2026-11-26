@@ -2,15 +2,19 @@
 name: cf:postgres-sql
 group: rubrics
 review: true
-description: PostgreSQL schema and SQL changes. Auto-applied by the cf shim on every SQL migration change; also invocable directly.
+description: PostgreSQL and Drizzle schema and migration rubric. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [sql]
+  paths:
+    - "drizzle.config.*"
+    - "drizzle/**"
   detect: ["db/**/*.sql", "migrations/**/*.sql", "prisma/migrations/**/migration.sql"]
 ---
 
 # PostgreSQL and SQL Cheat Sheet
 
-Source: PostgreSQL docs + OWASP SQL Injection Prevention Cheat Sheet
+Source: PostgreSQL docs, OWASP SQL Injection Prevention Cheat Sheet, Drizzle Kit docs
 
 Question: Does the schema enforce invariants and let writes stay online?
 
@@ -25,6 +29,8 @@ Favor:
 - Run dev and test Postgres in a dedicated Docker container (a Compose service or `docker run`), one per use case; point `DATABASE_URL` at it and use Testcontainers for tests (cf:docker doctrine).
 
 Forbid by default:
+- `drizzle-kit push` against a shared environment.
+- Editing a migration that has already been applied; add a new one.
 - A Homebrew or system-level Postgres daemon for project work (`brew install` or `brew services` for `postgresql`, host `initdb` or `pg_ctl`, a shared default-port cluster).
 - String-built SQL with interpolated values.
 - `SELECT *` in application queries.

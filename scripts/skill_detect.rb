@@ -17,10 +17,11 @@ class SkillDetect
   EVENT = 'SessionStart'
   DETECTION_TIMEOUT = 2
 
-  def initialize(event, skills: nil, timeout: DETECTION_TIMEOUT)
+  def initialize(event, skills: nil, timeout: DETECTION_TIMEOUT, level: nil)
     @event = event
     @skills = skills
     @timeout = timeout
+    @level = level
   end
 
   def emit(io = $stdout)
@@ -28,9 +29,11 @@ class SkillDetect
     # scan can outlast the timeout below, which cannot interrupt one.
     return if home?
 
+    return resurface(io) if compaction?
+
     # A session can start in HOME or another large tree. Fingerprinting is
     # optional context; abandon the scan before it can block startup.
-    active = Timeout.timeout(@timeout) { registry.select { |skill| skill.detected?(cwd) } }
+    active = Timeout.timeout(@timeout) { registry.select { |skill| skill.surfaces_at?(level) && skill.detected?(cwd) } }
     fresh = announce(active.map(&:name))
     return if fresh.empty?
 
@@ -42,6 +45,26 @@ class SkillDetect
   private
 
   def registry = @skills ||= SkillRegistry.load
+
+  # Fixed per hook process. A rubric whose min_level is stricter than the session
+  # level (review-time rubrics) is never announced or surfaced while authoring.
+  def level = @level ||= SkillRegistry.session_level
+
+  # A compaction drops the surfaced rubric text, so SessionStart (source compact)
+  # or PostCompact re-emits the body of every rubric already surfaced this
+  # session. Nothing new is surfaced; per-edit routing still adds the rest.
+  def compaction?
+    @event['hook_event_name'] == 'PostCompact' || @event['source'] == 'compact'
+  end
+
+  def resurface(io)
+    names = SkillStore.new(@event['session_id']).names
+    skills = registry.select { |skill| names.include?(skill.name) && skill.surfaces_at?(level) }
+    return if skills.empty?
+
+    text = skills.map { |skill| "[cf skill: #{skill.name}] active this session.\n\n#{skill.body}" }.join("\n\n---\n\n")
+    io.puts(JSON.generate(hookSpecificOutput: { hookEventName: EVENT, additionalContext: text }))
+  end
 
   def cwd = (@event['cwd'] || Dir.pwd).to_s
 

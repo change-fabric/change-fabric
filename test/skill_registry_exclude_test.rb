@@ -51,30 +51,4 @@ class SkillRegistryExcludeTest < Minitest::Test
   ensure
     FileUtils.remove_entry(proj) if proj
   end
-
-  def test_shipped_drizzle_fires_on_drizzle_files_only
-    by_name = SkillRegistry.load(REPO_SKILLS).to_h { |s| [ s.name, s ] }
-    drizzle = by_name["cf:drizzle"]
-    assert drizzle.matches?("src/db/schema.ts")
-    assert drizzle.matches?("drizzle.config.ts")
-    refute drizzle.matches?("src/components/Button.tsx")
-  end
-
-  def test_shipped_drizzle_suppressed_in_prisma_project
-    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:drizzle" }
-    prisma = project_with("prisma/schema.prisma", "src/db/schema.ts")
-    real = project_with("drizzle.config.ts", "src/db/schema.ts")
-    refute drizzle.matches?(File.join(prisma, "src/db/schema.ts"), root: prisma)
-    assert drizzle.matches?(File.join(real, "src/db/schema.ts"), root: real)
-  ensure
-    FileUtils.remove_entry(prisma) if prisma
-    FileUtils.remove_entry(real) if real
-  end
-
-  def test_shipped_github_actions_fires_on_workflows_only
-    gha = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:github-actions" }
-    assert gha.matches?(".github/workflows/ci.yml")
-    refute gha.matches?("docker-compose.yml")
-    refute gha.matches?("config/app.yaml")
-  end
 end

@@ -2,8 +2,9 @@
 name: cf:prisma
 group: rubrics
 review: true
-description: Prisma ORM schema, migrations, and queries. Auto-applied by the cf shim on every Prisma change; also invocable directly.
+description: Prisma ORM schema, migrations, and queries. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [prisma]
   detect: [prisma/schema.prisma, "prisma.config.*", "prisma/migrations/**"]
 ---

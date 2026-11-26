@@ -1,7 +1,7 @@
 ---
 name: cf:diagram
 group: workflow
-description: Hand-placed SVG diagram command. Authors one standalone, theme-aware, accessible .svg per diagram (architecture, flow, sequence, state, ER, timeline, swimlane, layers) from a skill-owned grammar, using the project's DESIGN.md or tokens.css colors when present, then gates it on a Ruby linter that measures text in the pinned browserless container, for up to three fix rounds. Invoked by name, or loaded by cf:plan and cf:drive thorough for a plan's visuals.
+description: Hand-placed SVG diagram command. Authors one standalone, theme-aware, accessible .svg per diagram (architecture, flow, sequence, state, ER, timeline, swimlane, layers), then gates it on a Ruby linter for up to three fix rounds. Invoked by name, or loaded by cf:plan and cf:drive thorough.
 ---
 
 # CF diagram

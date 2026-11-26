@@ -111,7 +111,13 @@ tags stay human-only).
 the restore probe, and its gate refuses an op on thin recovery evidence;
 `change_backup_probe_gen.rb` generates the weekly restore-probe workflow.
 Rubric skills are matched to edited files by `skill_detect.rb` and
-`skill_inject.rb`, queued, and reviewed at Stop by `skill_review.rb`.
+`skill_inject.rb`, queued, and reviewed at Stop by `skill_review.rb`. The
+auto tier is called "auto when detected": `ai-slop` and `refactoring` load in
+every code repo, `nextjs`, `docker`, and `turbo-workspaces` only when their
+stack is detected, and `review: true` rubrics are surfaced while authoring only
+at a stricter `min_level` (`auto: min_level:`, from `CF_DOCTRINE_LEVEL` or
+`~/.claude/cf/doctrine_level`). After a compaction `skill_detect.rb` re-emits
+the rubrics already surfaced.
 
 ### Host portability
 

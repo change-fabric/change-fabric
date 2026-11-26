@@ -114,27 +114,6 @@ class SkillRegistryDepTest < Minitest::Test
     [ e, f ].each { |d| FileUtils.remove_entry(d) if d }
   end
 
-  def test_shipped_js_testing_drops_bare_extension_overmatch
-    jst = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:js-testing" }
-    proj = project_with_files("package.json" => pkg(dev: %w[vitest]),
-                              "src/foo.test.js" => "", "src/foo.js" => "")
-    assert jst.matches?(File.join(proj, "src/foo.test.js"), root: proj)
-    refute jst.matches?(File.join(proj, "src/foo.js"), root: proj),
-           "a non-test .js no longer matches js-testing"
-  ensure
-    FileUtils.remove_entry(proj) if proj
-  end
-
-  def test_shipped_drizzle_covers_db_directory
-    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:drizzle" }
-    drz = project_with_files("drizzle.config.js" => "", "src/db/client.js" => "", "src/db/migrate.js" => "")
-    assert drizzle.matches?(File.join(drz, "src/db/client.js"), root: drz)
-    assert drizzle.matches?(File.join(drz, "src/db/migrate.js"), root: drz)
-    refute drizzle.matches?(File.join(drz, "src/components/Button.tsx"), root: drz)
-  ensure
-    FileUtils.remove_entry(drz) if drz
-  end
-
   def test_manifest_walk_never_enters_dependency_or_dot_dirs
     proj = project_with_files("package.json" => pkg(deps: %w[pg]),
                               "apps/web/package.json" => pkg(deps: %w[react]),

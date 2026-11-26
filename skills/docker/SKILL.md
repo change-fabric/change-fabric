@@ -2,8 +2,9 @@
 name: cf:docker
 group: rubrics
 review: true
-description: Containerize by default. Run project runtimes, datastores, and tools in dedicated per-use-case Docker containers, never a host or system-level daemon. Auto-applied by the cf shim on container and provisioning changes; also invocable directly.
+description: Containerize by default. Run project services in dedicated Docker containers, never a host daemon. Auto-applied on container and provisioning changes; also invocable directly.
 auto:
+  min_level: lean
   basenames: [Dockerfile, .dockerignore, docker-compose.yml, docker-compose.yaml, compose.yml, compose.yaml, Brewfile, devcontainer.json]
   paths:
     - "**/Dockerfile"
@@ -14,41 +15,9 @@ auto:
   detect: [Dockerfile, docker-compose.yml, docker-compose.yaml, compose.yml, compose.yaml, "**/.devcontainer/**"]
 ---
 
-# Docker Doctrine Cheat Sheet
+# Docker
 
-Source: Docker best practices + Docker Compose docs + Testcontainers + Twelve-Factor (dev/prod parity)
+- Run every project service (datastore, runtime, reverse proxy) in its own dedicated container; never a host or system daemon (`brew services`, host `initdb`, `redis-server`, `caddy run`) and never a global install.
+- Pin base images by tag; no `:latest` in a committed image. Keep secrets out of image layers and compose files.
 
-Doctrine: run project runtimes, datastores, and tools in dedicated, per-use-case containers. Never a host or system-level daemon, and never a global install, for project work.
-
-Question: Can a teammate run this from a clean machine with only Docker installed?
-
-Favor:
-- One dedicated container per datastore, runtime, reverse proxy, or other service, isolated per use case; orchestrate locally with Compose. The rule is not datastore-specific: a web server or reverse proxy (Caddy, nginx) belongs in a container too, not a `brew services` daemon.
-- Point connection strings (`DATABASE_URL`, `REDIS_URL`) at the container and keep them in the environment.
-- Pin base images by tag and digest; prefer slim or distroless bases.
-- Multi-stage builds; copy only what runs; run as a non-root user.
-- A `.dockerignore` that excludes `node_modules`, `.git`, secrets, and build output.
-- Testcontainers for integration tests, with an ephemeral container per run.
-- Named volumes for data that must survive; treat the container itself as disposable.
-
-Forbid by default:
-- Homebrew or system-level daemons for ANY project service, not just datastores: `brew services` (or a long-running launchd/systemd unit: `KeepAlive`, `Restart=always`) for `postgresql`, `redis`, `mysql`, `mongodb`, `caddy`, `nginx`, `httpd`, `rabbitmq`, `memcached`, and the like. If it listens on a port for project work, it runs in a container.
-- Host `initdb`, `pg_ctl`, `redis-server`, `caddy run`/`caddy start`, `nginx`, or a shared default-port daemon standing in for a project service.
-- Global installs for project tooling (`npm i -g`, language-level globals).
-- Mutable `:latest` base tags in committed images.
-- Secrets baked into an image layer or a committed compose file.
-- Writing durable data to the container's ephemeral layer.
-
-Not a violation:
-- A one-shot scheduler entry is not a host daemon: a launchd calendar job or a systemd user timer that starts, runs a bounded command and exits (the `triage.rb tick` entry) is allowed. It must have no `KeepAlive`, no `Restart=`, and listen on no port; a unit that stays up or names a project service above is a daemon.
-
-CI:
-- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.md' Makefile '*.mk' '*.sh' justfile Brewfile package.json >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { s=0; GIT_LITERAL_PATHSPECS=1 git grep -niP "brew (install|services).*(postgres|redis|mysql|mongo|caddy|nginx|httpd|rabbitmq|memcached)|\\b(initdb|pg_ctl|redis-server|mysqld|mongod|memcached)\\b|caddy (run|start)|postgresql@\\d" -- "${f[@]}" || s=$?; [ $s -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
-- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*Dockerfile*' 'docker-compose*.y*ml' 'compose*.y*ml' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { s=0; GIT_LITERAL_PATHSPECS=1 git grep -nP ":latest\\b" -- "${f[@]}" || s=$?; [ $s -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
-
-Agent protocol:
-1. Provision each service as a dedicated container, one per use case.
-2. Keep connection strings in the environment, pointed at the container.
-3. Make the image reproducible: pinned base, multi-stage, non-root, `.dockerignore`.
-4. Treat containers as disposable; persist only declared volumes.
-5. Preserve behavior.
+A one-shot launchd or systemd timer that runs a bounded command and exits is not a daemon. `docker_doctrine_guard.rb` denies the daemon commands.

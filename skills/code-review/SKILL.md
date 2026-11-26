@@ -1,7 +1,7 @@
 ---
 name: cf:code-review
 group: workflow
-description: Review a pull request, branch, file set, or feature description for correctness bugs and refactor opportunities. Verifies each candidate finding in an isolated worktree before posting only the ones that survive, so PR feedback is curated instead of noisy. On a second round by the same authenticated user, after the first round's threads were settled, it plans a root-cause recommendation with cf:plan and posts it as one consolidated review comment instead of more inline findings.
+description: Review a pull request, branch, file set, or feature description for correctness bugs and refactor opportunities. Verifies each candidate finding in an isolated worktree before posting only the ones that survive. On a second round by the same user, it plans a root-cause recommendation with cf:plan and posts one consolidated comment.
 ---
 
 # CF Code Review

@@ -1,7 +1,7 @@
 ---
 name: cf:drive
 group: workflow
-description: "Drive a PR to an approved, green state end to end, in one of two modes. thorough (default): for a risky PR or a release range, interviews the owner, writes a review-and-QA planning set (plan.md, a capped goal.md, a segmented workflow.js, single-writer run templates), and prints a handoff prompt for a fresh session; it never runs the Workflow itself. quick: sweeps existing review threads, runs a relevance-gated local quality loop (code review, QA, refactor, slop) fixing what it finds, predicts CI locally, then pushes, waits for real CI green, and posts an approval, running straight through by default, with --signoff adding checkpoints before pushing and approving. Recurring review feedback stops the run and starts cf:plan."
+description: "Drive a PR to an approved, green state, in thorough or quick mode. thorough (default): interviews the owner, writes a review-and-QA planning set, and prints a handoff prompt for a fresh session. quick: sweeps review threads, runs a local quality loop, pushes, waits for CI green, and posts an approval; --signoff adds checkpoints. Recurring review feedback starts cf:plan."
 ---
 
 # CF Drive

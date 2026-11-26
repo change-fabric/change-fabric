@@ -18,6 +18,9 @@ class SkillStore
     names - recorded
   end
 
+  # Every name recorded so far this session.
+  def names = recorded
+
   def mark(names)
     return if !persistable? || names.empty?
 

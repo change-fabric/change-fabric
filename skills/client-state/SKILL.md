@@ -2,8 +2,9 @@
 name: cf:client-state
 group: rubrics
 review: true
-description: Redux Toolkit and TanStack Query state management. Auto-applied by the cf shim on every client-state change; also invocable directly.
+description: Redux Toolkit and TanStack Query state management. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [js, jsx]
   require:
     - dep: ["@reduxjs/toolkit", react-redux, redux, "@tanstack/react-query"]

@@ -1,42 +1,17 @@
 ---
 name: cf:typescript
 group: rubrics
-description: TypeScript strict-safety rubric. Auto-applied by the cf shim on every TypeScript change; also invocable directly.
+review: true
+description: TypeScript review-time rubric for modeling states. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [ts, tsx, mts, cts]
   detect: [tsconfig.json]
 ---
 
-# TypeScript Cheat Sheet
+# TypeScript
 
-Source: TypeScript Handbook + TSConfig Reference
+- Model alternatives as discriminated unions with an exhaustive check, not optional fields that must be set together.
+- Validate external data at the I/O boundary instead of asserting its type.
 
-Question: Are invalid states hard to represent?
-
-Favor:
-- `strict: true`
-- `unknown` over `any`
-- narrowing before use
-- discriminated unions
-- exhaustive checks
-- precise domain types
-- `satisfies` for checked literals
-- runtime validation at I/O boundaries
-
-Forbid by default:
-- `as any`
-- implicit `any`
-- unsafe assertions
-- non-null `!`
-- `@ts-ignore`
-- ESLint disables
-
-CI:
-- `tsc --noEmit`
-- lint max warnings = 0
-
-Agent protocol:
-1. Remove unsafe escapes.
-2. Model states explicitly.
-3. Narrow external data.
-4. Preserve behavior.
+`strict`, `any`, non-null assertions, and `@ts-ignore` are enforced by `tsc` and typescript-eslint in the stage 1 review gate.

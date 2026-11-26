@@ -1,7 +1,7 @@
 ---
 name: cf:design
 group: workflow
-description: Adversarial, opinionated design-system command. Reads a PRD, SOW, brief, existing DESIGN.md, token files, brand assets, or a running app, drafts an opinionated DESIGN.md plus a minimal tokens.css, sends four background critic agents (usability via cf:usability, accessibility, brand, simplicity) at both the existing system and the draft, grills the user with AskUserQuestion on contested calls for up to three rounds, then rewrites DESIGN.md wholesale. Invoked directly, and loaded by cf:walkthrough when a PRD has no design system yet.
+description: Adversarial design-system command. Reads a PRD, brief, existing DESIGN.md, tokens, or a running app, drafts an opinionated DESIGN.md plus a minimal tokens.css, sends four background critics at it, grills the user on contested calls for up to three rounds, then rewrites DESIGN.md. Invoked directly, and loaded by cf:walkthrough when a PRD has no design system.
 ---
 
 # CF design

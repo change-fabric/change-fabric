@@ -2,7 +2,7 @@
 name: cf:prototype
 group: workflow
 providers: [openai]
-description: Static HTML/CSS mock-screen command. Reads DESIGN.md and tokens.css, authors one HTML file per screen state using only those tokens, Phosphor icons for UI, Simple Icons for brand logos, and gpt-image-2.6-sunburst for in-screen imagery, with realistic client-side state from a shared vanilla JS mock store seeded from data/seed.json. Renders a still per screen, then records scripted mouse and keyboard motion as PNG frames under a controlled clock in the pinned browserless container. Usable alone (screens plus stills) or composed by cf:walkthrough.
+description: Static HTML/CSS mock-screen command. Reads DESIGN.md and tokens.css, authors one HTML file per screen state using only those tokens, with realistic client-side state from a shared mock store, then renders stills and records scripted motion in the pinned browserless container. Usable alone or composed by cf:walkthrough.
 ---
 
 # CF prototype

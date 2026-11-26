@@ -2,8 +2,9 @@
 name: cf:pdf-rendering
 group: rubrics
 review: true
-description: Server-side PDF generation with Puppeteer and Handlebars. Auto-applied by the cf shim on every PDF-rendering change; also invocable directly.
+description: Server-side PDF generation with Puppeteer and Handlebars. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [js, mjs, hbs, handlebars, html]
   require:
     - dep: [puppeteer, puppeteer-core, playwright, handlebars]

@@ -2,7 +2,7 @@
 name: cf:roast
 group: workflow
 providers: [openai]
-description: Multi-round roast of a UX, writing, a production architecture, a git diff, or Terraform or AWS infra, optionally through cf rubric lenses, a sub-skill of cf:design. An OpenAI vision model (the critic) reads screenshots plus the earlier rounds and returns a harsh, specific roast as JSON (score out of 10, P0/P1/P2 issues with where, problem, fix, and an estimated saving, and a purpose-test verdict per stated outcome); Claude accepts or rebuts each issue, applies the accepted fixes, re-captures, and starts the next round. Stops at a target score (default 8), a round cap (default 5). Open P1s become local follow-ups, not paid rounds. Each round is logged to a roast/ directory beside the artifact. Paid, so it runs only when invoked by name or loaded by cf:design, cf:walkthrough, cf:prototype, cf:plan, or cf:drive thorough, never auto-applied or chosen on a model guess. Usable alone on any set of screenshots or on a text (email, doc, PR description, post, diff, .tf file, architecture doc).
+description: Multi-round roast of a UX, writing, architecture, git diff, or Terraform or AWS infra, optionally through cf rubric lenses. An OpenAI critic returns scored P0/P1/P2 issues as JSON; Claude accepts or rebuts each, applies the fixes, and starts the next round. Stops at a target score (default 8) or a round cap (default 5). Paid, so it runs only when invoked by name or loaded by cf:design, cf:walkthrough, cf:prototype, cf:plan, or cf:drive thorough.
 ---
 
 # CF roast

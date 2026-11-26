@@ -2,8 +2,9 @@
 name: cf:terraform
 group: rubrics
 review: true
-description: Terraform safe-change rubric. Auto-applied by the cf shim on every Terraform change; also invocable directly.
+description: Terraform safe-change rubric. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [tf, tfvars]
   detect: ["*.tf", .terraform.lock.hcl]
 ---

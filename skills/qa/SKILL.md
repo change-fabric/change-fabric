@@ -1,7 +1,7 @@
 ---
 name: cf:qa
 group: lanes
-description: Ad hoc QA smoke-test runner. Scopes a browser test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, posting them as GitHub PR comments by default, and writes a passing flow out as a test-case suite file. `--suite <suite-or-tag>` instead replays committed cases deterministically, with no scoping model in the loop; invocable directly.
+description: "Ad hoc QA smoke-test runner. Scopes a browser test plan from a natural-language target (a PR, a feature, a flow), runs it against an ephemeral browserless Chromium container, and reports findings as GitHub PR comments by default. `--suite <suite-or-tag>` replays committed cases deterministically. Invocable directly."
 ---
 
 # CF QA Runner

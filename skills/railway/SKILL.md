@@ -2,9 +2,12 @@
 name: cf:railway
 group: rubrics
 review: true
-description: Railway deploy and service configuration. Auto-applied by the cf shim on every Railway deploy change; also invocable directly.
+description: Railway deploy and service configuration. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   basenames: [railway.toml, railway.json, .railwayignore, Dockerfile]
+  require:
+    - "**/railway.toml"
   detect: [railway.toml, railway.json, .railwayignore, Dockerfile]
 ---
 

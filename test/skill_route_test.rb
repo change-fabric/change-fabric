@@ -55,7 +55,8 @@ class SkillRouteTest < Minitest::Test
     grouped = SkillRoute.new(%w[app/user.rb src/app.tsx README.md], skills: skills).by_skill
     assert_equal %w[README.md app/user.rb src/app.tsx], grouped["cf:ai-slop"]
     assert_equal %w[app/user.rb src/app.tsx], grouped["cf:refactoring"]
-    assert_equal %w[app/user.rb], grouped["cf:ruby"]
+    refute grouped.key?("cf:ruby")
+    refute grouped.key?("cf:rails")
     assert_equal %w[src/app.tsx], grouped["cf:react"]
     refute grouped.key?("cf:vite")
   end
