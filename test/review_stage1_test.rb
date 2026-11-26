@@ -223,6 +223,29 @@ class ReviewStage1Test < Minitest::Test
     assert_equal "not_applicable", row.status, "npx with no tsc package is a missing tool"
   end
 
+  def test_a_failing_test_that_prints_command_not_found_still_fails
+    dir = tmpdir
+    write(dir, "package.json", '{ "scripts": { "test": "vitest" } }')
+    noisy = ->(_command, _root, _timeout, _env = nil) { Outcome.new(:fail, 1, "expected command not found, got another error", false) }
+    row = run_stage1(dir, tools: noisy).results.find { |r| r.id.start_with?("tests") }
+    assert_equal "failed", row.status, row.detail
+  end
+
+  def test_a_skipped_test_entry_lets_the_next_one_run
+    dir = tmpdir
+    write(dir, "Gemfile", "source 'https://rubygems.org'\n")
+    write(dir, "Rakefile", "require 'rake/testtask'\nRake::TestTask.new(:test)\n")
+    write(dir, "package.json", '{ "scripts": { "test": "vitest" } }')
+    tools = lambda do |command, _root, _timeout, _env = nil|
+      if command.include?("rake") then Outcome.new(:fail, 127, "bundle: command not found", false)
+      elsif command.include?("rubocop") then Outcome.new(:pass, 0, "", false)
+      else Outcome.new(:fail, 1, "1 failing test", false)
+      end
+    end
+    rows = run_stage1(dir, tools: tools).results.select { |r| r.id.start_with?("tests") }
+    assert_equal [ "failed" ], rows.map(&:status), rows.map(&:detail).inspect
+  end
+
   def test_actions_lints_only_changed_workflows
     dir = copy_fixture("gha_injection")
     calls = []

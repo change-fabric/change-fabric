@@ -280,7 +280,7 @@ module ReviewStage1
         outcome = execute(command, timeout, env)
         return result(id, 'timed_out', "exceeded #{timeout}s", command: command) if outcome.timed_out
         next false if outcome.success?
-        next true if tool_missing?(outcome)
+        next true if tool_missing?(command, outcome)
 
         return result(id, 'failed', "exit #{outcome.exit_code}", command: command, findings: findings_of(mask ? mask.call(outcome.output) : outcome.output))
       end
@@ -305,23 +305,29 @@ module ReviewStage1
         return result('tests', 'not_applicable', "no command lane and no test script in a manifest#{note}")
       end
 
+      skipped = []
       commands.each do |entry|
         if entry[:missing]
           return result("tests:#{entry[:name]}", 'unavailable', "declared env not set: #{entry[:missing].join(', ')}", command: entry[:run])
         end
 
         outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env], mask: entry[:mask])
+        # A skipped entry (tool not installed) lets the remaining entries run.
+        next skipped << entry[:run] if outcome.status == 'not_applicable'
         return outcome unless outcome.status == 'passed'
       end
-      result('tests', 'passed', "#{commands.size} command(s) from #{source}")
+      return result('tests', 'not_applicable', 'tool not installed here', command: skipped.join(' && ')) if skipped.size == commands.size
+
+      result('tests', 'passed', "#{commands.size - skipped.size} command(s) from #{source}")
     end
 
-    # The command itself could not start: the shell found no such executable,
-    # or npx --no-install had no package to run. Not a finding in the code.
-    TOOL_MISSING = /command not found|could not determine executable to run|npx canceled due to missing packages/
+    # The command itself could not start: the shell's exit 127 for no such
+    # executable, or npx --no-install with no package to run. Output phrases
+    # count only for npx, so a failing test that prints them still fails.
+    NPX_MISSING = /could not determine executable to run|npx canceled due to missing packages/
 
-    def tool_missing?(outcome)
-      outcome.exit_code == 127 || outcome.output.to_s.match?(TOOL_MISSING)
+    def tool_missing?(command, outcome)
+      outcome.exit_code == 127 || (command.start_with?('npx ') && outcome.output.to_s.match?(NPX_MISSING))
     end
 
     def changed
