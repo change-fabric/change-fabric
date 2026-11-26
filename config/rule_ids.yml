@@ -136,6 +136,10 @@ rules:
     hook: inbox_session_end
     event: SessionEnd
     kind: service
+  doctrine_review_surface/announce:
+    hook: doctrine_review_surface
+    event: Stop
+    kind: inject
   skill_review/gate:
     hook: skill_review
     event: Stop
