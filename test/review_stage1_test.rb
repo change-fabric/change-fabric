@@ -241,9 +241,9 @@ class ReviewStage1Test < Minitest::Test
   end
 
   # A boot.up repo skips the lane and runs its manifest suite under the
-  # default, so the default must outlast this repo's own ~6 minute suite.
+  # default, so the default must outlast this repo's own suite (947s on the mini).
   def test_the_default_timeout_fits_a_full_suite
-    assert_operator ReviewStage1::DEFAULT_TIMEOUT, :>=, 2 * 360
+    assert_operator ReviewStage1::DEFAULT_TIMEOUT, :>=, 1500
   end
 
   def test_each_status_is_one_of_the_five

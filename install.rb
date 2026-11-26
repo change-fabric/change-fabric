@@ -600,9 +600,9 @@ module Install
     }.freeze
 
     # Seconds a hook may run. Only the review gate sets one: stage 1 runs the
-    # repo's own linters and tests (900s each by default), far past the host's
+    # repo's own linters and tests (1800s each by default), far past the host's
     # default hook limit.
-    TIMEOUTS = { 'review_gate.rb' => 3600 }.freeze
+    TIMEOUTS = { 'review_gate.rb' => 5400 }.freeze
 
     def initialize(paths:, ruby:)
       @paths = paths
