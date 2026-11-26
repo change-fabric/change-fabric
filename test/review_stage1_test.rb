@@ -513,4 +513,23 @@ class ReviewStage1Test < Minitest::Test
     write(dir, "Gemfile", "source 'x'\n")
     assert_equal "not_applicable", result(run_stage1(dir), "ruby").status
   end
+
+  def test_a_declared_variable_supplied_by_the_boot_env_file_is_not_unset
+    dir = tmpdir
+    boot = "change_config:\n  boot:\n    up: make up\n    env_file: .env.test\n    target_url: http://localhost:1\n" \
+           "    health_url: http://localhost:1\n    timeout_seconds: 5\n"
+    base_trusted(dir, secret_lane("").sub("change_config:\n", boot))
+    File.write(File.join(dir, ".env.test"), "CF_TEST_TOKEN=from-file-123\n")
+    report = with_env("CF_TEST_TOKEN" => nil) { ReviewStage1.run(dir, runner: Tools.new) }
+    assert_equal "passed", result(report, "tests").status, result(report, "tests").detail
+  end
+
+  def test_an_untracked_file_with_invalid_utf8_does_not_crash_the_glyph_check
+    dir = tmpdir
+    system("git", "-C", dir, "init", "-q", "-b", "main", out: File::NULL)
+    File.binwrite(File.join(dir, "bad.txt"), "caf\xE9 #{[ 0x2014 ].pack('U')} line\n".b)
+    row = result(run_stage1(dir), "glyph")
+    assert_equal "failed", row.status
+    assert_match(/bad\.txt:1:/, row.findings.first)
+  end
 end

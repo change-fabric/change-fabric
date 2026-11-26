@@ -335,18 +335,33 @@ module ReviewStage1
       return [] unless config.enabled_lanes.include?('command')
 
       trust = lane_trust(repo, config)
+      file_values = env_file_values(repo, config)
       Array(section['commands']).select { |entry| entry.is_a?(Hash) && entry['run'] && entry['profiles'].nil? }
                                 .select { |entry| trust.trusted?("command:#{entry['name']}") }
-                                .map { |entry| lane_entry(entry, timeout) }
+                                .map { |entry| lane_entry(entry, timeout, file_values) }
     rescue StandardError
       []
     end
 
     # A declared variable that is unset is reported, never dropped: the entry
     # carries `missing` and stage 1 turns it into an `unavailable` result.
-    def lane_entry(entry, timeout)
+    # boot.env_file values, which the lane resolves declared names from. A
+    # missing file contributes nothing, so its names read as unset.
+    def env_file_values(repo, config)
+      config.boot.env_file_entries.each_with_object({}) do |entry, merged|
+        path = File.expand_path(entry, repo.root)
+        next unless File.file?(path)
+
+        File.readlines(path, chomp: true).each do |line|
+          key, value = line.strip.delete_prefix('export ').split('=', 2)
+          merged[key.strip] = value.strip.gsub(/\A['"]|['"]\z/, '') if key && value && !key.start_with?('#')
+        end
+      end
+    end
+
+    def lane_entry(entry, timeout, file_values)
       base = { name: entry['name'].to_s, run: entry['run'], timeout: entry['timeout_seconds'] || timeout }
-      resolved = ChangeEnv.build(declared: Array(entry['env']), env_file_values: {})
+      resolved = ChangeEnv.build(declared: Array(entry['env']), env_file_values: file_values)
       base.merge(env: resolved.env, mask: resolved.masker)
     rescue ChangeEnv::MissingVariables => e
       base.merge(missing: e.names)
@@ -409,7 +424,7 @@ module ReviewStage1
 
     def diff_lines
       out = base ? git('diff', '-U0', '--no-color', base) : git('diff', '-U0', '--no-color', 'HEAD')
-      lines = parse_diff(out.to_s)
+      lines = parse_diff(out.to_s.scrub)
       lines + untracked.flat_map { |rel| files_lines([ rel ]) }
     end
 
@@ -445,7 +460,7 @@ module ReviewStage1
         text = File.read(path)
         next [] if text.include?("\0")
 
-        text.force_encoding(Encoding::UTF_8).each_line.with_index(1).map { |line, number| [ rel, number, line.chomp ] }
+        text.force_encoding(Encoding::UTF_8).scrub.each_line.with_index(1).map { |line, number| [ rel, number, line.chomp ] }
       end
     end
 
