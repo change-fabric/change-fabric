@@ -62,13 +62,17 @@ class ProdApprovalGuard
   private
 
   UNPARSEABLE_MARKERS = [ *MARKERS, 'approval_console.rb', 'cf_run_approved.rb' ].freeze
-  HEREDOC = /<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
-  HERESTRING = /<<<[ \t]*(?:'[^']*'|"(?:\\.|[^"\\])*"|\S+)/
-  SHELL_FEED = /(?:\A|[\s;&|(])(?:bash|sh|zsh|dash|ksh)\b[^;&|\n]*<</
+  # Quoted text and here-strings are consumed before a heredoc operator can
+  # match, so `echo '<<EOF'` and `cat <<< x` queue no terminator.
+  SHELL_TOKEN = /'[^']*'|"(?:\\.|[^"\\])*"|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
+  HERESTRING = /<<<[ \t]*('[^']*'|"(?:\\.|[^"\\])*"|\S+)/
+  # A shell anywhere in command position on the line (`bash <<X`, `cat <<X | sh`).
+  SHELL_FEED = /(?:\A|[\s;&|(])(?:bash|sh|zsh|dash|ksh|source|eval)(?:\s|\z)/
+  EXPANSION = /\$\(|`/
 
   # The command with heredoc bodies and here-string words removed: they are
-  # stdin data, not argv. A line feeding one to a shell keeps it, since that
-  # data runs as commands.
+  # stdin data, not argv. Kept as commands: a line that feeds a shell, an
+  # unquoted heredoc body line or here-string holding a command substitution.
   def without_data(command)
     pending = []
     command.each_line(chomp: true).filter_map { |line| pending.empty? ? command_line(line, pending) : body_line(line, pending) }.join("\n")
@@ -76,15 +80,17 @@ class ProdApprovalGuard
 
   def command_line(line, pending)
     shell = line.match?(SHELL_FEED)
-    line.scan(HEREDOC) { |dash, _quote, word| pending << { word:, tabs: dash == '-', shell: } }
-    shell ? line : line.gsub(HERESTRING, '<<< _')
+    line.scan(SHELL_TOKEN) { |dash, quote, word| pending << { word:, tabs: dash == '-', shell:, expand: quote.empty? } if word }
+    return line if shell
+
+    line.gsub(HERESTRING) { |match| ::Regexp.last_match(1).match?(EXPANSION) && !::Regexp.last_match(1).start_with?("'") ? match : '<<< _' }
   end
 
   def body_line(line, pending)
     heredoc = pending.first
     return pending.shift && nil if (heredoc[:tabs] ? line.sub(/\A\t+/, '') : line) == heredoc[:word]
 
-    line if heredoc[:shell]
+    line if heredoc[:shell] || (heredoc[:expand] && line.match?(EXPANSION))
   end
 
   # Shell words, plus the words inside any quoted argument (`bash -c '...'`).

@@ -179,6 +179,22 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "python3 - <<'EOF'\nit's data\nEOF\nruby change_prod_approve.rb 'unterminated"
   end
 
+  def test_here_strings_and_quoted_operators_queue_no_heredoc
+    assert_denied "cat <<< hello\nruby change_prod_approve.rb 1234"
+    assert_denied "echo '<<EOF'\nruby change_prod_approve.rb 1234"
+  end
+
+  def test_command_substitutions_in_unquoted_heredocs_and_here_strings_are_inspected
+    assert_denied "cat <<EOF\n$(ruby change_prod_approve.rb 1234)\nEOF"
+    assert_denied "cat <<< \"$(ruby change_prod_approve.rb 1234)\""
+    assert_allowed "cat <<'EOF' > notes.txt\n$(ruby change_prod_approve.rb 1234)\nEOF"
+  end
+
+  def test_a_heredoc_piped_into_a_shell_is_inspected
+    assert_denied "cat <<'EOF' | bash\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\nEOF"
+    assert_denied "cat <<'EOF' | sh\nruby change_prod_approve.rb 1234\nEOF"
+  end
+
   def test_a_quoted_mention_in_a_commit_message_is_not_an_invocation
     assert_allowed "git commit -m 'document pending_deployments handling'"
     assert_allowed "gh pr create --title t --body 'mentions refs/cf-prod/claims'"
