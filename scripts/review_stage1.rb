@@ -34,8 +34,11 @@ require_relative 'skill_registry'
 module ReviewStage1
   STATUSES = %w[passed failed unavailable not_applicable timed_out].freeze
   BLOCKING = %w[failed unavailable timed_out].freeze
-  # Constant until the unified loop caps land (config/loop_caps.yml).
-  DEFAULT_TIMEOUT = 300
+  # Constant until the unified loop caps land (config/loop_caps.yml). A lane
+  # entry's timeout_seconds overrides it, but a repo that declares boot.up
+  # skips the lane here and runs its manifest suite under this default, so it
+  # must fit a full suite: this repo's takes about 6 minutes, 900s gives 2.5x.
+  DEFAULT_TIMEOUT = 900
   MAX_FINDINGS = 20
   SKIP_DIRS = %w[node_modules vendor tmp dist build coverage log fixtures].freeze
   JS_EXTENSIONS = %w[js mjs cjs jsx].freeze

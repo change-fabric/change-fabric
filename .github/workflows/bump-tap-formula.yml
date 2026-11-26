@@ -89,6 +89,8 @@ jobs:
           fi
 
           sha="$(curl -fsSL "$url" | shasum -a 256 | cut -d' ' -f1)"
+          # The single quotes keep $1 and #{} for Ruby, not the shell.
+          # shellcheck disable=SC2016
           URL="$url" SHA="$sha" ruby -i -pe '
             sub(/^(\s*)url\s+".*"$/) { "#{$1}url \"#{ENV["URL"]}\"" }
             sub(/^(\s*)sha256\s+".*"$/) { "#{$1}sha256 \"#{ENV["SHA"]}\"" }
