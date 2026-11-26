@@ -3,6 +3,7 @@
 
 require 'open3'
 require 'shellwords'
+require 'securerandom'
 require 'pathname'
 require 'yaml'
 require 'json'
@@ -338,7 +339,7 @@ module ReviewStage1
       file_values = env_file_values(repo, config)
       Array(section['commands']).select { |entry| entry.is_a?(Hash) && entry['run'] && entry['profiles'].nil? }
                                 .select { |entry| trust.trusted?("command:#{entry['name']}") }
-                                .map { |entry| lane_entry(entry, timeout, file_values) }
+                                .map { |entry| lane_entry(entry, timeout, file_values, config) }
     rescue StandardError
       []
     end
@@ -359,9 +360,15 @@ module ReviewStage1
       end
     end
 
-    def lane_entry(entry, timeout, file_values)
+    # The reserved variables the real lane supplies, so scripts that read them run.
+    def run_env(config)
+      { 'CF_CHANGE_RUN_ID' => "stage1-#{SecureRandom.hex(4)}", 'CF_CHANGE_TARGET_URL' => config.boot.target_url,
+        'CF_CHANGE_HEALTH_URL' => config.boot.health_url }
+    end
+
+    def lane_entry(entry, timeout, file_values, config)
       base = { name: entry['name'].to_s, run: entry['run'], timeout: entry['timeout_seconds'] || timeout }
-      resolved = ChangeEnv.build(declared: Array(entry['env']), env_file_values: file_values)
+      resolved = ChangeEnv.build(declared: Array(entry['env']), env_file_values: file_values, extra: run_env(config))
       base.merge(env: resolved.env, mask: resolved.masker)
     rescue ChangeEnv::MissingVariables => e
       base.merge(missing: e.names)
@@ -496,15 +503,39 @@ module ReviewStage1
     def eslint_rule_on?(repo, rules, name)
       return repo.eslint_config.include?(name) if rules.nil?
 
-      setting = rules[name]
+      eslint_on?(rules[name])
+    end
+
+    def eslint_on?(setting)
       severity = setting.is_a?(Array) ? setting.first : setting
       [ 1, 2, 'warn', 'error' ].include?(severity)
     end
 
-    def effective_eslint_rules(repo, capture, extensions)
-      file = repo.sources(extensions, limit: 1).first
-      return nil unless file
+    SAMPLE_FILES = 5
+    NON_APP_SOURCE = %r{(?:\.config\.|\.test\.|\.spec\.|(?:\A|/)(?:tests?|spec|scripts?)/|\A[^/]+\z)}
 
+    # Effective rules merged across a few application sources (config files,
+    # tests and root-level scripts are sampled last), so a config scoped to
+    # application files is judged on the files it scopes. A rule counts if it
+    # is on for any sampled file. nil when nothing could be read.
+    def effective_eslint_rules(repo, capture, extensions)
+      files = repo.sources(extensions, limit: 500)
+      app, other = files.partition { |rel| !rel.match?(NON_APP_SOURCE) }
+      sample = sampled(app, SAMPLE_FILES) + other.first(1)
+      merged = sample.filter_map { |file| eslint_rules_for(capture, file) }.each_with_object({}) do |rules, all|
+        rules.each { |name, setting| all[name] = setting if !all.key?(name) || eslint_on?(setting) }
+      end
+      merged.empty? ? nil : merged
+    end
+
+    def sampled(files, count)
+      return files if files.size <= count
+
+      step = files.size / count.to_f
+      Array.new(count) { |index| files[(index * step).floor] }.uniq
+    end
+
+    def eslint_rules_for(capture, file)
       shown = capture.call("npx --no-install eslint --print-config #{Shellwords.escape(file)}")
       return nil unless shown.success?
 

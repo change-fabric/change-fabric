@@ -532,4 +532,41 @@ class ReviewStage1Test < Minitest::Test
     assert_equal "failed", row.status
     assert_match(/bad\.txt:1:/, row.findings.first)
   end
+
+  def test_the_lane_reserved_runtime_variables_reach_a_trusted_entry
+    dir = tmpdir
+    base_trusted(dir, command_lane("make check"))
+    seen = nil
+    runner = lambda do |_command, _root, _timeout, env = nil|
+      seen = env
+      Outcome.new(:pass, 0, "", false)
+    end
+    ReviewStage1.run(dir, runner: runner)
+    assert_match(/\Astage1-/, seen["CF_CHANGE_RUN_ID"])
+    assert_includes seen.keys, "CF_CHANGE_TARGET_URL"
+    assert_includes seen.keys, "CF_CHANGE_HEALTH_URL"
+  end
+
+  # A flat config scoped to application files: the alphabetically first source
+  # is a root script the config does not cover.
+  class ScopedConfigTools < Tools
+    def call(command, root, timeout, env = nil)
+      if command.include?("--print-config")
+        app = command.include?("src/")
+        rules = app ? { "no-var" => "error", "eqeqeq" => "error", "prefer-const" => "error" } : {}
+        return Outcome.new(:pass, 0, JSON.generate("rules" => rules), false)
+      end
+      super
+    end
+  end
+
+  def test_eslint_rules_are_judged_on_application_sources_not_the_first_file
+    dir = tmpdir
+    write(dir, "package.json", '{ "devDependencies": { "eslint": "9" } }')
+    write(dir, "eslint.config.mjs", "export default [];\n")
+    write(dir, "a-build.js", "export default 1\n")
+    write(dir, "src/app.js", "export default 2\n")
+    row = result(run_stage1(dir, tools: ScopedConfigTools.new), "javascript")
+    refute_equal "unavailable", row.status, row.detail
+  end
 end
