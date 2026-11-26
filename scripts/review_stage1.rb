@@ -43,6 +43,7 @@ module ReviewStage1
   SKIP_DIRS = %w[node_modules vendor tmp dist build coverage log fixtures].freeze
   JS_EXTENSIONS = %w[js mjs cjs jsx].freeze
   SOURCE_EXTENSIONS = %w[js mjs cjs jsx ts tsx mts vue svelte html].freeze
+  WORKFLOW_FILE = %r{\A\.github/workflows/[^/]+\.ya?ml\z}
   ACTIONLINT_IMAGE = 'rhysd/actionlint:1.7.7'
   ZIZMOR_IMAGE = 'ghcr.io/zizmorcore/zizmor:1.5.2'
   # Warnings block too: a rule accepted as an enforcer at warn level must fail the run.
@@ -97,7 +98,7 @@ module ReviewStage1
 
     # The compiler through whatever install the repo uses: Yarn Plug'n'Play,
     # a node_modules shim, or a declared dependency. A declared compiler that
-    # is not installed then fails the command instead of skipping the row.
+    # is not installed reports the row not_applicable (see Run#tool_missing?).
     def tsc_command
       return 'yarn tsc --noEmit' if file?('.pnp.cjs')
       return 'npx --no-install tsc --noEmit' if file?('node_modules/.bin/tsc') || dep?('typescript')
@@ -258,8 +259,8 @@ module ReviewStage1
       return result(check.id, 'unavailable', "missing enforcer: #{gap}") if gap
       return native(check) if check.native
 
-      commands = check.commands.respond_to?(:call) ? check.commands.call(@repo) : check.commands
-      return result(check.id, 'not_applicable', 'no tool installed or configured to run here') if commands.empty?
+      commands = check.commands.respond_to?(:call) ? check.commands.call(@repo, changed) : check.commands
+      return result(check.id, 'not_applicable', 'nothing this push changed for it, or no tool configured to run here') if commands.empty?
 
       run_commands(check.id, commands, @timeout)
     end
@@ -271,15 +272,20 @@ module ReviewStage1
       result(check.id, 'failed', "#{findings.size} finding(s)", findings: findings.first(MAX_FINDINGS))
     end
 
+    # A command whose tool is not installed is skipped; only when every
+    # command was skipped is the row not_applicable.
     def run_commands(id, commands, timeout, env: nil, mask: nil)
-      commands.each do |command|
+      ran = commands.reject do |command|
         outcome = execute(command, timeout, env)
         return result(id, 'timed_out', "exceeded #{timeout}s", command: command) if outcome.timed_out
-        next if outcome.success?
+        next false if outcome.success?
+        next true if tool_missing?(outcome)
 
         return result(id, 'failed', "exit #{outcome.exit_code}", command: command, findings: findings_of(mask ? mask.call(outcome.output) : outcome.output))
       end
-      result(id, 'passed', "ran #{commands.size} command(s)", command: commands.join(' && '))
+      return result(id, 'not_applicable', 'tool not installed here', command: commands.join(' && ')) if ran.empty?
+
+      result(id, 'passed', "ran #{ran.size} command(s)", command: ran.join(' && '))
     end
 
     # One command is run once per pass however many rows share it.
@@ -307,6 +313,14 @@ module ReviewStage1
         return outcome unless outcome.status == 'passed'
       end
       result('tests', 'passed', "#{commands.size} command(s) from #{source}")
+    end
+
+    # The command itself could not start: the shell found no such executable,
+    # or npx --no-install had no package to run. Not a finding in the code.
+    TOOL_MISSING = /command not found|could not determine executable to run|npx canceled due to missing packages/
+
+    def tool_missing?(outcome)
+      outcome.exit_code == 127 || outcome.output.to_s.match?(TOOL_MISSING)
     end
 
     def changed
@@ -437,6 +451,15 @@ module ReviewStage1
       @base = base
     end
 
+    # Changed paths that still exist: the given files, else the diff against
+    # the merge base plus untracked files; outside git, every file.
+    def paths
+      @paths ||= begin
+        rels = @files || (git? ? diff_names : all_files)
+        rels.uniq.select { |rel| File.file?(File.join(@root, rel)) }
+      end
+    end
+
     # [[path, line_number, text]] for each added line.
     def added_lines
       return files_lines(@files) if @files
@@ -463,6 +486,11 @@ module ReviewStage1
       out = base ? git('diff', '-U0', '--no-color', base) : git('diff', '-U0', '--no-color', 'HEAD')
       lines = parse_diff(out.to_s.scrub)
       lines + untracked.flat_map { |rel| files_lines([ rel ]) }
+    end
+
+    def diff_names
+      out = base ? git('diff', '--name-only', base) : git('diff', '--name-only', 'HEAD')
+      out.to_s.split("\n") + untracked
     end
 
     def untracked = git('ls-files', '--others', '--exclude-standard').to_s.split("\n")
@@ -592,7 +620,7 @@ module ReviewStage1
     # tsc runs when it is installed; ESLint runs only where the repo adopted it.
     def typescript
       Check.new(id: 'typescript', detect: ->(repo) { repo.file?('tsconfig.json') },
-                commands: lambda do |repo|
+                commands: lambda do |repo, _changed|
                   [ repo.tsc_command,
                     (ESLINT if repo.adopted?(:eslint)) ].compact
                 end,
@@ -660,8 +688,16 @@ module ReviewStage1
                 missing: lambda do |_repo, _capture|
                   system('which docker > /dev/null 2>&1') ? nil : 'docker (actionlint and zizmor run as containers)'
                 end,
-                commands: [ "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ACTIONLINT_IMAGE} -color=false",
-                            "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ZIZMOR_IMAGE} --format plain .github/workflows" ])
+                commands: lambda do |_repo, changed|
+                  # Only the workflows this push touches: findings already on the
+                  # base branch are not this push's to fix.
+                  files = changed.paths.grep(WORKFLOW_FILE)
+                  next [] if files.empty?
+
+                  args = files.map { |rel| Shellwords.escape(rel) }.join(' ')
+                  [ "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ACTIONLINT_IMAGE} -color=false #{args}",
+                    "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ZIZMOR_IMAGE} --format plain #{args}" ]
+                end)
     end
 
     TEST_PLUGINS = {

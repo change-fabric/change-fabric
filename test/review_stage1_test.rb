@@ -205,6 +205,41 @@ class ReviewStage1Test < Minitest::Test
     assert_predicate row, :blocking?
   end
 
+  def test_a_missing_tool_is_not_applicable
+    dir = tmpdir
+    write(dir, "package.json", '{ "devDependencies": { "typescript": "5.6.3" } }')
+    write(dir, "tsconfig.json", '{ "compilerOptions": { "strict": true } }')
+    write(dir, "src/a.ts", "export const count = 1;\n")
+    absent = lambda do |command, _root, _timeout, _env = nil|
+      if command.include?("tsc") then Outcome.new(:fail, 1, "npm error could not determine executable to run", false)
+      else Outcome.new(:pass, 0, "", false)
+      end
+    end
+    alone = ->(command, _root, _timeout, _env = nil) { Outcome.new(:fail, 127, "sh: #{command}: command not found", false) }
+    row = result(run_stage1(dir, tools: alone), "typescript")
+    assert_equal "not_applicable", row.status, row.detail
+    refute_predicate row, :blocking?
+    row = result(run_stage1(dir, tools: absent), "typescript")
+    assert_equal "not_applicable", row.status, "npx with no tsc package is a missing tool"
+  end
+
+  def test_actions_lints_only_changed_workflows
+    dir = copy_fixture("gha_injection")
+    calls = []
+    tools = lambda do |command, _root, _timeout, _env = nil|
+      calls << command
+      Outcome.new(:pass, 0, "", false)
+    end
+    row = result(run_stage1(dir, tools: tools, files: [ "README.md" ]), "github_actions")
+    assert_equal "not_applicable", row.status
+    assert_empty calls.grep(/actionlint|zizmor/)
+    workflow = Dir.glob(".github/workflows/*.yml", base: dir).first
+    assert_equal "passed", result(run_stage1(dir, tools: tools, files: [ workflow ]), "github_actions").status
+    linted = calls.grep(/actionlint|zizmor/)
+    assert_equal 2, linted.size
+    assert(linted.all? { |command| command.end_with?(workflow) })
+  end
+
   # A boot.up repo skips the lane and runs its manifest suite under the
   # default, so the default must outlast this repo's own ~6 minute suite.
   def test_the_default_timeout_fits_a_full_suite
