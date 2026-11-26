@@ -34,12 +34,17 @@ require_relative 'skill_registry'
 module ReviewStage1
   STATUSES = %w[passed failed unavailable not_applicable timed_out].freeze
   BLOCKING = %w[failed unavailable timed_out].freeze
-  # Constant until the unified loop caps land (config/loop_caps.yml).
-  DEFAULT_TIMEOUT = 300
+  # Constant until the unified loop caps land (config/loop_caps.yml). A lane
+  # entry's timeout_seconds overrides it, but a repo that declares boot.up
+  # skips the lane here and runs its manifest suite under this default, so it
+  # must fit a full suite: this repo's measured 947s on the mini, so 1800s
+  # leaves about 1.9x headroom.
+  DEFAULT_TIMEOUT = 1800
   MAX_FINDINGS = 20
   SKIP_DIRS = %w[node_modules vendor tmp dist build coverage log fixtures].freeze
   JS_EXTENSIONS = %w[js mjs cjs jsx].freeze
   SOURCE_EXTENSIONS = %w[js mjs cjs jsx ts tsx mts vue svelte html].freeze
+  WORKFLOW_FILE = %r{\A\.github/workflows/[^/]+\.ya?ml\z}
   ACTIONLINT_IMAGE = 'rhysd/actionlint:1.7.7'
   ZIZMOR_IMAGE = 'ghcr.io/zizmorcore/zizmor:1.5.2'
   # Warnings block too: a rule accepted as an enforcer at warn level must fail the run.
@@ -94,7 +99,7 @@ module ReviewStage1
 
     # The compiler through whatever install the repo uses: Yarn Plug'n'Play,
     # a node_modules shim, or a declared dependency. A declared compiler that
-    # is not installed then fails the command instead of skipping the row.
+    # is not installed reports the row not_applicable (see Run#tool_missing?).
     def tsc_command
       return 'yarn tsc --noEmit' if file?('.pnp.cjs')
       return 'npx --no-install tsc --noEmit' if file?('node_modules/.bin/tsc') || dep?('typescript')
@@ -255,8 +260,8 @@ module ReviewStage1
       return result(check.id, 'unavailable', "missing enforcer: #{gap}") if gap
       return native(check) if check.native
 
-      commands = check.commands.respond_to?(:call) ? check.commands.call(@repo) : check.commands
-      return result(check.id, 'not_applicable', 'no tool installed or configured to run here') if commands.empty?
+      commands = check.commands.respond_to?(:call) ? check.commands.call(@repo, changed) : check.commands
+      return result(check.id, 'not_applicable', 'nothing this push changed for it, or no tool configured to run here') if commands.empty?
 
       run_commands(check.id, commands, @timeout)
     end
@@ -268,15 +273,20 @@ module ReviewStage1
       result(check.id, 'failed', "#{findings.size} finding(s)", findings: findings.first(MAX_FINDINGS))
     end
 
+    # A command whose tool is not installed is skipped; only when every
+    # command was skipped is the row not_applicable.
     def run_commands(id, commands, timeout, env: nil, mask: nil)
-      commands.each do |command|
+      ran = commands.reject do |command|
         outcome = execute(command, timeout, env)
         return result(id, 'timed_out', "exceeded #{timeout}s", command: command) if outcome.timed_out
-        next if outcome.success?
+        next false if outcome.success?
+        next true if tool_missing?(command, outcome)
 
         return result(id, 'failed', "exit #{outcome.exit_code}", command: command, findings: findings_of(mask ? mask.call(outcome.output) : outcome.output))
       end
-      result(id, 'passed', "ran #{commands.size} command(s)", command: commands.join(' && '))
+      return result(id, 'not_applicable', 'tool not installed here', command: commands.join(' && ')) if ran.empty?
+
+      result(id, 'passed', "ran #{ran.size} command(s)", command: ran.join(' && '))
     end
 
     # One command is run once per pass however many rows share it.
@@ -295,15 +305,29 @@ module ReviewStage1
         return result('tests', 'not_applicable', "no command lane and no test script in a manifest#{note}")
       end
 
+      skipped = []
       commands.each do |entry|
         if entry[:missing]
           return result("tests:#{entry[:name]}", 'unavailable', "declared env not set: #{entry[:missing].join(', ')}", command: entry[:run])
         end
 
         outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env], mask: entry[:mask])
+        # A skipped entry (tool not installed) lets the remaining entries run.
+        next skipped << entry[:run] if outcome.status == 'not_applicable'
         return outcome unless outcome.status == 'passed'
       end
-      result('tests', 'passed', "#{commands.size} command(s) from #{source}")
+      return result('tests', 'not_applicable', 'tool not installed here', command: skipped.join(' && ')) if skipped.size == commands.size
+
+      result('tests', 'passed', "#{commands.size - skipped.size} command(s) from #{source}")
+    end
+
+    # The command itself could not start: the shell's exit 127 for no such
+    # executable, or npx --no-install with no package to run. Output phrases
+    # count only for npx, so a failing test that prints them still fails.
+    NPX_MISSING = /could not determine executable to run|npx canceled due to missing packages/
+
+    def tool_missing?(command, outcome)
+      outcome.exit_code == 127 || (command.start_with?('npx ') && outcome.output.to_s.match?(NPX_MISSING))
     end
 
     def changed
@@ -434,6 +458,15 @@ module ReviewStage1
       @base = base
     end
 
+    # Changed paths that still exist: the given files, else the diff against
+    # the merge base plus untracked files; outside git, every file.
+    def paths
+      @paths ||= begin
+        rels = @files || (git? ? diff_names : all_files)
+        rels.uniq.select { |rel| File.file?(File.join(@root, rel)) }
+      end
+    end
+
     # [[path, line_number, text]] for each added line.
     def added_lines
       return files_lines(@files) if @files
@@ -460,6 +493,11 @@ module ReviewStage1
       out = base ? git('diff', '-U0', '--no-color', base) : git('diff', '-U0', '--no-color', 'HEAD')
       lines = parse_diff(out.to_s.scrub)
       lines + untracked.flat_map { |rel| files_lines([ rel ]) }
+    end
+
+    def diff_names
+      out = base ? git('diff', '--name-only', base) : git('diff', '--name-only', 'HEAD')
+      out.to_s.split("\n") + untracked
     end
 
     def untracked = git('ls-files', '--others', '--exclude-standard').to_s.split("\n")
@@ -589,7 +627,7 @@ module ReviewStage1
     # tsc runs when it is installed; ESLint runs only where the repo adopted it.
     def typescript
       Check.new(id: 'typescript', detect: ->(repo) { repo.file?('tsconfig.json') },
-                commands: lambda do |repo|
+                commands: lambda do |repo, _changed|
                   [ repo.tsc_command,
                     (ESLINT if repo.adopted?(:eslint)) ].compact
                 end,
@@ -657,8 +695,16 @@ module ReviewStage1
                 missing: lambda do |_repo, _capture|
                   system('which docker > /dev/null 2>&1') ? nil : 'docker (actionlint and zizmor run as containers)'
                 end,
-                commands: [ "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ACTIONLINT_IMAGE} -color=false",
-                            "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ZIZMOR_IMAGE} --format plain .github/workflows" ])
+                commands: lambda do |_repo, changed|
+                  # Only the workflows this push touches: findings already on the
+                  # base branch are not this push's to fix.
+                  files = changed.paths.grep(WORKFLOW_FILE)
+                  next [] if files.empty?
+
+                  args = files.map { |rel| Shellwords.escape(rel) }.join(' ')
+                  [ "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ACTIONLINT_IMAGE} -color=false #{args}",
+                    "docker run --rm -v \"$PWD\":/repo:ro -w /repo #{ZIZMOR_IMAGE} --format plain #{args}" ]
+                end)
     end
 
     TEST_PLUGINS = {
