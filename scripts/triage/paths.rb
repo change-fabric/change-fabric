@@ -20,5 +20,11 @@ module Triage
     def self.snapshot_file(root = self.root) = File.join(root, 'snapshot.json')
     def self.heartbeat_dir(root = self.root) = File.join(root, 'heartbeat')
     def self.lock_file(root = self.root) = File.join(root, 'publish.lock')
+    def self.tick_lock_file(root = self.root) = File.join(root, 'tick.lock')
+    def self.journal_file(root = self.root) = File.join(root, 'journal.jsonl')
+    def self.limits_file(root = self.root) = File.join(root, 'limits.json')
+    def self.units_dir(root = self.root) = File.join(root, 'units')
+    def self.disabled_dir(root = self.root) = File.join(root, 'disabled')
+    def self.runs_dir(root = self.root) = File.join(root, 'runs')
   end
 end
