@@ -69,14 +69,14 @@ class ProdApprovalGuard
     UNPARSEABLE_MARKERS.any? { |marker| command.include?(marker) } || @event['cwd'].to_s.match?(QUEUE_DIR)
   end
 
-  # Quoted text, here-strings and a trailing comment are consumed before a
-  # heredoc operator can match, so `echo '<<EOF'`, `cat <<< x` and `# <<EOF`
-  # queue no terminator.
-  SHELL_TOKEN = /'[^']*'|"(?:\\.|[^"\\])*"|(?<![^\s;&|(])#.*|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
-  HERESTRING = /<<<[ \t]*'[^']*'/
+  # One left-to-right lexer pass. Escapes, quoted text and a trailing comment
+  # are consumed before an operator can match, so `echo \<<X`, `echo '<<X'`,
+  # `echo "<<<'x'"` and `# <<X` hold no operator. A single-quoted here-string
+  # is the only here-string treated as data.
+  SHELL_TOKEN = /\\.|(<<<[ \t]*'[^']*')|'[^']*'|"(?:\\.|[^"\\])*"|(?<![^\s;&|(])#.*|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\3/
   # A shell anywhere in command position on the line, by name or path
-  # (`bash <<X`, `/bin/bash<<X`, `cat <<X | sh`).
-  SHELL_FEED = %r{(?:\A|[\s;&|(])(?:[^\s;&|()<>]*/)?(?:bash|sh|zsh|dash|ksh|source|eval)(?=[\s<>;&|)]|\z)}
+  # (`bash <<X`, `/bin/bash<<X`, `cat <<X | sh`, `. /dev/stdin <<X`).
+  SHELL_FEED = %r{(?:\A|[\s;&|(])(?:[^\s;&|()<>]*/)?(?:bash|sh|zsh|dash|ksh|source|eval|\.)(?=[\s<>;&|)]|\z)}
 
   # The command with inert stdin data removed. Only text the shell never
   # expands or runs counts as data: a heredoc body under a quoted delimiter
@@ -89,8 +89,11 @@ class ProdApprovalGuard
 
   def command_line(line, pending)
     shell = line.match?(SHELL_FEED)
-    line.scan(SHELL_TOKEN) { |dash, quote, word| pending << { word:, tabs: dash == '-', data: !shell && !quote.empty? } if word }
-    shell ? line : line.gsub(HERESTRING, '<<< _')
+    line.gsub(SHELL_TOKEN) do |token|
+      herestring, dash, quote, word = ::Regexp.last_match.captures
+      pending << { word:, tabs: dash == '-', data: !shell && !quote.empty? } if word
+      herestring && !shell ? '<<< _' : token
+    end
   end
 
   def body_line(line, pending)

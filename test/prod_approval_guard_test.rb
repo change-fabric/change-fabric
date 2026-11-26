@@ -206,6 +206,15 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "cat <<EOF\n$(\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\n)\nEOF"
   end
 
+  def test_escaped_and_quoted_operators_are_not_heredocs_or_here_strings
+    assert_denied "echo \\<<'EOF' || true\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied %(echo "<<<'$(ruby ~/.claude/cf/manual/queue/0016-task.rb)'")
+  end
+
+  def test_a_heredoc_dot_sourced_is_inspected
+    assert_denied ". /dev/stdin <<'EOF'\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\nEOF"
+  end
+
   def test_an_unparseable_queued_script_run_is_denied
     assert_denied "bash ~/.claude/cf/manual/queue/0016-redeploy.sh # it's approved"
   end
