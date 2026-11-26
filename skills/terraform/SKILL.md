@@ -1,6 +1,7 @@
 ---
 name: cf:terraform
 group: rubrics
+review: true
 description: Terraform safe-change rubric. Auto-applied by the cf shim on every Terraform change; also invocable directly.
 auto:
   extensions: [tf, tfvars]

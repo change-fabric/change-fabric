@@ -2,9 +2,13 @@
 # frozen_string_literal: true
 
 require 'open3'
+require 'shellwords'
 require 'yaml'
 require 'json'
 require_relative 'change_process'
+require_relative 'change_config'
+require_relative 'change_env'
+require_relative 'change_trust'
 require_relative 'change_frontmatter'
 require_relative 'plan_check'
 require_relative 'skill_registry'
@@ -97,6 +101,13 @@ module ReviewStage1
       end
     end
 
+    def git_head
+      out, status = Open3.capture2e('git', '-C', root, 'rev-parse', 'HEAD')
+      status.success? ? out.strip : 'HEAD'
+    rescue SystemCallError
+      'HEAD'
+    end
+
     def rails? = file?('config/application.rb') || read('Gemfile.lock').match?(/^\s+rails \(/)
 
     private
@@ -168,9 +179,9 @@ module ReviewStage1
       result(check.id, 'failed', "#{findings.size} finding(s)", findings: findings.first(MAX_FINDINGS))
     end
 
-    def run_commands(id, commands, timeout)
+    def run_commands(id, commands, timeout, env: nil)
       commands.each do |command|
-        outcome = execute(command, timeout)
+        outcome = execute(command, timeout, env)
         return result(id, 'timed_out', "exceeded #{timeout}s", command: command) if outcome.timed_out
         next if outcome.success?
 
@@ -180,8 +191,10 @@ module ReviewStage1
     end
 
     # One command is run once per pass however many rows share it.
-    def execute(command, timeout)
-      @memo[[ command, timeout ]] ||= @runner.call(command, @repo.root, timeout)
+    # `env` is a lane entry's restricted environment; without it the runner
+    # keeps its own default (the fixed lint and manifest commands).
+    def execute(command, timeout, env = nil)
+      @memo[[ command, timeout, env ]] ||= env ? @runner.call(command, @repo.root, timeout, env) : @runner.call(command, @repo.root, timeout)
     end
 
     def capture(command) = execute(command, @timeout)
@@ -191,7 +204,7 @@ module ReviewStage1
       return result('tests', 'not_applicable', 'no command lane and no test script in a manifest') if commands.empty?
 
       commands.each do |entry|
-        outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout])
+        outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env])
         return outcome unless outcome.status == 'passed'
       end
       result('tests', 'passed', "#{commands.size} command(s) from #{source}")
@@ -211,8 +224,8 @@ module ReviewStage1
       Result.new(id: id, status: status, detail: detail, command: command, findings: findings)
     end
 
-    def spawn_command(command, root, timeout)
-      ChangeProcess.run(command, env: ENV.to_h, chdir: root, timeout: timeout, grace: 2)
+    def spawn_command(command, root, timeout, env = ENV.to_h)
+      ChangeProcess.run(command, env: env, chdir: root, timeout: timeout, grace: 2)
     end
   end
 
@@ -228,16 +241,33 @@ module ReviewStage1
       [ manifest, 'manifest' ]
     end
 
+    # Command lane entries run on the host, so they get the lane's own guards:
+    # only an entry whose definition equals the base branch's (or one a human
+    # cleared for this commit) runs, and it runs with the lane's restricted
+    # environment. An untrusted or unverifiable entry is dropped, never run.
     def lane_entries(repo, timeout)
       return [] unless repo.file?('CHANGE.md')
 
-      section = ChangeFrontmatter.parse_file(File.join(repo.root, 'CHANGE.md')).dig('change_config', 'lanes', 'command')
-      return [] unless section.is_a?(Hash) && section['enabled'] != false
+      config = ChangeConfig.load(File.join(repo.root, 'CHANGE.md'))
+      section = config.lane('command')
+      return [] unless config.enabled_lanes.include?('command')
 
+      trust = lane_trust(repo, config)
       Array(section['commands']).select { |entry| entry.is_a?(Hash) && entry['run'] && entry['profiles'].nil? }
-                                .map { |entry| { name: entry['name'].to_s, run: entry['run'], timeout: entry['timeout_seconds'] || timeout } }
+                                .select { |entry| trust.trusted?("command:#{entry['name']}") }
+                                .map { |entry| lane_entry(entry, timeout) }
     rescue StandardError
       []
+    end
+
+    def lane_entry(entry, timeout)
+      env = ChangeEnv.build(declared: Array(entry['env']), env_file_values: {}).env
+      { name: entry['name'].to_s, run: entry['run'], timeout: entry['timeout_seconds'] || timeout, env: env }
+    end
+
+    def lane_trust(repo, config)
+      ChangeTrust.evaluate(root: repo.root, head_sha: repo.git_head, fetch: false,
+                           head_definitions: ChangeTrust.step_definitions(config))
     end
 
     def manifest_entries(repo, timeout)
@@ -349,11 +379,37 @@ module ReviewStage1
       [ typescript, javascript, react, rails, ruby, github_actions, js_testing, vite_secret, glyph ]
     end
 
+    # Judged on ESLint's effective rule settings for a real source file, so a
+    # rule switched off is not mistaken for one that is on. Without a source file
+    # or a readable `--print-config`, the rule name appearing in the config is
+    # the fallback.
     def eslint_missing(*needles, hint:)
-      lambda do |repo, _capture|
-        absent = needles.reject { |needle| repo.eslint_config.include?(needle) }
+      lambda do |repo, capture|
+        rules = effective_eslint_rules(repo, capture)
+        absent = needles.reject { |needle| eslint_rule_on?(repo, rules, needle) }
         absent.empty? ? nil : "eslint config lacks #{absent.join(', ')}; #{hint}"
       end
+    end
+
+    def eslint_rule_on?(repo, rules, name)
+      return repo.eslint_config.include?(name) if rules.nil?
+
+      setting = rules[name]
+      severity = setting.is_a?(Array) ? setting.first : setting
+      [ 1, 2, 'warn', 'error' ].include?(severity)
+    end
+
+    def effective_eslint_rules(repo, capture)
+      file = repo.sources(SOURCE_EXTENSIONS, limit: 1).first
+      return nil unless file
+
+      shown = capture.call("npx --no-install eslint --print-config #{Shellwords.escape(file)}")
+      return nil unless shown.success?
+
+      rules = JSON.parse(shown.output[/\{.*\}/m].to_s)['rules']
+      rules.is_a?(Hash) ? rules : nil
+    rescue JSON::ParserError
+      nil
     end
 
     def typescript
@@ -376,9 +432,15 @@ module ReviewStage1
 
     def react
       Check.new(id: 'react', commands: [ ESLINT ], detect: ->(repo) { repo.dep?('react') },
-                missing: lambda do |repo, _capture|
-                  config = repo.eslint_config
-                  next nil if config.include?('react-hooks') && (config.include?('exhaustive-deps') || config.match?(/recommended/))
+                missing: lambda do |repo, capture|
+                  rules = effective_eslint_rules(repo, capture)
+                  if rules
+                    hooks = %w[react-hooks/rules-of-hooks react-hooks/exhaustive-deps]
+                    next nil if hooks.all? { |name| eslint_rule_on?(repo, rules, name) }
+                  else
+                    config = repo.eslint_config
+                    next nil if config.include?('react-hooks') && (config.include?('exhaustive-deps') || config.match?(/recommended/))
+                  end
 
                   'eslint config lacks eslint-plugin-react-hooks (rules-of-hooks and exhaustive-deps)'
                 end)
@@ -446,6 +508,9 @@ module ReviewStage1
     def glyph
       Check.new(id: 'glyph', detect: ->(_repo) { true },
                 native: lambda do |_repo, changed:|
+                  # The same escape hatch GlyphGuard honors for downstream product copy.
+                  next [] if ENV['CF_ALLOW_GLYPH'] == '1'
+
                   changed.added_lines.filter_map do |path, number, text|
                     next if path.split('/').include?('fixtures') || !text.match?(PlanCheck::GLYPHS)
 

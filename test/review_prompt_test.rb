@@ -64,4 +64,13 @@ class ReviewPromptTest < Minitest::Test
     assert_includes ReviewPrompt.cap_notice(3), "Round cap (#{ReviewQueue::CAP})"
     assert_includes ReviewPrompt.cap_notice(3), "3 file(s)"
   end
+
+  # Stage 2 keeps only opted-in rubrics, so the judgment rubrics that no stage 1
+  # linter replaces must carry `review: true` in the shipped registry.
+  def test_shipped_judgment_rubrics_opt_in_to_the_review
+    shipped = SkillRegistry.load(File.expand_path("../skills", __dir__)).to_h { |skill| [ skill.name, skill ] }
+    %w[cf:oauth-jwt cf:terraform cf:postgres-sql cf:docker cf:nextjs].each do |name|
+      assert_predicate shipped.fetch(name), :review?, "#{name} must opt in to the stage 2 review"
+    end
+  end
 end

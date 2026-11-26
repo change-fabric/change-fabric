@@ -1,6 +1,7 @@
 ---
 name: cf:laravel
 group: rubrics
+review: true
 description: Laravel convention-first rubric for validation, authorization, Eloquent safety, queues, and config. Auto-applied by the cf shim on every PHP change in a Laravel project; also invocable directly.
 auto:
   extensions: [php]
