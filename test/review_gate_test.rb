@@ -196,4 +196,17 @@ class ReviewGateTest < Minitest::Test
     reason = gate("git push", cwd: Dir.pwd, stage1: ->(_root) { report("passed") }).dig("hookSpecificOutput", "permissionDecisionReason")
     refute_includes reason, "SHOULD-NOT-APPEAR"
   end
+
+  def test_stage1_runs_in_the_directory_a_leading_cd_names
+    other = File.realpath(Dir.mktmpdir)
+    system("git", "-C", other, "init", "-q", out: File::NULL)
+    seen = nil
+    gate("cd #{other} && git push", cwd: Dir.pwd, stage1: ->(root) { seen = root; nil })
+    assert_equal other, seen
+    seen = nil
+    gate("cd /no/such/dir && git push", cwd: Dir.pwd, stage1: ->(root) { seen = root; nil })
+    assert_equal ReviewScope.repo_root(Dir.pwd), seen, "an unusable cd target falls back to the cwd"
+  ensure
+    FileUtils.remove_entry(other)
+  end
 end

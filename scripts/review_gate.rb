@@ -70,8 +70,22 @@ class ReviewGate
   end
 
   def stage1_report
-    root = ReviewScope.repo_root(@event['cwd'].to_s) unless @event['cwd'].to_s.empty?
+    dir = push_directory
+    root = ReviewScope.repo_root(dir) unless dir.empty?
     root && @stage1.call(root)
+  end
+
+  LEADING_CD = /\A\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)/
+
+  # The directory the push runs in: a leading `cd X &&` (or `;`) moves it off the
+  # event cwd. An unusable target falls back to the cwd.
+  def push_directory
+    cwd = @event['cwd'].to_s
+    target = command[LEADING_CD, 1]&.gsub(/\A["']|["']\z/, '')
+    return cwd unless target
+
+    dir = File.expand_path(target, cwd.empty? ? Dir.pwd : cwd)
+    File.directory?(dir) ? dir : cwd
   end
 
   def registry = @skills ||= SkillRegistry.load

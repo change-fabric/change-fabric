@@ -179,13 +179,13 @@ module ReviewStage1
       result(check.id, 'failed', "#{findings.size} finding(s)", findings: findings.first(MAX_FINDINGS))
     end
 
-    def run_commands(id, commands, timeout, env: nil)
+    def run_commands(id, commands, timeout, env: nil, mask: nil)
       commands.each do |command|
         outcome = execute(command, timeout, env)
         return result(id, 'timed_out', "exceeded #{timeout}s", command: command) if outcome.timed_out
         next if outcome.success?
 
-        return result(id, 'failed', "exit #{outcome.exit_code}", command: command, findings: findings_of(outcome.output))
+        return result(id, 'failed', "exit #{outcome.exit_code}", command: command, findings: findings_of(mask ? mask.call(outcome.output) : outcome.output))
       end
       result(id, 'passed', "ran #{commands.size} command(s)", command: commands.join(' && '))
     end
@@ -204,7 +204,11 @@ module ReviewStage1
       return result('tests', 'not_applicable', 'no command lane and no test script in a manifest') if commands.empty?
 
       commands.each do |entry|
-        outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env])
+        if entry[:missing]
+          return result("tests:#{entry[:name]}", 'unavailable', "declared env not set: #{entry[:missing].join(', ')}", command: entry[:run])
+        end
+
+        outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env], mask: entry[:mask])
         return outcome unless outcome.status == 'passed'
       end
       result('tests', 'passed', "#{commands.size} command(s) from #{source}")
@@ -260,9 +264,14 @@ module ReviewStage1
       []
     end
 
+    # A declared variable that is unset is reported, never dropped: the entry
+    # carries `missing` and stage 1 turns it into an `unavailable` result.
     def lane_entry(entry, timeout)
-      env = ChangeEnv.build(declared: Array(entry['env']), env_file_values: {}).env
-      { name: entry['name'].to_s, run: entry['run'], timeout: entry['timeout_seconds'] || timeout, env: env }
+      base = { name: entry['name'].to_s, run: entry['run'], timeout: entry['timeout_seconds'] || timeout }
+      resolved = ChangeEnv.build(declared: Array(entry['env']), env_file_values: {})
+      base.merge(env: resolved.env, mask: resolved.masker)
+    rescue ChangeEnv::MissingVariables => e
+      base.merge(missing: e.names)
     end
 
     def lane_trust(repo, config)

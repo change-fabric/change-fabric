@@ -365,4 +365,30 @@ class ReviewStage1Test < Minitest::Test
     on = { "no-var" => [ "error" ], "eqeqeq" => [ 2, "always" ], "prefer-const" => "warn" }
     refute_equal "unavailable", result(run_stage1(dir, tools: PrintConfigTools.new(on)), "javascript").status
   end
+
+  def secret_lane(extra_env)
+    "---\nchange_config:\n  lanes:\n    command:\n      enabled: true\n      commands:\n      - name: unit\n        run: make check\n        " \
+      "timeout_seconds: 60\n        env: [CF_TEST_TOKEN]\n---\nbody\n#{extra_env}"
+  end
+
+  def test_declared_secrets_are_masked_in_reported_output
+    dir = tmpdir
+    base_trusted(dir, secret_lane(""))
+    leaking = ->(_command, _root, _timeout, _env = nil) { Outcome.new(:fail, 1, "spec.rb:3: token s3cr3t-value-123 rejected", false) }
+    report = with_env("CF_TEST_TOKEN" => "s3cr3t-value-123") { ReviewStage1.run(dir, runner: leaking) }
+    row = result(report, "tests:unit")
+    assert_equal "failed", row.status
+    refute_includes row.findings.join, "s3cr3t-value-123"
+    assert_includes row.findings.join, "***CF_TEST_TOKEN***"
+  end
+
+  def test_an_unset_declared_variable_is_unavailable_not_an_empty_lane
+    dir = tmpdir
+    base_trusted(dir, secret_lane(""))
+    report = with_env("CF_TEST_TOKEN" => nil) { ReviewStage1.run(dir, runner: Tools.new) }
+    row = result(report, "tests:unit")
+    assert_equal "unavailable", row.status
+    assert_includes row.detail, "CF_TEST_TOKEN"
+    assert_predicate report, :blocking?
+  end
 end
