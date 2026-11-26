@@ -187,7 +187,7 @@ class ProdApprovalGuardTest < Minitest::Test
   def test_command_substitutions_in_unquoted_heredocs_and_here_strings_are_inspected
     assert_denied "cat <<EOF\n$(ruby change_prod_approve.rb 1234)\nEOF"
     assert_denied "cat <<< \"$(ruby change_prod_approve.rb 1234)\""
-    assert_allowed "cat <<'EOF' > notes.txt\n$(ruby change_prod_approve.rb 1234)\nEOF"
+    assert_allowed "cat <<'EOF' > notes.txt\n$(gh api -X PUT repos/o/r/git/refs/cf-prod/lock)\nEOF"
   end
 
   def test_a_heredoc_piped_into_a_shell_is_inspected
@@ -209,6 +209,14 @@ class ProdApprovalGuardTest < Minitest::Test
   def test_escaped_and_quoted_operators_are_not_heredocs_or_here_strings
     assert_denied "echo \\<<'EOF' || true\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_denied %(echo "<<<'$(ruby ~/.claude/cf/manual/queue/0016-task.rb)'")
+  end
+
+  def test_a_quoted_body_naming_an_execution_path_is_inspected
+    assert_denied "python3 - <<'EOF'\nimport os\nos.system(\"bash ~/.claude/cf/manual/queue/0016-redeploy.sh\")\nEOF"
+  end
+
+  def test_an_unclassifiable_delimiter_keeps_the_rest
+    assert_denied "cat <<'END'_DATA\nhello\nEND_DATA\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh"
   end
 
   def test_a_heredoc_dot_sourced_is_inspected

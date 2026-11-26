@@ -73,7 +73,12 @@ class ProdApprovalGuard
   # are consumed before an operator can match, so `echo \<<X`, `echo '<<X'`,
   # `echo "<<<'x'"` and `# <<X` hold no operator. A single-quoted here-string
   # is the only here-string treated as data.
-  SHELL_TOKEN = /\\.|(<<<[ \t]*'[^']*')|'[^']*'|"(?:\\.|[^"\\])*"|(?<![^\s;&|(])#.*|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\3/
+  # A delimiter followed by more word characters (`'END'_DATA`) cannot be
+  # classified, so its trailing text is captured and the rest is kept.
+  SHELL_TOKEN = /\\.|(<<<[ \t]*'[^']*')|'[^']*'|"(?:\\.|[^"\\])*"|(?<![^\s;&|(])#.*|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\3([^\s;&|<>()]*)/
+  # Names that run something when a body is code for any interpreter: a
+  # quoted-delimiter body naming one is inspected, not dropped.
+  EXECUTION_MARKERS = [ APPROVE_CLI, 'approval_console.rb', 'cf_run_approved.rb', 'manual/queue' ].freeze
   # A shell anywhere in command position on the line, by name or path
   # (`bash <<X`, `/bin/bash<<X`, `cat <<X | sh`, `. /dev/stdin <<X`).
   SHELL_FEED = %r{(?:\A|[\s;&|(])(?:[^\s;&|()<>]*/)?(?:bash|sh|zsh|dash|ksh|source|eval|\.)(?=[\s<>;&|)]|\z)}
@@ -90,8 +95,8 @@ class ProdApprovalGuard
   def command_line(line, pending)
     shell = line.match?(SHELL_FEED)
     line.gsub(SHELL_TOKEN) do |token|
-      herestring, dash, quote, word = ::Regexp.last_match.captures
-      pending << { word:, tabs: dash == '-', data: !shell && !quote.empty? } if word
+      herestring, dash, quote, word, rest = ::Regexp.last_match.captures
+      pending << (rest.empty? ? { word:, tabs: dash == '-', data: !shell && !quote.empty? } : { word: nil, data: false }) if word
       herestring && !shell ? '<<< _' : token
     end
   end
@@ -100,6 +105,7 @@ class ProdApprovalGuard
     heredoc = pending.first
     return pending.shift && nil if (heredoc[:tabs] ? line.sub(/\A\t+/, '') : line) == heredoc[:word]
 
+    heredoc[:data] = false if EXECUTION_MARKERS.any? { |marker| line.include?(marker) }
     line unless heredoc[:data]
   end
 
