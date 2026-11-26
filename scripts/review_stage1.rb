@@ -92,6 +92,16 @@ module ReviewStage1
 
     def dep?(name) = deps.include?(name)
 
+    # The compiler through whatever install the repo uses: Yarn Plug'n'Play,
+    # a node_modules shim, or a declared dependency. A declared compiler that
+    # is not installed then fails the command instead of skipping the row.
+    def tsc_command
+      return 'yarn tsc --noEmit' if file?('.pnp.cjs')
+      return 'npx --no-install tsc --noEmit' if file?('node_modules/.bin/tsc') || dep?('typescript')
+
+      nil
+    end
+
     def own_manifest?(path) = (path.delete_prefix("#{root}/").split('/') & SKIP_DIRS).empty?
 
     # Every file under root with one of the extensions, dot dirs and
@@ -580,7 +590,7 @@ module ReviewStage1
     def typescript
       Check.new(id: 'typescript', detect: ->(repo) { repo.file?('tsconfig.json') },
                 commands: lambda do |repo|
-                  [ ('npx --no-install tsc --noEmit' if repo.file?('node_modules/.bin/tsc')),
+                  [ repo.tsc_command,
                     (ESLINT if repo.adopted?(:eslint)) ].compact
                 end,
                 missing: lambda do |repo, capture|

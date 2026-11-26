@@ -122,6 +122,23 @@ class ReviewStage1Test < Minitest::Test
     assert_includes result(run_stage1(dir), "typescript").detail, "recommended-type-checked"
   end
 
+  def test_typescript_compiles_through_yarn_pnp
+    assert_includes tsc_calls(".pnp.cjs" => ""), "yarn tsc --noEmit"
+  end
+
+  def test_typescript_compiles_through_a_declared_dependency
+    package = %({ "devDependencies": { "typescript": "5.6.3" } })
+    assert_includes tsc_calls("package.json" => package), "npx --no-install tsc --noEmit"
+  end
+
+  def tsc_calls(files)
+    dir = copy_fixture("ts_any")
+    files.each { |name, body| File.write(File.join(dir, name), body) }
+    tools = Tools.new
+    run_stage1(dir, tools: tools)
+    tools.calls
+  end
+
   def test_react_without_hooks_plugin_is_unavailable
     dir = copy_fixture("react_hooks")
     File.write(File.join(dir, "eslint.config.mjs"), "export default [];\n")
