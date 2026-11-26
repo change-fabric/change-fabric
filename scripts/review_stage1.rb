@@ -3,6 +3,7 @@
 
 require 'open3'
 require 'shellwords'
+require 'pathname'
 require 'yaml'
 require 'json'
 require_relative 'change_process'
@@ -35,12 +36,15 @@ module ReviewStage1
   # Constant until the unified loop caps land (config/loop_caps.yml).
   DEFAULT_TIMEOUT = 300
   MAX_FINDINGS = 20
-  SKIP_DIRS = %w[node_modules vendor tmp dist build coverage log].freeze
+  SKIP_DIRS = %w[node_modules vendor tmp dist build coverage log fixtures].freeze
   JS_EXTENSIONS = %w[js mjs cjs jsx].freeze
   SOURCE_EXTENSIONS = %w[js mjs cjs jsx ts tsx mts vue svelte html].freeze
   ACTIONLINT_IMAGE = 'rhysd/actionlint:1.7.7'
   ZIZMOR_IMAGE = 'ghcr.io/zizmorcore/zizmor:1.5.2'
-  ESLINT = 'npx --no-install eslint .'
+  # Warnings block too: a rule accepted as an enforcer at warn level must fail the run.
+  ESLINT = 'npx --no-install eslint . --max-warnings 0'
+  TS_EXTENSIONS = %w[ts tsx mts cts].freeze
+  NPM_PLACEHOLDER_TEST = /no test specified/
   RUBOCOP = 'bundle exec rubocop --format emacs'
 
   Result = Struct.new(:id, :status, :detail, :command, :findings, keyword_init: true) do
@@ -80,10 +84,14 @@ module ReviewStage1
     def glob(pattern) = Dir.glob(File.join(root, pattern)).map { |path| path.delete_prefix("#{root}/") }
 
     def deps
-      @deps ||= SkillRegistry.manifests(root).filter_map { |path| SkillRegistry.dep_keys(path) }.flatten.uniq
+      # Fixture, vendored and build-output manifests are not the repo's own stack.
+      @deps ||= SkillRegistry.manifests(root).reject { |path| own_manifest?(path) == false }
+                             .filter_map { |path| SkillRegistry.dep_keys(path) }.flatten.uniq
     end
 
     def dep?(name) = deps.include?(name)
+
+    def own_manifest?(path) = (path.delete_prefix("#{root}/").split('/') & SKIP_DIRS).empty?
 
     # Every file under root with one of the extensions, dot dirs and
     # dependency dirs pruned. Capped so a huge tree cannot stall a hook.
@@ -98,6 +106,16 @@ module ReviewStage1
         files = glob('eslint.config.*') + glob('.eslintrc*')
         text = files.map { |rel| read(rel) }.join("\n")
         text + eslint_in_package
+      end
+    end
+
+    # Whether the repo has opted into a tool: its config file or declared
+    # dependency exists. A repo that never adopted a tool is not denied for it.
+    def adopted?(tool)
+      case tool
+      when :eslint then !eslint_config.strip.empty? || dep?('eslint')
+      when :rubocop then file?('.rubocop.yml') || %w[Gemfile Gemfile.lock].any? { |rel| read(rel).match?(/\brubocop\b/) }
+      else true
       end
     end
 
@@ -137,10 +155,63 @@ module ReviewStage1
     end
   end
 
+  # Resolves compilerOptions.strict through a tsconfig `extends` chain: relative
+  # files and packages under node_modules, an array of bases (later wins).
+  # Returns [value, error]; error names what could not be resolved.
+  module TsConfig
+    MAX_DEPTH = 10
+    module_function
+
+    def strict(repo, rel = 'tsconfig.json', seen = [])
+      return [ nil, "tsconfig extends chain is cyclic or deeper than #{MAX_DEPTH} at #{rel}" ] if seen.include?(rel) || seen.size > MAX_DEPTH
+
+      data = parse(repo.read(rel))
+      return [ nil, "#{rel} is not readable JSON" ] unless data.is_a?(Hash)
+
+      own = data.dig('compilerOptions', 'strict') if data['compilerOptions'].is_a?(Hash)
+      return [ own, nil ] unless own.nil?
+
+      inherit(repo, rel, Array(data['extends']), seen)
+    end
+
+    def inherit(repo, rel, bases, seen)
+      value = nil
+      bases.each do |ref|
+        path = locate(repo, rel, ref.to_s)
+        return [ nil, "cannot resolve tsconfig extends #{ref.inspect} from #{rel} (install dependencies)" ] unless path
+
+        found, error = strict(repo, path, seen + [ rel ])
+        return [ nil, error ] if error
+
+        value = found unless found.nil?
+      end
+      [ value, nil ]
+    end
+
+    def parse(text)
+      plain = text.gsub(%r{("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/}m) { Regexp.last_match(1) || '' }
+      JSON.parse(plain.gsub(/,(\s*[}\]])/, '\1'))
+    rescue JSON::ParserError
+      nil
+    end
+
+    def locate(repo, rel, ref)
+      here = File.dirname(rel)
+      candidates = ref.start_with?('.') ? [ File.join(here, ref) ] : ancestors(here).map { |dir| File.join(dir, 'node_modules', ref) }
+      candidates.flat_map { |base| [ base, "#{base}.json", File.join(base, 'tsconfig.json') ] }
+                .map { |path| Pathname.new(path).cleanpath.to_s }
+                .find { |path| !path.start_with?('..') && repo.file?(path) }
+    end
+
+    def ancestors(dir)
+      dir == '.' ? [ '.' ] : [ dir ] + ancestors(File.dirname(dir))
+    end
+  end
+
   # One row of the migration table. `commands` run in order through the runner;
   # `native` replaces them with an in-process scan. `missing` returns the exact
   # config to add, or nil when the enforcer is in place.
-  Check = Struct.new(:id, :detect, :missing, :commands, :native, keyword_init: true)
+  Check = Struct.new(:id, :detect, :missing, :commands, :native, :tool, keyword_init: true)
 
   # Runs one stage 1 pass over a repo root.
   class Run
@@ -165,11 +236,18 @@ module ReviewStage1
     def run_check(check)
       return result(check.id, 'not_applicable', 'no matching stack source or manifest') unless check.detect.call(@repo)
 
+      if check.tool && !@repo.adopted?(check.tool)
+        return result(check.id, 'not_applicable', "#{check.tool} is not adopted here (no config, no dependency)")
+      end
+
       gap = check.missing&.call(@repo, method(:capture))
       return result(check.id, 'unavailable', "missing enforcer: #{gap}") if gap
       return native(check) if check.native
 
-      run_commands(check.id, check.commands, @timeout)
+      commands = check.commands.respond_to?(:call) ? check.commands.call(@repo) : check.commands
+      return result(check.id, 'not_applicable', 'no tool installed or configured to run here') if commands.empty?
+
+      run_commands(check.id, commands, @timeout)
     end
 
     def native(check)
@@ -287,12 +365,12 @@ module ReviewStage1
     end
 
     def entry(name, run, timeout) = { name: name, run: run, timeout: timeout }
-    def rake_test?(repo) = repo.file?('Rakefile') && repo.read('Rakefile').match?(/test/i)
-    def js_runner(repo) = repo.file?('pnpm-lock.yaml') ? 'pnpm test' : 'npm test'
+    def rake_test?(repo) = repo.file?('Rakefile') && repo.read('Rakefile').match?(%r{Rake::TestTask|task\s*\(?\s*:test\b|load_tasks|rails/test})
+    def js_runner(repo) = repo.file?('pnpm-lock.yaml') ? 'pnpm test' : (repo.file?('yarn.lock') ? 'yarn test' : 'npm test')
 
     def js_test_script?(repo)
       scripts = JSON.parse(repo.read('package.json'))['scripts']
-      scripts.is_a?(Hash) && scripts.key?('test')
+      scripts.is_a?(Hash) && scripts['test'].to_s.strip != '' && !scripts['test'].to_s.match?(NPM_PLACEHOLDER_TEST)
     rescue JSON::ParserError, TypeError
       false
     end
@@ -394,7 +472,7 @@ module ReviewStage1
     # the fallback.
     def eslint_missing(*needles, hint:)
       lambda do |repo, capture|
-        rules = effective_eslint_rules(repo, capture)
+        rules = effective_eslint_rules(repo, capture, JS_EXTENSIONS)
         absent = needles.reject { |needle| eslint_rule_on?(repo, rules, needle) }
         absent.empty? ? nil : "eslint config lacks #{absent.join(', ')}; #{hint}"
       end
@@ -408,8 +486,8 @@ module ReviewStage1
       [ 1, 2, 'warn', 'error' ].include?(severity)
     end
 
-    def effective_eslint_rules(repo, capture)
-      file = repo.sources(SOURCE_EXTENSIONS, limit: 1).first
+    def effective_eslint_rules(repo, capture, extensions)
+      file = repo.sources(extensions, limit: 1).first
       return nil unless file
 
       shown = capture.call("npx --no-install eslint --print-config #{Shellwords.escape(file)}")
@@ -421,28 +499,39 @@ module ReviewStage1
       nil
     end
 
-    def typescript
-      Check.new(id: 'typescript', detect: ->(repo) { repo.file?('tsconfig.json') }, commands: [ 'npx --no-install tsc --noEmit', ESLINT ],
-                missing: lambda do |repo, _capture|
-                  next 'tsconfig.json: set compilerOptions.strict to true' unless repo.read('tsconfig.json').match?(/"strict"\s*:\s*true/)
+    TYPE_CHECKED_RULE = '@typescript-eslint/no-floating-promises'
 
-                  config = repo.eslint_config
-                  next nil if config.match?(/recommended-type-checked|recommendedTypeChecked/)
+    # tsc runs when it is installed; ESLint runs only where the repo adopted it.
+    def typescript
+      Check.new(id: 'typescript', detect: ->(repo) { repo.file?('tsconfig.json') },
+                commands: lambda do |repo|
+                  [ ('npx --no-install tsc --noEmit' if repo.file?('node_modules/.bin/tsc')),
+                    (ESLINT if repo.adopted?(:eslint)) ].compact
+                end,
+                missing: lambda do |repo, capture|
+                  strict, error = TsConfig.strict(repo)
+                  next error if error
+                  next 'tsconfig.json: set compilerOptions.strict to true (directly or through extends)' unless strict == true
+                  next nil unless repo.adopted?(:eslint)
+
+                  rules = effective_eslint_rules(repo, capture, TS_EXTENSIONS)
+                  type_checked = rules ? eslint_rule_on?(repo, rules, TYPE_CHECKED_RULE) : repo.eslint_config.match?(/recommended-type-checked|recommendedTypeChecked/)
+                  next nil if type_checked
 
                   'eslint config lacks typescript-eslint recommended-type-checked (tseslint.configs.recommendedTypeChecked)'
                 end)
     end
 
     def javascript
-      Check.new(id: 'javascript', commands: [ ESLINT ],
+      Check.new(id: 'javascript', tool: :eslint, commands: [ ESLINT ],
                 detect: ->(repo) { repo.file?('package.json') || !repo.sources(JS_EXTENSIONS, limit: 1).empty? },
                 missing: eslint_missing('no-var', 'eqeqeq', 'prefer-const', hint: 'enable the rules no-var, eqeqeq and prefer-const'))
     end
 
     def react
-      Check.new(id: 'react', commands: [ ESLINT ], detect: ->(repo) { repo.dep?('react') },
+      Check.new(id: 'react', tool: :eslint, commands: [ ESLINT ], detect: ->(repo) { repo.dep?('react') },
                 missing: lambda do |repo, capture|
-                  rules = effective_eslint_rules(repo, capture)
+                  rules = effective_eslint_rules(repo, capture, %w[jsx tsx js ts])
                   if rules
                     hooks = %w[react-hooks/rules-of-hooks react-hooks/exhaustive-deps]
                     next nil if hooks.all? { |name| eslint_rule_on?(repo, rules, name) }
@@ -456,13 +545,13 @@ module ReviewStage1
     end
 
     def rails
-      Check.new(id: 'rails', commands: [ RUBOCOP ], detect: ->(repo) { repo.rails? },
+      Check.new(id: 'rails', tool: :rubocop, commands: [ RUBOCOP ], detect: ->(repo) { repo.rails? },
                 missing: cops_enabled(%w[Rails/FindBy], hint: 'require rubocop-rails in .rubocop.yml and keep its cops enabled'))
     end
 
     def ruby
       cops = %w[Metrics/ClassLength Metrics/MethodLength Metrics/ParameterLists]
-      Check.new(id: 'ruby', commands: [ RUBOCOP ], detect: ->(repo) { repo.file?('Gemfile') },
+      Check.new(id: 'ruby', tool: :rubocop, commands: [ RUBOCOP ], detect: ->(repo) { repo.file?('Gemfile') },
                 missing: cops_enabled(cops, hint: 'enable these cops in .rubocop.yml (Enabled: true)'))
     end
 
@@ -494,14 +583,14 @@ module ReviewStage1
     }.freeze
 
     def js_testing
-      Check.new(id: 'js_testing', commands: [ ESLINT ], detect: ->(repo) { TEST_PLUGINS.keys.any? { |dep| repo.dep?(dep) } },
+      Check.new(id: 'js_testing', tool: :eslint, commands: [ ESLINT ], detect: ->(repo) { TEST_PLUGINS.keys.any? { |dep| repo.dep?(dep) } },
                 missing: lambda do |repo, _capture|
                   absent = TEST_PLUGINS.select { |dep, names| repo.dep?(dep) && names.none? { |name| repo.eslint_config.include?(name) } }
                   absent.empty? ? nil : "eslint config lacks #{absent.values.map(&:first).join(', ')} (recommended)"
                 end)
     end
 
-    VITE_SECRET = /VITE_\w*(SECRET|KEY|TOKEN)/
+    VITE_SECRET = /VITE_(?!\w*(?:PUBLIC|PUBLISHABLE|ANON))\w*(SECRET|KEY|TOKEN)/
 
     def vite_secret
       Check.new(id: 'vite_secret', detect: ->(repo) { !repo.glob('vite.config.*').empty? },

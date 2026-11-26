@@ -391,4 +391,126 @@ class ReviewStage1Test < Minitest::Test
     assert_includes row.detail, "CF_TEST_TOKEN"
     assert_predicate report, :blocking?
   end
+
+  def write(dir, rel, text)
+    FileUtils.mkdir_p(File.dirname(File.join(dir, rel)))
+    File.write(File.join(dir, rel), text)
+  end
+
+  # This repo has TypeScript and JavaScript but never adopted ESLint, so those
+  # rows must not deny its own pushes. rubocop is the real one, run in-tree.
+  def test_stage1_on_this_repos_own_tree_is_not_blocked_by_missing_eslint
+    root = File.expand_path("..", __dir__)
+    report = ReviewStage1.run(root, runner: Tools.new, files: [])
+    %w[typescript javascript react js_testing vite_secret].each do |id|
+      refute_includes ReviewStage1::BLOCKING, result(report, id).status, "#{id}: #{result(report, id).detail}"
+    end
+    assert_equal "passed", result(report, "ruby").status, result(report, "ruby").detail
+  end
+
+  def test_a_repo_that_never_adopted_eslint_is_not_denied_for_it
+    dir = tmpdir
+    write(dir, "package.json", "{}")
+    write(dir, "src/a.js", "var x = 1\n")
+    report = run_stage1(dir)
+    assert_equal "not_applicable", result(report, "javascript").status
+  end
+
+  def test_a_declared_eslint_with_no_config_is_unavailable
+    dir = tmpdir
+    write(dir, "package.json", '{ "devDependencies": { "eslint": "^9" } }')
+    write(dir, "src/a.js", "var x = 1\n")
+    assert_equal "unavailable", result(run_stage1(dir), "javascript").status
+  end
+
+  def test_eslint_runs_with_a_zero_warning_budget
+    tools = Tools.new
+    run_stage1(copy_fixture("js_var"), tools: tools)
+    assert(tools.calls.any? { |call| call.include?("eslint . --max-warnings 0") })
+  end
+
+  def ts_repo(files)
+    dir = tmpdir
+    write(dir, "package.json", "{}")
+    write(dir, "eslint.config.mjs", "export default [{ rules: { '@typescript-eslint/no-floating-promises': 'error' } }]; // recommendedTypeChecked\n")
+    write(dir, "src/a.ts", "export const a = 1\n")
+    files.each { |rel, text| write(dir, rel, text) }
+    dir
+  end
+
+  def ts_status(dir) = result(run_stage1(dir), "typescript")
+
+  def test_tsconfig_strict_through_a_relative_extends
+    dir = ts_repo("tsconfig.json" => '{ "extends": "./base.json" }', "base.json" => "{ // c\n \"compilerOptions\": { \"strict\": true, }, }")
+    refute_equal "unavailable", ts_status(dir).status
+  end
+
+  def test_tsconfig_strict_through_a_package_extends
+    dir = ts_repo("tsconfig.json" => '{ "extends": "@tsconfig/node20/tsconfig.json" }',
+                  "node_modules/@tsconfig/node20/tsconfig.json" => '{ "compilerOptions": { "strict": true } }')
+    refute_equal "unavailable", ts_status(dir).status
+    write(dir, "tsconfig.json", '{ "extends": "@tsconfig/node20" }')
+    refute_equal "unavailable", ts_status(dir).status, "a bare package name resolves to its tsconfig.json"
+  end
+
+  def test_a_local_strict_false_overrides_an_inherited_strict
+    dir = ts_repo("tsconfig.json" => '{ "extends": "./base.json", "compilerOptions": { "strict": false } }',
+                  "base.json" => '{ "compilerOptions": { "strict": true } }')
+    assert_equal "unavailable", ts_status(dir).status
+  end
+
+  def test_an_extends_array_lets_the_later_base_win
+    dir = ts_repo("tsconfig.json" => '{ "extends": ["./a.json", "./b.json"] }', "a.json" => '{ "compilerOptions": { "strict": false } }',
+                  "b.json" => '{ "compilerOptions": { "strict": true } }')
+    refute_equal "unavailable", ts_status(dir).status
+  end
+
+  def test_an_unresolvable_or_cyclic_extends_is_unavailable_with_the_reason
+    dir = ts_repo("tsconfig.json" => '{ "extends": "@tsconfig/missing/tsconfig.json" }')
+    row = ts_status(dir)
+    assert_equal "unavailable", row.status
+    assert_includes row.detail, "cannot resolve tsconfig extends"
+    write(dir, "tsconfig.json", '{ "extends": "./loop.json" }')
+    write(dir, "loop.json", '{ "extends": "./tsconfig.json" }')
+    assert_includes ts_status(dir).detail, "cyclic"
+  end
+
+  def test_manifests_and_sources_in_fixtures_and_vendor_are_not_the_repos_stack
+    dir = tmpdir
+    write(dir, "Gemfile", "source 'x'\n")
+    write(dir, "test/fixtures/web/package.json", '{ "dependencies": { "react": "1", "eslint": "9" } }')
+    write(dir, "test/fixtures/web/a.js", "var x\n")
+    report = run_stage1(dir)
+    %w[react javascript].each { |id| assert_equal "not_applicable", result(report, id).status, id }
+  end
+
+  def test_the_npm_init_placeholder_test_script_is_not_a_test_suite
+    dir = tmpdir
+    write(dir, "package.json", '{ "scripts": { "test": "echo \"Error: no test specified\" && exit 1" } }')
+    assert_equal "not_applicable", result(run_stage1(dir), "tests").status
+  end
+
+  def test_a_rakefile_that_merely_mentions_latest_has_no_rake_test
+    dir = tmpdir
+    write(dir, "Gemfile", "source 'x'\n")
+    write(dir, "Rakefile", "task :latest_build\n")
+    tools = Tools.new
+    run_stage1(dir, tools: tools)
+    refute_includes tools.calls, "bundle exec rake test"
+  end
+
+  def test_a_public_by_design_vite_key_is_not_a_leaked_secret
+    dir = tmpdir
+    write(dir, "vite.config.js", "export default {}\n")
+    write(dir, "src/a.js", "const k = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY\n")
+    assert_equal "passed", result(run_stage1(dir), "vite_secret").status
+    write(dir, "src/b.js", "const k = import.meta.env.VITE_API_SECRET\n")
+    assert_equal "failed", result(run_stage1(dir), "vite_secret").status
+  end
+
+  def test_a_repo_without_rubocop_is_not_denied_for_its_cops
+    dir = tmpdir
+    write(dir, "Gemfile", "source 'x'\n")
+    assert_equal "not_applicable", result(run_stage1(dir), "ruby").status
+  end
 end
