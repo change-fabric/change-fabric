@@ -65,9 +65,10 @@ class ProdApprovalGuard
   # Quoted text and here-strings are consumed before a heredoc operator can
   # match, so `echo '<<EOF'` and `cat <<< x` queue no terminator.
   SHELL_TOKEN = /'[^']*'|"(?:\\.|[^"\\])*"|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
-  HERESTRING = /<<<[ \t]*('[^']*'|"(?:\\.|[^"\\])*"|\S+)/
-  # A shell anywhere in command position on the line (`bash <<X`, `cat <<X | sh`).
-  SHELL_FEED = /(?:\A|[\s;&|(])(?:bash|sh|zsh|dash|ksh|source|eval)(?:\s|\z)/
+  HERESTRING = /<<<[ \t]*('[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|<>()`]+)/
+  # A shell anywhere in command position on the line, by name or path
+  # (`bash <<X`, `/bin/bash<<X`, `cat <<X | sh`).
+  SHELL_FEED = %r{(?:\A|[\s;&|(])(?:[^\s;&|()<>]*/)?(?:bash|sh|zsh|dash|ksh|source|eval)(?=[\s<>;&|)]|\z)}
   EXPANSION = /\$\(|`/
 
   # The command with heredoc bodies and here-string words removed: they are

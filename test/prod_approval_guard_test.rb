@@ -193,6 +193,13 @@ class ProdApprovalGuardTest < Minitest::Test
   def test_a_heredoc_piped_into_a_shell_is_inspected
     assert_denied "cat <<'EOF' | bash\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\nEOF"
     assert_denied "cat <<'EOF' | sh\nruby change_prod_approve.rb 1234\nEOF"
+    assert_denied "/bin/bash <<'EOF'\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\nEOF"
+    assert_denied "bash<<'EOF'\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\nEOF"
+  end
+
+  def test_an_unquoted_here_string_operand_stops_at_shell_operators
+    assert_denied "cat <<<hello;~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "cat <<<hello&&ruby change_prod_approve.rb 1234"
   end
 
   def test_a_quoted_mention_in_a_commit_message_is_not_an_invocation
