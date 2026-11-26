@@ -280,7 +280,10 @@ module ReviewStage1
 
     def run_tests
       commands, source = TestCommands.resolve(@repo, @timeout)
-      return result('tests', 'not_applicable', 'no command lane and no test script in a manifest') if commands.empty?
+      if commands.empty?
+        note = source.include?('info:') ? " (#{TestCommands::BOOT_SKIP_NOTE})" : ''
+        return result('tests', 'not_applicable', "no command lane and no test script in a manifest#{note}")
+      end
 
       commands.each do |entry|
         if entry[:missing]
@@ -317,11 +320,25 @@ module ReviewStage1
     module_function
 
     def resolve(repo, timeout)
+      return [ manifest_entries(repo, timeout), "manifest (#{BOOT_SKIP_NOTE})" ] if boot_up?(repo)
+
       lane = lane_entries(repo, timeout)
       return [ lane, 'CHANGE.md command lane' ] unless lane.empty?
 
       manifest = manifest_entries(repo, timeout)
       [ manifest, 'manifest' ]
+    end
+
+    BOOT_SKIP_NOTE = 'info: command lane skipped because boot.up is declared; lanes needing boot run in cf:change instead'
+
+    # A hook never runs boot: a lane that needs provisioned services is left to
+    # cf:change, and the manifest test command stands in.
+    def boot_up?(repo)
+      return false unless repo.file?('CHANGE.md')
+
+      ChangeConfig.load(File.join(repo.root, 'CHANGE.md')).boot.up?
+    rescue StandardError
+      false
     end
 
     # Command lane entries run on the host, so they get the lane's own guards:

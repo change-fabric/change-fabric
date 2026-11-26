@@ -516,7 +516,7 @@ class ReviewStage1Test < Minitest::Test
 
   def test_a_declared_variable_supplied_by_the_boot_env_file_is_not_unset
     dir = tmpdir
-    boot = "change_config:\n  boot:\n    up: make up\n    env_file: .env.test\n    target_url: http://localhost:1\n" \
+    boot = "change_config:\n  boot:\n    env_file: .env.test\n    target_url: http://localhost:1\n" \
            "    health_url: http://localhost:1\n    timeout_seconds: 5\n"
     base_trusted(dir, secret_lane("").sub("change_config:\n", boot))
     File.write(File.join(dir, ".env.test"), "CF_TEST_TOKEN=from-file-123\n")
@@ -568,5 +568,19 @@ class ReviewStage1Test < Minitest::Test
     write(dir, "src/app.js", "export default 2\n")
     row = result(run_stage1(dir, tools: ScopedConfigTools.new), "javascript")
     refute_equal "unavailable", row.status, row.detail
+  end
+
+  def test_a_declared_boot_up_skips_the_lane_and_falls_back_to_the_manifest
+    dir = tmpdir
+    boot = "change_config:\n  boot:\n    up: make up\n    target_url: http://localhost:1\n    health_url: http://localhost:1\n    timeout_seconds: 5\n"
+    base_trusted(dir, command_lane("make check").sub("change_config:\n", boot))
+    write(dir, "package.json", '{ "scripts": { "test": "vitest" } }')
+    tools = Tools.new
+    row = result(ReviewStage1.run(dir, runner: tools), "tests")
+    refute_includes tools.calls, "make check"
+    refute_includes tools.calls, "make up", "a hook never runs boot"
+    assert_includes tools.calls, "npm test"
+    assert_includes row.detail, "lanes needing boot run in cf:change instead"
+    assert_includes row.detail, "info:"
   end
 end
