@@ -73,15 +73,15 @@ class ProdApprovalGuard
   # heredoc operator can match, so `echo '<<EOF'`, `cat <<< x` and `# <<EOF`
   # queue no terminator.
   SHELL_TOKEN = /'[^']*'|"(?:\\.|[^"\\])*"|(?<![^\s;&|(])#.*|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
-  HERESTRING = /<<<[ \t]*('[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|<>()`]+)/
+  HERESTRING = /<<<[ \t]*'[^']*'/
   # A shell anywhere in command position on the line, by name or path
   # (`bash <<X`, `/bin/bash<<X`, `cat <<X | sh`).
   SHELL_FEED = %r{(?:\A|[\s;&|(])(?:[^\s;&|()<>]*/)?(?:bash|sh|zsh|dash|ksh|source|eval)(?=[\s<>;&|)]|\z)}
-  EXPANSION = /\$\(|`/
 
-  # The command with heredoc bodies and here-string words removed: they are
-  # stdin data, not argv. Kept as commands: a line that feeds a shell, an
-  # unquoted heredoc body line or here-string holding a command substitution.
+  # The command with inert stdin data removed. Only text the shell never
+  # expands or runs counts as data: a heredoc body under a quoted delimiter
+  # and a single-quoted here-string, each on a line that feeds no shell.
+  # Every other body is kept and inspected, failing closed.
   def without_data(command)
     pending = []
     command.each_line(chomp: true).filter_map { |line| pending.empty? ? command_line(line, pending) : body_line(line, pending) }.join("\n")
@@ -89,20 +89,15 @@ class ProdApprovalGuard
 
   def command_line(line, pending)
     shell = line.match?(SHELL_FEED)
-    line.scan(SHELL_TOKEN) { |dash, quote, word| pending << { word:, tabs: dash == '-', shell:, expand: quote.empty? } if word }
-    return line if shell
-
-    line.gsub(HERESTRING) { |match| ::Regexp.last_match(1).match?(EXPANSION) && !::Regexp.last_match(1).start_with?("'") ? match : '<<< _' }
+    line.scan(SHELL_TOKEN) { |dash, quote, word| pending << { word:, tabs: dash == '-', data: !shell && !quote.empty? } if word }
+    shell ? line : line.gsub(HERESTRING, '<<< _')
   end
 
   def body_line(line, pending)
     heredoc = pending.first
     return pending.shift && nil if (heredoc[:tabs] ? line.sub(/\A\t+/, '') : line) == heredoc[:word]
 
-    # A substitution can span lines, so from the first one on, an unquoted
-    # body is kept whole.
-    heredoc[:expanding] ||= heredoc[:expand] && line.match?(EXPANSION)
-    line if heredoc[:shell] || heredoc[:expanding]
+    line unless heredoc[:data]
   end
 
   # Shell words, plus the words inside any quoted argument (`bash -c '...'`).
