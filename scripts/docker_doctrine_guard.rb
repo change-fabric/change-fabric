@@ -47,11 +47,29 @@ class DockerDoctrineGuard
     /#{ANCHOR}(caddy\s+(?:run|start)\b)/i
   ].freeze
 
+  # A launchd or systemd user unit is a host daemon when it keeps a service
+  # running. A one-shot scheduler entry (a timer or calendar job that starts,
+  # runs and exits, like the triage tick) is not. So the scheduler commands are
+  # denied only when they name a project service or the command text declares a
+  # long-running unit (KeepAlive, Restart=always or on-failure, a RunAtLoad
+  # that is true). A bare `launchctl load` of an unnamed plist passes, since the
+  # plist is not in the command.
+  SCHEDULER = /#{ANCHOR}((?:launchctl|systemctl\s+--user)\s+(?:load|bootstrap|submit|enable|start|restart|kickstart)\b[^&|;]*)/i
+  LONG_RUNNING = /KeepAlive|Restart\s*=\s*(?:always|on-failure|on-success|on-abnormal|on-abort|on-watchdog)|<key>RunAtLoad<\/key>\s*<true\s*\/>/i
+  SERVICE_NAME = /\b(?:#{Regexp.union(SERVICES).source})\b/i
+
   # The offending command in `cmd`, or nil. Public so cf:change can refuse a
   # boot step or command lane entry that would start a host daemon, at config
   # load, with the same pattern list this hook enforces at the Bash tool.
   def self.match(cmd)
-    PATTERNS.filter_map { |pattern| cmd.to_s.match(pattern)&.captures&.first }.first&.strip
+    PATTERNS.filter_map { |pattern| cmd.to_s.match(pattern)&.captures&.first }.first&.strip || scheduler_daemon(cmd.to_s)
+  end
+
+  # The scheduler command when it stands up a long-running unit or a named
+  # project service, nil for a one-shot scheduler entry.
+  def self.scheduler_daemon(cmd)
+    found = cmd.match(SCHEDULER)&.captures&.first&.strip
+    found if found && (found.match?(SERVICE_NAME) || cmd.match?(LONG_RUNNING))
   end
 
   def initialize(event) = @event = event

@@ -9,6 +9,7 @@ require_relative 'ctx_expiry'
 require_relative 'triage/tick'
 require_relative 'triage/reassign'
 require_relative 'triage/answer'
+require_relative 'triage/scheduler'
 
 # Scheduled triage for long-running epic and roadmap execution.
 #
@@ -35,11 +36,15 @@ require_relative 'triage/answer'
 #   triage.rb run-action <action-id>
 #                                internal: the detached one-shot job for a dispatch
 #
-# A later phase adds install.
+#   triage.rb install [--host mini|vm] [--print]
+#                                render (--print, no write; both hosts without
+#                                --host) or install the one-shot 15 minute
+#                                scheduler entry; the install is a live write
+#                                and runs only through an approved run-script
 module Triage
   module CLI
     USAGE = 'usage: triage.rb report [--json] | publish [--json] | expire [--apply] [--json] [--project DIR] | ' \
-            'tick [--dry-run] [--json] | reassign <repo> --to <host> | answer <item-id> --text <answer> [--host <host>]'
+            'tick [--dry-run] [--max-seconds N] [--json] | reassign <repo> --to <host> | answer <item-id> --text <answer> [--host <host>] | install [--host mini|vm] [--print]'
 
     def self.run(argv, out: $stdout, err: $stderr, now: Time.now.utc, sources: {})
       command, *rest = argv
@@ -48,6 +53,7 @@ module Triage
       return tick(rest, out, err, json, now, sources) if command == 'tick'
       return reassign(rest, out, err) if command == 'reassign'
       return answer(rest, out, err) if command == 'answer'
+      return install(rest, out, err) if command == 'install'
       return run_action(rest, err) if command == 'run-action'
       return usage(err) unless rest.empty?
 
@@ -81,7 +87,10 @@ module Triage
 
     def self.tick(rest, out, err, json, now, sources)
       dry_run = rest.delete('--dry-run')
-      return usage(err) unless rest.empty?
+      max = take(rest, '--max-seconds')
+      return usage(err) unless rest.empty? && (max.nil? || max.match?(/\A[1-9]\d*\z/))
+
+      Scheduler::Watchdog.arm(max.to_i) if max
 
       result = Tick.new(now: now, dry_run: !dry_run.nil?, sources: sources.slice(:gh, :epic_gh, :decisions, :plans_root, :stack_root, :pull)).run
       summary = result.summary
@@ -116,6 +125,22 @@ module Triage
       result = Answer.new.call(rest.first, text, host: host)
       (result.ok ? out : err).puts(result.message)
       result.ok ? 0 : 1
+    end
+
+    def self.install(rest, out, err)
+      print = rest.delete('--print')
+      host = take(rest, '--host')
+      return usage(err) unless rest.empty? && (host.nil? || Paths::HOSTS.include?(host)) && (print || host)
+
+      if print
+        out.puts(Scheduler.print(host || Paths::HOSTS))
+      else
+        Scheduler.install(host).files.each_key { |path| out.puts("installed #{path}") }
+      end
+      0
+    rescue ArgumentError, RuntimeError => e
+      err.puts("triage: #{e.message}")
+      1
     end
 
     def self.take(rest, flag)

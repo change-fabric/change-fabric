@@ -1,0 +1,10 @@
+[Unit]
+Description=change-fabric triage tick every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=cf-triage-tick.service
+
+[Install]
+WantedBy=timers.target
