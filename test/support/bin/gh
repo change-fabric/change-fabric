@@ -1,0 +1,6 @@
+#!/bin/sh
+# Test stand-in for gh: `gh api graphql` prints $STUB_GH_GRAPHQL, anything else
+# prints $STUB_GH_VIEW. STUB_GH_EXIT overrides the exit status.
+[ -n "$STUB_LOG" ] && printf 'gh %s\n' "$*" >> "$STUB_LOG"
+if [ "$1" = "api" ]; then printf '%s\n' "${STUB_GH_GRAPHQL:-{}}"; else printf '%s\n' "${STUB_GH_VIEW:-{}}"; fi
+exit "${STUB_GH_EXIT:-0}"

@@ -6,6 +6,9 @@ require_relative 'triage/paths'
 require_relative 'triage/sources'
 require_relative 'triage/publisher'
 require_relative 'ctx_expiry'
+require_relative 'triage/tick'
+require_relative 'triage/reassign'
+require_relative 'triage/answer'
 
 # Scheduled triage for long-running epic and roadmap execution.
 #
@@ -19,15 +22,33 @@ require_relative 'ctx_expiry'
 #                                unless --apply, which archives only what state
 #                                proves done and queues the ambiguous
 #
-# Later phases add tick, install, reassign and answer.
+#   triage.rb tick [--dry-run] [--json]
+#                                the bounded model-free tick: heartbeat, reconcile
+#                                unfinished dispatches, publish, expire, inbox
+#                                items, then (not limited, inside an autopilot
+#                                window, on this host's repos) detached launches;
+#                                --dry-run reads everything and writes nothing
+#   triage.rb reassign <repo> --to <host>
+#                                quiesced, versioned host reassignment (C8)
+#   triage.rb answer <item-id> --text <answer> [--host <host>]
+#                                decision write-back, over SSH for a remote host
+#   triage.rb run-action <action-id>
+#                                internal: the detached one-shot job for a dispatch
+#
+# A later phase adds install.
 module Triage
   module CLI
-    USAGE = 'usage: triage.rb report [--json] | publish [--json] | expire [--apply] [--json] [--project DIR]'
+    USAGE = 'usage: triage.rb report [--json] | publish [--json] | expire [--apply] [--json] [--project DIR] | ' \
+            'tick [--dry-run] [--json] | reassign <repo> --to <host> | answer <item-id> --text <answer> [--host <host>]'
 
     def self.run(argv, out: $stdout, err: $stderr, now: Time.now.utc, sources: {})
       command, *rest = argv
       json = rest.delete('--json')
       return expire(rest, out, err, json, sources) if command == 'expire'
+      return tick(rest, out, err, json, now, sources) if command == 'tick'
+      return reassign(rest, out, err) if command == 'reassign'
+      return answer(rest, out, err) if command == 'answer'
+      return run_action(rest, err) if command == 'run-action'
       return usage(err) unless rest.empty?
 
       case command
@@ -56,6 +77,59 @@ module Triage
     rescue CtxPaths::NotAProject => e
       err.puts("triage: #{e.message}")
       1
+    end
+
+    def self.tick(rest, out, err, json, now, sources)
+      dry_run = rest.delete('--dry-run')
+      return usage(err) unless rest.empty?
+
+      result = Tick.new(now: now, dry_run: !dry_run.nil?, sources: sources.slice(:gh, :epic_gh, :decisions, :plans_root, :stack_root, :pull)).run
+      summary = result.summary
+      out.puts(json ? JSON.pretty_generate(summary) : tick_text(summary))
+      0
+    end
+
+    def self.tick_text(summary)
+      return "tick skipped: #{summary['skipped']}" if summary['skipped']
+
+      head = "tick #{summary['dry_run'] ? '(dry run) ' : ''}host=#{summary['host'] || 'unset'} units=#{summary['units']} " \
+             "cap=#{summary['cap']['used']}/#{summary['cap']['cap']}#{summary['limited'] ? " limited until #{summary['limited']['limited_until']}" : ''}"
+      [ head, *summary['actions'].map { |row| "  #{row['kind']} #{row['repo']} #{row['unit']} #{row['reason']}".rstrip } ].join("\n")
+    end
+
+    def self.reassign(rest, out, err)
+      to_index = rest.index('--to')
+      to = to_index && rest[to_index + 1]
+      rest.slice!(to_index, 2) if to_index
+      return usage(err) unless to && rest.size == 1
+
+      result = Reassign.new.call(rest.first, to)
+      (result.ok ? out : err).puts(result.message)
+      result.ok ? 0 : 1
+    end
+
+    def self.answer(rest, out, err)
+      text = take(rest, '--text')
+      host = take(rest, '--host')
+      return usage(err) unless text && rest.size == 1
+
+      result = Answer.new.call(rest.first, text, host: host)
+      (result.ok ? out : err).puts(result.message)
+      result.ok ? 0 : 1
+    end
+
+    def self.take(rest, flag)
+      index = rest.index(flag)
+      value = index && rest[index + 1]
+      rest.slice!(index, 2) if index
+      value
+    end
+
+    def self.run_action(rest, err)
+      return usage(err) unless rest.size == 1
+
+      Launcher.run(rest.first)
+      0
     end
 
     # Builds the expirer; tests inject `expirer:` to avoid the real stores.

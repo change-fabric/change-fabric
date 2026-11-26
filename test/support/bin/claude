@@ -1,0 +1,24 @@
+#!/bin/sh
+# Test stand-in for the claude CLI. STUB_CLAUDE_MODE picks the behavior:
+#   ok (default)  one result frame        quota   rejected rate_limit_event + limit text
+#   transient     overloaded_error        empty   exit 0 with no output at all
+#   hang          sleep until killed
+# Every call appends its argv to $STUB_LOG when set.
+[ -n "$STUB_LOG" ] && printf '%s\n' "$*" >> "$STUB_LOG"
+sid=""
+while [ $# -gt 0 ]; do
+  [ "$1" = "--session-id" ] && sid="$2"
+  shift
+done
+case "${STUB_CLAUDE_MODE:-ok}" in
+  ok)
+    printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$sid"
+    printf '{"type":"result","subtype":"success","is_error":false,"session_id":"%s","result":"done"}\n' "$sid" ;;
+  quota)
+    printf '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"seven_day","resetsAt":%s}}\n' "${STUB_RESETS_AT:-4102444800}"
+    printf '{"type":"result","subtype":"success","is_error":true,"session_id":"%s","result":"You'"'"'ve hit your weekly limit"}\n' "$sid" ;;
+  transient)
+    printf '{"type":"result","subtype":"error","is_error":true,"session_id":"%s","result":"API Error: overloaded_error"}\n' "$sid" ;;
+  empty) exit 0 ;;
+  hang) sleep 30 ;;
+esac

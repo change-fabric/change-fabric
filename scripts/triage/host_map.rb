@@ -9,9 +9,10 @@ module Triage
   # <alias> } }` for the snapshot pull. A missing file is an empty map (every
   # repo is report-only). A corrupt file is invalid: the report stays
   # report-only everywhere and carries a `host_map_invalid` finding. Map order
-  # is the scheduling tie-break order (C4).
+  # is the scheduling tie-break order (C4). An optional `path:` names the repo's
+  # checkout on its host; actions need it, and without it the repo is report-only.
   class HostMap
-    Entry = Struct.new(:repo, :host, :version, keyword_init: true)
+    Entry = Struct.new(:repo, :host, :version, :path, keyword_init: true)
 
     attr_reader :entries, :error
 
@@ -46,7 +47,7 @@ module Triage
       version = spec['assignment_version']
       return "#{repo}: assignment_version must be a positive integer" unless version.is_a?(Integer) && version.positive?
 
-      Entry.new(repo: repo.to_s, host: spec['host'], version: version)
+      Entry.new(repo: repo.to_s, host: spec['host'], version: version, path: spec['path'] && File.expand_path(spec['path'].to_s))
     end
 
     def self.ssh_aliases(hosts)
