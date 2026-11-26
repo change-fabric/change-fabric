@@ -31,12 +31,15 @@ Favor:
 - Named volumes for data that must survive; treat the container itself as disposable.
 
 Forbid by default:
-- Homebrew or system-level daemons for ANY project service, not just datastores: `brew services` (or a launchd/systemd unit) for `postgresql`, `redis`, `mysql`, `mongodb`, `caddy`, `nginx`, `httpd`, `rabbitmq`, `memcached`, and the like. If it listens on a port for project work, it runs in a container.
+- Homebrew or system-level daemons for ANY project service, not just datastores: `brew services` (or a long-running launchd/systemd unit: `KeepAlive`, `Restart=always`) for `postgresql`, `redis`, `mysql`, `mongodb`, `caddy`, `nginx`, `httpd`, `rabbitmq`, `memcached`, and the like. If it listens on a port for project work, it runs in a container.
 - Host `initdb`, `pg_ctl`, `redis-server`, `caddy run`/`caddy start`, `nginx`, or a shared default-port daemon standing in for a project service.
 - Global installs for project tooling (`npm i -g`, language-level globals).
 - Mutable `:latest` base tags in committed images.
 - Secrets baked into an image layer or a committed compose file.
 - Writing durable data to the container's ephemeral layer.
+
+Not a violation:
+- A one-shot scheduler entry is not a host daemon: a launchd calendar job or a systemd user timer that starts, runs a bounded command and exits (the `triage.rb tick` entry) is allowed. It must have no `KeepAlive`, no `Restart=`, and listen on no port; a unit that stays up or names a project service above is a daemon.
 
 CI:
 - `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.md' Makefile '*.mk' '*.sh' justfile Brewfile package.json >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { s=0; GIT_LITERAL_PATHSPECS=1 git grep -niP "brew (install|services).*(postgres|redis|mysql|mongo|caddy|nginx|httpd|rabbitmq|memcached)|\\b(initdb|pg_ctl|redis-server|mysqld|mongod|memcached)\\b|caddy (run|start)|postgresql@\\d" -- "${f[@]}" || s=$?; [ $s -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)

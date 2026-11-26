@@ -1,0 +1,10 @@
+[Unit]
+Description=change-fabric triage tick (one-shot)
+
+[Service]
+Type=oneshot
+Environment=CF_TRIAGE_HOST=vm
+Environment=CF_TRIAGE_ROOT=/home/example/.claude/cf/triage
+Environment=PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/ruby /home/example/.claude/cf/bin/triage.rb tick --max-seconds 60
+TimeoutStartSec=60

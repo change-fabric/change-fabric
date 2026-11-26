@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.change-fabric.triage</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/ruby</string>
+    <string>/home/example/.claude/cf/bin/triage.rb</string>
+    <string>tick</string>
+    <string>--max-seconds</string>
+    <string>60</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CF_TRIAGE_HOST</key><string>mini</string>
+    <key>CF_TRIAGE_ROOT</key><string>/home/example/.claude/cf/triage</string>
+    <key>HOME</key><string>/home/example</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Minute</key><integer>15</integer></dict>
+    <dict><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Minute</key><integer>45</integer></dict>
+  </array>
+  <key>RunAtLoad</key><false/>
+  <key>ExitTimeOut</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/home/example/.claude/cf/triage/tick.log</string>
+  <key>StandardErrorPath</key><string>/home/example/.claude/cf/triage/tick.log</string>
+</dict>
+</plist>
