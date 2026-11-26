@@ -197,6 +197,19 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "bash<<'EOF'\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\nEOF"
   end
 
+  def test_a_heredoc_operator_in_a_comment_queues_nothing
+    assert_denied "# <<EOF\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh"
+    assert_denied "echo hi # <<EOF\nruby change_prod_approve.rb 1234"
+  end
+
+  def test_a_multiline_substitution_in_an_unquoted_heredoc_is_inspected
+    assert_denied "cat <<EOF\n$(\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh\n)\nEOF"
+  end
+
+  def test_an_unparseable_queued_script_run_is_denied
+    assert_denied "bash ~/.claude/cf/manual/queue/0016-redeploy.sh # it's approved"
+  end
+
   def test_an_unquoted_here_string_operand_stops_at_shell_operators
     assert_denied "cat <<<hello;~/.claude/cf/manual/queue/0016-redeploy.sh"
     assert_denied "cat <<<hello&&ruby change_prod_approve.rb 1234"

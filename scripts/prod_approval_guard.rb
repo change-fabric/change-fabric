@@ -56,15 +56,23 @@ class ProdApprovalGuard
 
     inspect_words(list, command)
   rescue ArgumentError
-    'an unparseable shell command naming a prod approval path' if UNPARSEABLE_MARKERS.any? { |marker| command.include?(marker) }
+    'an unparseable shell command naming a prod approval path' if unparseable_denied?(command)
   end
 
   private
 
-  UNPARSEABLE_MARKERS = [ *MARKERS, 'approval_console.rb', 'cf_run_approved.rb' ].freeze
-  # Quoted text and here-strings are consumed before a heredoc operator can
-  # match, so `echo '<<EOF'` and `cat <<< x` queue no terminator.
-  SHELL_TOKEN = /'[^']*'|"(?:\\.|[^"\\])*"|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
+  UNPARSEABLE_MARKERS = [ *MARKERS, 'approval_console.rb', 'cf_run_approved.rb', 'manual/queue' ].freeze
+
+  # Fails closed on any approval path or queue mention, and on every
+  # unparseable command run from inside the queue directory.
+  def unparseable_denied?(command)
+    UNPARSEABLE_MARKERS.any? { |marker| command.include?(marker) } || @event['cwd'].to_s.match?(QUEUE_DIR)
+  end
+
+  # Quoted text, here-strings and a trailing comment are consumed before a
+  # heredoc operator can match, so `echo '<<EOF'`, `cat <<< x` and `# <<EOF`
+  # queue no terminator.
+  SHELL_TOKEN = /'[^']*'|"(?:\\.|[^"\\])*"|(?<![^\s;&|(])#.*|<<<|<<(-?)[ \t]*(['"]?)([\w.-]+)\2/
   HERESTRING = /<<<[ \t]*('[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|<>()`]+)/
   # A shell anywhere in command position on the line, by name or path
   # (`bash <<X`, `/bin/bash<<X`, `cat <<X | sh`).
@@ -91,7 +99,10 @@ class ProdApprovalGuard
     heredoc = pending.first
     return pending.shift && nil if (heredoc[:tabs] ? line.sub(/\A\t+/, '') : line) == heredoc[:word]
 
-    line if heredoc[:shell] || (heredoc[:expand] && line.match?(EXPANSION))
+    # A substitution can span lines, so from the first one on, an unquoted
+    # body is kept whole.
+    heredoc[:expanding] ||= heredoc[:expand] && line.match?(EXPANSION)
+    line if heredoc[:shell] || heredoc[:expanding]
   end
 
   # Shell words, plus the words inside any quoted argument (`bash -c '...'`).
