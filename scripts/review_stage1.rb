@@ -535,11 +535,23 @@ module ReviewStage1
     # tests and root-level scripts are sampled last), so a config scoped to
     # application files is judged on the files it scopes. A rule counts if it
     # is on for any sampled file. nil when nothing could be read.
-    def effective_eslint_rules(repo, capture, extensions)
+    TEST_SOURCE = %r{(?:\.(?:test|spec)\.|(?:\A|/)(?:tests?|__tests__|spec)/)}
+
+    def effective_eslint_rules(repo, capture, extensions, tests: false)
       files = repo.sources(extensions, limit: 500)
+      return test_rules(files.grep(TEST_SOURCE), capture) if tests
+
       app, other = files.partition { |rel| !rel.match?(NON_APP_SOURCE) }
       sample = sampled(app, SAMPLE_FILES) + other.first(1)
       merged = sample.filter_map { |file| eslint_rules_for(capture, file) }.each_with_object({}) do |rules, all|
+        rules.each { |name, setting| all[name] = setting if !all.key?(name) || eslint_on?(setting) }
+      end
+      merged.empty? ? nil : merged
+    end
+
+    # Test rules are scoped to test files, so those are the ones sampled.
+    def test_rules(files, capture)
+      merged = sampled(files, SAMPLE_FILES).filter_map { |file| eslint_rules_for(capture, file) }.each_with_object({}) do |rules, all|
         rules.each { |name, setting| all[name] = setting if !all.key?(name) || eslint_on?(setting) }
       end
       merged.empty? ? nil : merged
@@ -645,11 +657,19 @@ module ReviewStage1
       'cypress' => %w[eslint-plugin-cypress]
     }.freeze
 
+    # Judged on the rules ESLint enables for test files (`vitest/*`, `jest/*`,
+    # `cypress/*`); the plugin name in the config is only the fallback when no
+    # test file can be inspected.
     def js_testing
       Check.new(id: 'js_testing', tool: :eslint, commands: [ ESLINT ], detect: ->(repo) { TEST_PLUGINS.keys.any? { |dep| repo.dep?(dep) } },
-                missing: lambda do |repo, _capture|
-                  absent = TEST_PLUGINS.select { |dep, names| repo.dep?(dep) && names.none? { |name| repo.eslint_config.include?(name) } }
-                  absent.empty? ? nil : "eslint config lacks #{absent.values.map(&:first).join(', ')} (recommended)"
+                missing: lambda do |repo, capture|
+                  rules = effective_eslint_rules(repo, capture, SOURCE_EXTENSIONS, tests: true)
+                  absent = TEST_PLUGINS.select do |dep, names|
+                    next false unless repo.dep?(dep)
+
+                    rules ? rules.none? { |name, setting| name.start_with?("#{dep}/") && eslint_on?(setting) } : names.none? { |name| repo.eslint_config.include?(name) }
+                  end
+                  absent.empty? ? nil : "eslint config lacks enabled #{absent.keys.join(', ')} test rules (#{absent.values.map(&:first).join(', ')}, recommended)"
                 end)
     end
 

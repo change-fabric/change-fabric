@@ -583,4 +583,22 @@ class ReviewStage1Test < Minitest::Test
     assert_includes row.detail, "lanes needing boot run in cf:change instead"
     assert_includes row.detail, "info:"
   end
+
+  def js_testing_repo
+    dir = tmpdir
+    write(dir, "package.json", '{ "devDependencies": { "vitest": "1", "eslint": "9" } }')
+    write(dir, "eslint.config.mjs", "import vitest from '@vitest/eslint-plugin'; export default [];\n")
+    write(dir, "src/a.test.js", "test('x', () => {})\n")
+    dir
+  end
+
+  def test_a_testing_plugin_that_is_named_but_not_enabled_is_not_an_enforcer
+    dir = js_testing_repo
+    named_only = PrintConfigTools.new({ "vitest/no-focused-tests" => "off", "no-var" => "error" })
+    row = result(run_stage1(dir, tools: named_only), "js_testing")
+    assert_equal "unavailable", row.status
+    assert_includes row.detail, "vitest"
+    enabled = PrintConfigTools.new({ "vitest/no-focused-tests" => [ "error" ] })
+    refute_equal "unavailable", result(run_stage1(dir, tools: enabled), "js_testing").status
+  end
 end
