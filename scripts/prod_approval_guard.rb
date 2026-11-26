@@ -86,18 +86,23 @@ class ProdApprovalGuard
   # The command with inert stdin data removed. Only text the shell never
   # expands or runs counts as data: a heredoc body under a quoted delimiter
   # and a single-quoted here-string, each on a line that feeds no shell.
-  # Every other body is kept and inspected, failing closed.
+  # Every other body is kept and inspected, failing closed. Lines are lexed
+  # one at a time, so a command line left inside an open quote (a quote that
+  # spans lines) voids the whole pass and the command is inspected as is.
   def without_data(command)
     pending = []
-    command.each_line(chomp: true).filter_map { |line| pending.empty? ? command_line(line, pending) : body_line(line, pending) }.join("\n")
+    @open_quote = false
+    stripped = command.each_line(chomp: true).filter_map { |line| pending.empty? ? command_line(line, pending) : body_line(line, pending) }.join("\n")
+    @open_quote ? command : stripped
   end
 
   def command_line(line, pending)
     shell = line.match?(SHELL_FEED)
+    @open_quote ||= line.gsub(SHELL_TOKEN, '').match?(/['"]/)
     line.gsub(SHELL_TOKEN) do |token|
       herestring, dash, quote, word, rest = ::Regexp.last_match.captures
       pending << (rest.empty? ? { word:, tabs: dash == '-', data: !shell && !quote.empty? } : { word: nil, data: false }) if word
-      herestring && !shell ? '<<< _' : token
+      herestring && !shell && EXECUTION_MARKERS.none? { |marker| herestring.include?(marker) } ? '<<< _' : token
     end
   end
 

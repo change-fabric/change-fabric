@@ -215,6 +215,14 @@ class ProdApprovalGuardTest < Minitest::Test
     assert_denied "python3 - <<'EOF'\nimport os\nos.system(\"bash ~/.claude/cf/manual/queue/0016-redeploy.sh\")\nEOF"
   end
 
+  def test_a_quoted_here_string_naming_an_execution_path_is_inspected
+    assert_denied %(ruby <<<'system("bash ~/.claude/cf/manual/queue/0016-redeploy.sh")')
+  end
+
+  def test_a_quote_spanning_lines_voids_heredoc_stripping
+    assert_denied %(printf '%s' '\n<<"EOF"\n'\ngit update-ref refs/cf-prod/claims/x HEAD)
+  end
+
   def test_an_unclassifiable_delimiter_keeps_the_rest
     assert_denied "cat <<'END'_DATA\nhello\nEND_DATA\nbash ~/.claude/cf/manual/queue/0016-redeploy.sh"
   end
