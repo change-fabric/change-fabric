@@ -52,7 +52,12 @@ design review. Run the review the gate hands back, then
 `ruby ~/.claude/cf/bin/review_ack.rb <session_id>`. The round cap (5) releases
 a batch that is denied unchanged five times in a row.
 
-Enforcer: scripts/review_gate.rb
+Stage 1 runs first, with no model: repo linters, the glyph check, the
+CHANGE.md command lane or manifest tests. A present stack with its enforcer
+missing is `unavailable` and blocks. Stage 2, a Sonnet judgment review, runs
+only on an all-clear.
+
+Enforcer: scripts/review_gate.rb, scripts/review_stage1.rb, scripts/review_findings.rb
 
 ## No client names in this repo
 

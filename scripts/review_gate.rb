@@ -11,6 +11,7 @@ require_relative 'skill_compiler'
 require_relative 'review_scope'
 require_relative 'guarded_command'
 require_relative 'change_autopilot'
+require_relative 'review_stage1'
 
 # PreToolUse hook: denies a push or PR when files changed this session lack a
 # review verdict, and hands back the review prompt. The verdict must be for
@@ -25,19 +26,32 @@ require_relative 'change_autopilot'
 # its own. Local-only sessions never push, so skill_review still covers them at
 # Stop; both read the same queue and the same ack clears both.
 #
+# Two stages. Stage 1 (review_stage1) is deterministic and runs first: repo
+# linters, the glyph check, the CHANGE.md command lane and tests. Any blocking
+# result denies with the findings and no model is called. Only on an all-clear
+# does stage 2 run: the Sonnet (worker role) judgment review the prompt hands
+# back, which an ack releases.
+#
 # Like merge_mode_guard, this is a loud guardrail keyed on command text, not a
 # sandbox: it is bypassable (git -c, env indirection, a non-Bash path).
 class ReviewGate
   EVENT = 'PreToolUse'
 
-  def initialize(event, skills: nil)
+  # stage1: (root) -> ReviewStage1::Report, injected by tests. The default runs
+  # the real checks in the repo the command was issued from; with no known repo
+  # root there is nothing to check and stage 1 is skipped.
+  def initialize(event, skills: nil, stage1: ->(root) { ReviewStage1.run(root) })
     @event = event
     @skills = skills
+    @stage1 = stage1
   end
 
   def emit(io = $stdout)
     return unless @event['tool_name'] == 'Bash'
     return unless GuardedCommand.push?(command) || GuardedCommand.pr_create?(command)
+
+    report = stage1_report
+    return io.puts(JSON.generate(deny(report.to_text))) if report&.blocking?
 
     by_key = pending_by_key
     pending = by_key.values.flatten
@@ -53,6 +67,25 @@ class ReviewGate
   def autopilot_waives?(pending)
     !ChangeAutopilot.waive!('review', guard: 'review_gate', detail: "#{pending.size} unreviewed file(s)", command: command,
                                       session: @event['session_id']).nil?
+  end
+
+  def stage1_report
+    dir = push_directory
+    root = ReviewScope.repo_root(dir) unless dir.empty?
+    root && @stage1.call(root)
+  end
+
+  LEADING_CD = /\A\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)/
+
+  # The directory the push runs in: a leading `cd X &&` (or `;`) moves it off the
+  # event cwd. An unusable target falls back to the cwd.
+  def push_directory
+    cwd = @event['cwd'].to_s
+    target = command[LEADING_CD, 1]&.gsub(/\A["']|["']\z/, '')
+    return cwd unless target
+
+    dir = File.expand_path(target, cwd.empty? ? Dir.pwd : cwd)
+    File.directory?(dir) ? dir : cwd
   end
 
   def registry = @skills ||= SkillRegistry.load
@@ -76,7 +109,7 @@ class ReviewGate
     return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?(pending)
 
     queue.bump_round(pending)
-    deny(SkillCompiler.new(host: 'claude').rewrite_reviewer(ReviewPrompt.build(pending, registry, keys)))
+    deny(SkillCompiler.new(host: 'claude').rewrite_reviewer(ReviewPrompt.stage2(pending, registry, keys), role: 'worker'))
   end
 
   def deny(reason)

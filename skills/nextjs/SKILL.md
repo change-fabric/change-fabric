@@ -1,6 +1,7 @@
 ---
 name: cf:nextjs
 group: rubrics
+review: true
 description: Next.js App Router rubric for server-first rendering, Server Actions, and correct async APIs. Auto-applied by the cf shim on every Next.js change; also invocable directly.
 auto:
   extensions: [ts, tsx, js, jsx]

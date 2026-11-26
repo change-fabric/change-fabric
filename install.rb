@@ -241,8 +241,10 @@ module Install
       events.each do |event, commands|
         section = (hooks[event] ||= [])
         Array(commands).each do |entry|
-          command, matcher = entry.is_a?(Hash) ? entry.values_at('command', 'matcher') : [ entry, nil ]
-          group = { 'hooks' => [ { 'type' => 'command', 'command' => command } ] }
+          command, matcher, timeout = entry.is_a?(Hash) ? entry.values_at('command', 'matcher', 'timeout') : [ entry, nil, nil ]
+          hook = { 'type' => 'command', 'command' => command }
+          hook['timeout'] = timeout if timeout
+          group = { 'hooks' => [ hook ] }
           group = { 'matcher' => matcher }.merge(group) if matcher
           section << group
         end
@@ -596,6 +598,11 @@ module Install
       'secret_ack.rb' => 'AskUserQuestion',
       'change_post_merge_check.rb' => SHELL
     }.freeze
+
+    # Seconds a hook may run. Only the review gate sets one: stage 1 runs the
+    # repo's own linters and tests (300s each by default), far past the host's
+    # default hook limit.
+    TIMEOUTS = { 'review_gate.rb' => 1800 }.freeze
 
     def initialize(paths:, ruby:)
       @paths = paths
@@ -951,7 +958,7 @@ module Install
       command = "#{@ruby} #{@paths.script_dest(name)}"
       return command unless %w[PreToolUse PostToolUse].include?(event)
 
-      { 'command' => command, 'matcher' => MATCHERS.fetch(name) }
+      { 'command' => command, 'matcher' => MATCHERS.fetch(name), 'timeout' => TIMEOUTS[name] }.compact
     end
 
     def mirror_to_pi

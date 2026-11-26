@@ -3,6 +3,7 @@
 
 require 'shellwords'
 require_relative 'review_queue'
+require_relative 'review_findings'
 
 # The fixed review instructions handed to the agent when review-eligible files
 # changed. Extracted from skill_review so both consumers - the Stop-hook driver
@@ -51,6 +52,58 @@ module ReviewPrompt
 
       #{sections.join("\n\n")}
     TEXT
+  end
+
+  FINDINGS_SCRIPT = File.expand_path('review_findings.rb', __dir__)
+
+  # The judgment items stage 2 is allowed to raise. Anything a linter, a
+  # compiler or a test can decide was settled in stage 1 and is not repeated.
+  JUDGMENT_ITEMS = [
+    'scope creep: changes the task did not ask for',
+    'refactoring smells in both directions: a missed removal (lazy element, speculative generality, middle man, dead code) ' \
+    'and an unneeded addition',
+    'React effect misuse: an effect that derives data, or state copied from props',
+    'terraform: a rename or move that needs a moved block',
+    'Rails N+1 queries: a loop that issues a query per row'
+  ].freeze
+
+  # Stage 2: the worker-role (Sonnet) review of the diff, built only after
+  # stage 1 is all clear. It judges the items above plus the rubrics that opt in
+  # with `review: true` and match the queued files; it never re-runs linters.
+  def stage2(entries, registry, keys, own_tree: nil)
+    by_name = registry.to_h { |skill| [ skill.name, skill ] }
+    rubrics = entries.group_by { |entry| entry[:skill] }
+                     .select { |name, _rows| by_name[name]&.review? }
+                     .map { |name, rows| section(by_name[name], name, rows) }
+    <<~TEXT.strip
+      [cf review] Stage 1 (linters, glyph check, tests) is clear. #{entries.size} changed file(s) need the judgment review.
+
+      Launch the review now:
+      #{REVIEWER},
+      giving it exactly the task below.
+
+      Judge only these items:
+      #{JUDGMENT_ITEMS.map { |item| "- #{item}" }.join("\n")}
+
+      Return only a JSON array. Each finding is
+      {"kind": one of #{ReviewFindings::KINDS.join('|')}, "file": path, "line": integer, "summary": text}.
+      Cite file and line for every finding. An empty array is a valid answer.
+      An add_abstraction finding must also carry "second_caller": "file:line" for a caller that exists now; without one it is rejected.
+
+      When its result arrives, record it, address what is accepted, then release the gate:
+
+          #{record_command(keys)}
+          #{ack_command(keys, own_tree: own_tree)}
+
+      Run the record (JSON on stdin) and the ack as their own commands, then re-run your push or PR as a separate command.
+
+      Files:
+      #{entries.map { |entry| "- #{entry[:path]}" }.join("\n")}#{rubrics.empty? ? '' : "\n\n#{rubrics.join("\n\n")}"}
+    TEXT
+  end
+
+  def record_command(keys)
+    Shellwords.join([ 'ruby', FINDINGS_SCRIPT, Array(keys).first.to_s ])
   end
 
   def ack_command(keys, own_tree: nil)

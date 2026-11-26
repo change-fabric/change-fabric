@@ -1,0 +1,8 @@
+plugins: rubocop-rails
+
+AllCops:
+  NewCops: disable
+  SuggestExtensions: false
+
+Rails/FindBy:
+  Enabled: true

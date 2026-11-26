@@ -1,0 +1,1 @@
+{ "name": "ts-any", "devDependencies": { "typescript": "5.6.3", "typescript-eslint": "8.0.0" } }

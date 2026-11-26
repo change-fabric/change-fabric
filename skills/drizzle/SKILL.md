@@ -1,6 +1,7 @@
 ---
 name: cf:drizzle
 group: rubrics
+review: true
 description: Drizzle ORM schema, migrations, and queries. Auto-applied by the cf shim on every Drizzle change; also invocable directly.
 auto:
   paths:

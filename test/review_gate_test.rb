@@ -12,7 +12,7 @@ class ReviewGateTest < Minitest::Test
   def setup
     super
     @skills = Dir.mktmpdir
-    skill_dir("ruby", auto: { "extensions" => [ "rb" ] }, body: "POODR-PRINCIPLES")
+    write_skill("ruby", "---\nname: ruby\ndescription: x\nreview: true\nauto:\n  extensions: [rb]\n---\n\nPOODR-PRINCIPLES\n")
   end
 
   def teardown
@@ -20,10 +20,11 @@ class ReviewGateTest < Minitest::Test
     super
   end
 
-  def gate(command, session: "s1", tool: "Bash")
+  def gate(command, session: "s1", tool: "Bash", cwd: nil, stage1: ->(_root) { nil })
     io = StringIO.new
     event = { "session_id" => session, "tool_name" => tool, "tool_input" => { "command" => command } }
-    ReviewGate.new(event, skills: SkillRegistry.load(@skills)).emit(io)
+    event["cwd"] = cwd if cwd
+    ReviewGate.new(event, skills: SkillRegistry.load(@skills), stage1: stage1).emit(io)
     io.string.empty? ? nil : JSON.parse(io.string)
   end
 
@@ -133,5 +134,79 @@ class ReviewGateTest < Minitest::Test
     end
     refute_empty ReviewQueue.new("s1").pending
     assert_equal "deny", decision(gate("git push -u origin feat/x")), "without the autopilot the gate is back"
+  end
+
+  def report(*statuses)
+    results = statuses.each_with_index.map do |status, i|
+      ReviewStage1::Result.new(id: "check#{i}", status: status, detail: "detail#{i}", command: nil, findings: [ "f.rb:#{i + 1}: bad" ])
+    end
+    ReviewStage1::Report.new(results)
+  end
+
+  def test_a_blocking_stage1_denies_with_findings_and_never_builds_the_model_prompt
+    enqueue
+    out = gate("git push", cwd: Dir.pwd, stage1: ->(_root) { report("failed") })
+    reason = out.dig("hookSpecificOutput", "permissionDecisionReason")
+    assert_equal "deny", decision(out)
+    assert_includes reason, "Stage 1 blocked"
+    assert_includes reason, "f.rb:1: bad"
+    refute_includes reason, "Launch the review now"
+  end
+
+  def test_stage1_blocks_even_with_an_empty_review_queue
+    assert_equal "deny", decision(gate("git push", cwd: Dir.pwd, stage1: ->(_root) { report("timed_out") }))
+  end
+
+  def test_stage1_unavailable_blocks
+    assert_equal "deny", decision(gate("git push", cwd: Dir.pwd, stage1: ->(_root) { report("unavailable") }))
+  end
+
+  def test_an_all_clear_stage1_hands_back_the_stage2_prompt_for_the_worker_role
+    enqueue
+    out = gate("git push", cwd: Dir.pwd, stage1: ->(_root) { report("passed", "not_applicable") })
+    reason = out.dig("hookSpecificOutput", "permissionDecisionReason")
+    assert_equal "deny", decision(out)
+    assert_includes reason, "Stage 1"
+    assert_includes reason, "Judge only these items"
+    assert_includes reason, "second_caller"
+    assert_includes reason, 'model: "sonnet"', "stage 2 runs on the worker role"
+    assert_includes reason, "review_findings.rb s1"
+    assert_includes reason, "POODR-PRINCIPLES", "a review: true rubric matching the diff rides along"
+  end
+
+  def test_all_clear_with_nothing_queued_allows
+    assert_nil gate("git push", cwd: Dir.pwd, stage1: ->(_root) { report("passed") })
+  end
+
+  def test_stage1_is_not_run_without_a_repo_root
+    called = false
+    assert_nil gate("git push", stage1: ->(_root) { called = true })
+    refute called
+  end
+
+  def test_stage1_is_not_run_for_a_non_trigger_command
+    called = false
+    gate("git status", cwd: Dir.pwd, stage1: ->(_root) { called = true })
+    refute called
+  end
+
+  def test_a_rubric_without_review_true_is_not_embedded_in_stage2
+    write_skill("plain-ruby", "---\nname: plain-ruby\ndescription: x\nauto:\n  extensions: [rb]\n---\n\nSHOULD-NOT-APPEAR\n")
+    ReviewQueue.new("s1").add("plain-ruby", "/p/a.rb", "h1")
+    reason = gate("git push", cwd: Dir.pwd, stage1: ->(_root) { report("passed") }).dig("hookSpecificOutput", "permissionDecisionReason")
+    refute_includes reason, "SHOULD-NOT-APPEAR"
+  end
+
+  def test_stage1_runs_in_the_directory_a_leading_cd_names
+    other = File.realpath(Dir.mktmpdir)
+    system("git", "-C", other, "init", "-q", out: File::NULL)
+    seen = nil
+    gate("cd #{other} && git push", cwd: Dir.pwd, stage1: ->(root) { seen = root; nil })
+    assert_equal other, seen
+    seen = nil
+    gate("cd /no/such/dir && git push", cwd: Dir.pwd, stage1: ->(root) { seen = root; nil })
+    assert_equal ReviewScope.repo_root(Dir.pwd), seen, "an unusable cd target falls back to the cwd"
+  ensure
+    FileUtils.remove_entry(other)
   end
 end

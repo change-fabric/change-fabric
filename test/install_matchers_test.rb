@@ -4,6 +4,7 @@ require_relative "test_helpers"
 require "open3"
 require_relative "../install"
 require_relative "../scripts/hook_event"
+require_relative "../scripts/review_stage1"
 
 class InstallMatchersTest < Minitest::Test
   # The tools each deny guard's spec names (its own tool check, read from the
@@ -70,6 +71,14 @@ class InstallMatchersTest < Minitest::Test
       matcher = groups_for("PreToolUse", guard).first["matcher"]
       named.each { |tool| assert covers?(matcher, tool), "#{guard} checks #{tool} but its matcher is #{matcher.inspect}" }
     end
+  end
+
+  def test_only_the_review_gate_carries_a_hook_timeout_for_its_stage_one_checks
+    gate = groups_for("PreToolUse", "review_gate").first["hooks"].first
+    assert_operator gate["timeout"], :>=, 3 * ReviewStage1::DEFAULT_TIMEOUT
+    tool_hooks = @settings.values_at("PreToolUse", "PostToolUse").compact.flatten.flat_map { |group| group["hooks"] }
+    others = tool_hooks.reject { |hook| hook["command"].end_with?("/review_gate.rb") || hook["command"].match?(/cf_host_hook|pulse_stamp/) }
+    assert_empty others.select { |hook| hook.key?("timeout") }
   end
 
   def test_the_matcher_is_written_beside_the_command_and_survives_reinstall
