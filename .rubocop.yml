@@ -9,3 +9,19 @@ AllCops:
     - 'telemetry/infra/lambda/*/vendor/**/*'
     - 'approval_console/infra/build/**/*'
     - 'approval_console/infra/lambda/vendor/**/*'
+    - 'test/fixtures/stage1/**/*'
+
+# Stage 1 of the review gate (scripts/review_stage1.rb) requires these three
+# cops enabled in a Ruby repo. The limits are ceilings set above the largest
+# existing code, so they stop growth; lower them as the big files shrink.
+Metrics/ClassLength:
+  Enabled: true
+  Max: 1400
+
+Metrics/MethodLength:
+  Enabled: true
+  Max: 200
+
+Metrics/ParameterLists:
+  Enabled: true
+  Max: 30

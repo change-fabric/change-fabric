@@ -99,6 +99,8 @@ module SkillRegistry
     def name = @meta['name'].to_s
     def all_code? = @auto['all_code'] == true
     def all_files? = @auto['all_files'] == true
+    # Opt-in to the stage 2 model review (top-level `review: true`).
+    def review? = @meta['review'] == true
     def body = @body
 
     # `root`, when given, is the project root used to evaluate the require and

@@ -1,0 +1,1 @@
+{ "name": "focused-test", "devDependencies": { "vitest": "2.0.0", "eslint-plugin-vitest": "0.5.0" } }

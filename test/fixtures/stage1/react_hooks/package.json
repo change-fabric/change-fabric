@@ -1,0 +1,1 @@
+{ "name": "react-hooks", "dependencies": { "react": "19.0.0" }, "devDependencies": { "eslint-plugin-react-hooks": "5.0.0" } }

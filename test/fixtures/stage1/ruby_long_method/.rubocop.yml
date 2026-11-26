@@ -1,0 +1,13 @@
+AllCops:
+  NewCops: disable
+  SuggestExtensions: false
+
+Metrics/ClassLength:
+  Enabled: true
+
+Metrics/MethodLength:
+  Enabled: true
+  Max: 3
+
+Metrics/ParameterLists:
+  Enabled: true
