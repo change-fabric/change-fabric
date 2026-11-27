@@ -322,7 +322,9 @@ class ChangeScreenshot
     manifest_path = write_manifest(config, result, kept)
     uploads = upload(kept)
     summarize(result, pairs, kept, manifest_path, uploads)
-    0
+    # An auth route that never got past the login page proves nothing about
+    # the branch, so the run fails rather than reporting a vacuous match.
+    pairs.any?(&:auth_failed) ? 1 : 0
   end
 
   def write_manifest(config, result, kept)
@@ -352,7 +354,7 @@ class ChangeScreenshot
       'route' => pair.route, 'viewport' => pair.viewport,
       'before' => pair.before_path, 'after' => pair.after_path,
       'diffPercent' => pair.diff_percent, 'changed' => pair.changed,
-      'reason' => pair.reason, 'missingSide' => pair.missing_side
+      'reason' => pair.reason, 'missingSide' => pair.missing_side, 'authFailed' => pair.auth_failed
     }
   end
 
@@ -377,7 +379,8 @@ class ChangeScreenshot
   end
 
   def summarize(result, pairs, kept, manifest_path, uploads)
-    log("[screenshot] captured #{pairs.size} route/viewport pair(s); #{kept.size} differ")
+    bounced = pairs.count(&:auth_failed)
+    log("[screenshot] captured #{pairs.size} route/viewport pair(s); #{kept.size} differ; #{bounced} auth bounce(s)")
     kept.each { |pair| log("[screenshot]   #{pair.viewport} #{pair.route}: #{pair.reason}") }
     log('[screenshot] no visible change; nothing to upload and nothing to offer a pull request') if kept.empty?
     summarize_uploads(uploads)

@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "stringio"
+require "tmpdir"
 require_relative "../scripts/change_screenshot"
 
 # The orchestration half of cf:screenshot: which two git states get compared,
@@ -360,5 +361,23 @@ class ChangeScreenshotTest < Minitest::Test
   def test_a_side_missing_at_one_ref_gets_no_label
     kept = [ pair(route: "/new", viewport: "desktop", before_path: nil, after_path: "/o/after/n.png") ]
     assert_equal [ [ "after desktop /new", "/o/after/n.png" ] ], probe.labeled_paths(kept)
+  end
+
+  # --- auth bounces -----------------------------------------------------------------
+
+  def test_auth_bounces_are_counted_in_the_summary_and_fail_the_run
+    subject = probe
+    subject.define_singleton_method(:head_sha) { "abc" }
+    bounced = ChangeScreenshotCapture::Pair.new(viewport: "desktop", route: "/dashboard", changed: true,
+                                                reason: "capture failed", auth_failed: true)
+    clean = ChangeScreenshotCapture::Pair.new(viewport: "desktop", route: "/", changed: false, reason: "0%")
+    Dir.mktmpdir do |dir|
+      result = { pairs: [ bounced, clean ], out_dir: dir, base_side: Struct.new(:commit, :url).new("def", nil) }
+      config = Struct.new(:project).new("demo")
+      status = nil
+      output = capture_stderr { status = subject.report(config, result) }
+      assert_equal 1, status
+      assert_includes output, "1 differ; 1 auth bounce(s)"
+    end
   end
 end

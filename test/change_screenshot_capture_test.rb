@@ -245,4 +245,82 @@ class ChangeScreenshotCaptureTest < Minitest::Test
       assert_equal "boom", cell.error
     end
   end
+
+  # --- authenticated routes ---------------------------------------------------------
+
+  AUTH = { "login_url" => "/login", "email_env" => "CF_SHOT_TEST_EMAIL", "password_env" => "CF_SHOT_TEST_PASSWORD",
+           "email_selector" => "#email", "wait_for_selector" => "[data-test=app]" }.freeze
+
+  def auth_capturer(auth = AUTH)
+    capturer("routes" => [ "/", { "path" => "/dashboard", "auth" => true } ], "auth" => auth,
+             "viewports" => [ { "name" => "desktop", "width" => 1440, "height" => 900 } ])
+  end
+
+  def with_auth_env
+    ENV["CF_SHOT_TEST_EMAIL"] = "qa@example.org"
+    ENV["CF_SHOT_TEST_PASSWORD"] = "pw"
+    yield
+  ensure
+    ENV.delete("CF_SHOT_TEST_EMAIL")
+    ENV.delete("CF_SHOT_TEST_PASSWORD")
+  end
+
+  # The lane's own login runtime, not a copy, compiled against the side's
+  # own base url so the base ref logs in to the base server.
+  def test_an_auth_route_logs_in_with_the_lanes_shared_steps_in_a_fresh_context
+    with_auth_env do
+      js = auth_capturer.capture_module("https://base.example.org")
+      assert_includes js, ChangeLaneBrowserless.auth_session_js
+      assert_includes js, "newBrowserContext(browser)"
+      assert_includes js, "await ensureAuth(session)"
+      assert_includes js, "https://base.example.org/login"
+      assert_includes js, "[data-test=app]"
+      assert_includes js, '"auth":true'
+    end
+  end
+
+  def test_unset_credentials_fail_the_auth_cell_with_the_lanes_reason
+    js = auth_capturer.capture_module("https://app.example.org")
+    assert_includes js, "const auth = null;"
+    assert_includes js, "CF_SHOT_TEST_EMAIL"
+    assert_includes js, "auth login not attempted"
+  end
+
+  # The bug this guards: an auth route redirected to the login page at both
+  # refs pixel-matched and the run reported a vacuous "0 differ".
+  def test_a_login_page_bounce_fails_the_cell_and_is_counted
+    with_auth_env do
+      js = auth_capturer.capture_module("https://app.example.org")
+      assert_includes js, "bouncedToLogin(cellPage.url())"
+      assert_includes js, "auth bounce:"
+    end
+    bounce = "Error: auth bounce: /dashboard redirected to the login page (https://app.example.org/login)"
+    session = Object.new
+    session.define_singleton_method(:run_function) do |_code|
+      { "cells" => [ { "viewport" => "desktop", "route" => "/dashboard", "error" => bounce, "authFailed" => true } ] }
+    end
+    Dir.mktmpdir do |dir|
+      subject = auth_capturer
+      before = subject.capture(session: session, side: "before", out_dir: dir)
+      after = subject.capture(session: session, side: "after", out_dir: dir)
+      row = subject.pair_rows(before: before, after: after).first
+      assert row.changed, "a bounced auth route must not read as unchanged"
+      assert row.auth_failed
+      assert_includes row.reason, "auth bounce"
+    end
+  end
+
+  # The bounce check itself, run in node against the emitted function body.
+  def test_the_bounce_check_matches_the_login_path_only
+    skip "node not installed" unless system("node", "--version", out: File::NULL, err: File::NULL)
+    js = with_auth_env { auth_capturer.capture_module("https://app.example.org") }
+    fn = js[/function bouncedToLogin\(finalUrl\) \{\n(?:.*\n){2}\s*\}/]
+    refute_nil fn
+    auth = js[/const auth = (.*?);\n/, 1]
+    script = "const auth = #{auth};\n#{fn}\nconsole.log(JSON.stringify([" \
+             "bouncedToLogin('https://app.example.org/login?next=/dashboard'), " \
+             "bouncedToLogin('https://app.example.org/dashboard')]));"
+    out = IO.popen([ "node", "-e", script ], &:read)
+    assert_equal "[true,false]", out.strip
+  end
 end
