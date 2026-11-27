@@ -1,7 +1,7 @@
 ---
 name: cf:plan
 group: workflow
-description: Turns a described goal into a landed planning set under the configured plans tree. The set is plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js. Background worker-role agents research and surface the open questions; this session grills the user with AskUserQuestion until the judgment calls are settled, then has the plan written against those answers. Under merge-ready or local-only it stops at a handoff prompt for a fresh session; under admin-bypass or yolo it continues straight into the plan's Workflow once the plan lands.
+description: "Turns a described goal into a landed planning set: plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js. Background agents research, this session grills the user with AskUserQuestion until the judgment calls settle, then the plan is written. Under merge-ready or local-only it stops at a handoff prompt; under admin-bypass or yolo it continues into the Workflow."
 ---
 
 # CF Plan

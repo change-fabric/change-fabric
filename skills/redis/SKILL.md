@@ -2,8 +2,9 @@
 name: cf:redis
 group: rubrics
 review: true
-description: Redis cache and session usage. Auto-applied by the cf shim on every Redis-related change; also invocable directly.
+description: Redis cache and session usage. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [js, mjs]
   require:
     - dep: [redis, ioredis]

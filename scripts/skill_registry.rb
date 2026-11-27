@@ -24,6 +24,28 @@ module SkillRegistry
   # `.github`. Centralized so per-file glob matching stays consistent.
   PATH_FLAGS = File::FNM_PATHNAME | File::FNM_EXTGLOB | File::FNM_DOTMATCH
 
+  # Doctrine levels, strictest first. A rubric is emitted when the session level
+  # is at or above its `min_level` (strict > standard > lean).
+  LEVELS = %w[strict standard lean].freeze
+  DEFAULT_LEVEL = 'standard'
+
+  # The session doctrine level: CF_DOCTRINE_LEVEL, then ~/.claude/cf/doctrine_level,
+  # then the default. An unknown value falls through to the next source.
+  def self.session_level(env: ENV, home: Dir.home)
+    from_env = env['CF_DOCTRINE_LEVEL'].to_s.strip.downcase
+    return from_env if LEVELS.include?(from_env)
+
+    from_file = File.read(File.join(home, '.claude', 'cf', 'doctrine_level')).strip.downcase
+    LEVELS.include?(from_file) ? from_file : DEFAULT_LEVEL
+  rescue SystemCallError
+    DEFAULT_LEVEL
+  end
+
+  # True when `level` is at or above `minimum` in strictness.
+  def self.level_allows?(level, minimum)
+    LEVELS.index(level) <= LEVELS.index(minimum)
+  end
+
   # The runtime install lives at ~/.claude/skills; from a hook in
   # ~/.claude/cf/bin that is two levels up. Tests pass an explicit dir.
   def self.default_dir = File.expand_path('../../skills', __dir__)
@@ -101,6 +123,18 @@ module SkillRegistry
     def all_files? = @auto['all_files'] == true
     # Opt-in to the stage 2 model review (top-level `review: true`).
     def review? = @meta['review'] == true
+
+    # Least strict doctrine level at which this rubric is surfaced while
+    # authoring (`auto: min_level:`). Unset or unknown: a `review: true` rubric
+    # is review-time only (strict), any other applies at every level.
+    def min_level
+      value = @auto['min_level'].to_s.downcase
+      return value if LEVELS.include?(value)
+
+      review? ? 'strict' : 'lean'
+    end
+
+    def surfaces_at?(level) = SkillRegistry.level_allows?(level, min_level)
     def body = @body
 
     # `root`, when given, is the project root used to evaluate the require and

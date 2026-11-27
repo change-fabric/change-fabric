@@ -18,9 +18,10 @@ class SkillInject
   EVENT = 'PostToolUse'
   EDIT_TOOLS = %w[Edit Write MultiEdit NotebookEdit].freeze
 
-  def initialize(event, skills: nil)
+  def initialize(event, skills: nil, level: nil)
     @event = event
     @skills = skills
+    @level = level
   end
 
   def emit(io = $stdout)
@@ -39,12 +40,16 @@ class SkillInject
 
     enqueue_reviews(structural, path)
     root = repo_root(path)
-    surface(structural.select { |skill| skill.matches?(path, root: root) }, io)
+    surface(structural.select { |skill| skill.matches?(path, root: root) && skill.surfaces_at?(level) }, io)
   end
 
   private
 
   def registry = @skills ||= SkillRegistry.load
+
+  # Fixed per hook process; a review-time rubric (min_level strict) is queued for
+  # the stage 2 review but not surfaced while authoring below that level.
+  def level = @level ||= SkillRegistry.session_level
 
   def changed_path
     input = @event['tool_input']

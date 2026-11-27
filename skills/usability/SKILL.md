@@ -2,8 +2,9 @@
 name: cf:usability
 group: rubrics
 review: true
-description: Nielsen's ten usability heuristics (1994) as an inspection rubric. Auto-applied by the cf shim on every UI change (markup, styles, components, templates, DESIGN.md, walkthrough storyboards); also invocable directly and loaded by name by cf:prototyping, cf:design, cf:prototype, and cf:walkthrough.
+description: Nielsen ten usability heuristics as an inspection rubric for UI changes. Applied in the stage 2 review; loaded by name by cf:prototyping, cf:design, cf:prototype, and cf:walkthrough.
 auto:
+  min_level: strict
   extensions: [html, htm, css, scss, jsx, tsx, vue, svelte, erb]
   paths:
     - "DESIGN.md"

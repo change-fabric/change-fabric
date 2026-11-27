@@ -1,11 +1,7 @@
 ---
 name: cf:aws
 group: rubrics
-review: true
-description: AWS Well-Architected rubric. Auto-applied by the cf shim in AWS infrastructure projects; also invocable directly.
-auto:
-  basenames: [cdk.json, serverless.yml, serverless.yaml, samconfig.toml, template.yaml, template.yml, aws-exports.js]
-  detect: [cdk.json, serverless.yml, serverless.yaml, samconfig.toml, template.yaml, template.yml, aws-exports.js, .aws]
+description: AWS Well-Architected rubric. A cf:roast lens only (--lens cf:aws); never auto-applied.
 ---
 
 # AWS Cheat Sheet

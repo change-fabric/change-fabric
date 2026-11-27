@@ -44,6 +44,8 @@ class SkillDetectTest < Minitest::Test
 
   def test_slow_detection_fails_silent_without_marking_session
     slow_skill = Object.new
+    def slow_skill.surfaces_at?(_level) = true
+
     def slow_skill.detected?(_dir)
       sleep 5
       true
@@ -64,5 +66,21 @@ class SkillDetectTest < Minitest::Test
     event = { "session_id" => "s1", "cwd" => Dir.home }
     SkillDetect.new(event, skills: SkillRegistry.load(@skills)).emit(io)
     assert_empty io.string
+  end
+
+  def test_review_time_rubric_is_not_announced_below_strict
+    write_skill("deep", "---\nname: deep\ndescription: x\nreview: true\nauto:\n  detect: [Gemfile]\n---\n\nDEEP\n")
+    FileUtils.touch(File.join(@proj, "Gemfile"))
+    refute_includes announce, "deep"
+  end
+
+  def test_compaction_resurfaces_rubrics_already_surfaced
+    SkillStore.new("s9").mark([ "refactoring" ])
+    io = StringIO.new
+    event = { "session_id" => "s9", "cwd" => @proj, "hook_event_name" => "SessionStart", "source" => "compact" }
+    SkillDetect.new(event, skills: SkillRegistry.load(@skills)).emit(io)
+    text = JSON.parse(io.string).dig("hookSpecificOutput", "additionalContext")
+    assert_includes text, "BODY-refactoring"
+    refute_includes text, "BODY-ruby"
   end
 end

@@ -1,7 +1,7 @@
 ---
 name: cf:enroll
 group: workflow
-description: Enrolls the paid API keys (OpenAI, ElevenLabs, Gemini) that installed cf skills need, one question per provider. Run directly it covers every installed provider (or the ones named); a paid skill that exits 4 loads it with its cf_enroll line. Offers the cf_keys.rb snippet for the user's own terminal (project scope by default, tree scope on request), confirm-inherit of an ancestor key, the cf:secret-intake upload page as a fallback, or a deferral of 1 or 7 days. Never asks for a key in chat.
+description: Enrolls the paid API keys (OpenAI, ElevenLabs, Gemini) that installed cf skills need, one question per provider. Offers the cf_keys.rb snippet for the user own terminal, confirm-inherit of an ancestor key, the cf:secret-intake page as a fallback, or a deferral. A paid skill that exits 4 loads it. Never asks for a key in chat.
 ---
 
 # CF enroll

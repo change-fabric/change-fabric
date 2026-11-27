@@ -114,7 +114,7 @@ module ReviewPrompt
   def cap_notice(count)
     "[cf review] Round cap (#{ReviewQueue::CAP}) reached; #{count} file(s) " \
       'still changing. Automatic design review is paused for this batch until it ' \
-      'changes; review remaining changes manually or invoke /cf:ruby.'
+      'changes; review remaining changes manually or invoke /cf:refactoring.'
   end
 
   def section(skill, name, rows)

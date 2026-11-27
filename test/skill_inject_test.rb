@@ -218,9 +218,32 @@ class SkillInjectTest < Minitest::Test
     refute_empty io.string
   end
 
-  def test_shipped_usability_surfaces_on_html_not_ruby
-    shipped = SkillRegistry.load(REPO_SKILLS)
-    assert_includes context(tool: "Edit", path: "/p/index.html", skills: shipped), "usability"
-    refute_includes context(tool: "Edit", path: "/p/app.rb", skills: shipped).to_s, "cf:usability"
+  def surfaced_at(level, path, session)
+    io = StringIO.new
+    event = { "session_id" => session, "tool_name" => "Edit", "tool_input" => { "file_path" => path } }
+    SkillInject.new(event, skills: SkillRegistry.load(REPO_SKILLS), level: level).emit(io)
+    io.string
+  end
+
+  # Usability is a review-time rubric: surfaced while authoring only at strict.
+  def test_shipped_usability_surfaces_on_html_only_at_strict
+    assert_includes surfaced_at("strict", "/p/index.html", "u1"), "usability"
+    refute_includes surfaced_at("standard", "/p/index.html", "u2"), "cf:usability"
+    refute_includes surfaced_at("strict", "/p/app.rb", "u3"), "cf:usability"
+  end
+
+  def test_min_level_gates_surfacing_but_not_the_review_queue
+    write_skill("deep", "---\nname: deep\ndescription: x\nreview: true\nauto:\n  extensions: [rb]\n---\n\nDEEP-BODY\n")
+    path = File.join(@proj, "a.rb")
+    File.write(path, "x")
+    event = { "session_id" => "lv", "tool_name" => "Edit", "tool_input" => { "file_path" => path } }
+    io = StringIO.new
+    SkillInject.new(event, skills: registry, level: "standard").emit(io)
+    refute_includes io.string, "DEEP-BODY", "a review: true rubric is review-time below strict"
+    assert_includes io.string, "refactoring"
+
+    strict = StringIO.new
+    SkillInject.new(event.merge("session_id" => "lv2"), skills: registry, level: "strict").emit(strict)
+    assert_includes strict.string, "DEEP-BODY"
   end
 end

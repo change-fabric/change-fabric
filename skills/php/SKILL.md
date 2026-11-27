@@ -2,8 +2,9 @@
 name: cf:php
 group: rubrics
 review: true
-description: Modern PHP rubric for native types, explicit boundaries, safe defaults, and restraint in existing codebases. Auto-applied by the cf shim on every PHP change; also invocable directly.
+description: Modern PHP rubric for native types, explicit boundaries, safe defaults, and restraint in existing codebases. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [php]
   basenames: [composer.json]
   detect: ["**/composer.json", "**/.php-version"]

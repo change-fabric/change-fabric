@@ -1,43 +1,41 @@
 ---
 name: cf:refactoring
 group: rubrics
-description: Fowler refactoring smells and moves. Auto-applied by the cf shim on every code change of any kind; also invocable directly.
+description: Fowler refactoring smells and moves, removal first. Auto-applied by the cf shim on every code change; also invocable directly.
 auto:
   all_code: true
 ---
 
-# Fowler Refactoring Cheat Sheet
+# Refactoring
 
-Source: Martin Fowler, *Refactoring*
+Question: what does the next change cost here, and does this move make it cheaper?
 
-Rule: smells are signals, not verdicts. Refactor only to reduce change cost; preserve behavior.
+Removal moves come first.
 
-| Smell | Default move |
+| Smell | Move |
 |---|---|
-| Duplicated Code | Extract Function / Pull Up Method |
-| Long Function | Extract Function |
-| Large Class | Extract Class |
-| Long Parameter List | Introduce Parameter Object |
-| Divergent Change | Extract Class |
-| Shotgun Surgery | Move Function / Inline Class |
-| Feature Envy | Move Function |
-| Data Clumps | Extract Class / Introduce Parameter Object |
-| Primitive Obsession | Replace Primitive with Object |
-| Repeated Switches | Replace Conditional with Polymorphism |
-| Loops | Replace Loop with Pipeline |
 | Lazy Element | Inline Function / Inline Class |
-| Speculative Generality | Remove Dead Code / Collapse Hierarchy |
-| Temporary Field | Extract Class |
-| Message Chains | Hide Delegate |
+| Speculative Generality | Collapse Hierarchy, delete the unused parameter, hook, or option |
 | Middle Man | Remove Middle Man |
-| Insider Trading | Move Function / Hide Delegate |
-| Data Class | Encapsulate Record / Move Function |
-| Refused Bequest | Replace Subclass with Delegate |
-| Comments Explaining Bad Code | Extract Function / Rename Function |
+| Dead Code | Delete it |
+| Duplicated Code | Extract Function, only per the extract rule below |
+| Long Function | Extract Function |
+| Large Class, Divergent Change | Extract Class |
+| Long Parameter List, Data Clumps | Introduce Parameter Object |
+| Feature Envy, Shotgun Surgery | Move Function |
+| Repeated Switches | Replace Conditional with Polymorphism |
+| Message Chains | Hide Delegate |
+| Primitive Obsession | Replace Primitive with Object |
 
-Agent protocol:
-1. Name the smell.
-2. Name the change risk.
-3. Apply the smallest behavior-preserving move.
-4. Stop before redesigning.
-</content>
+Extract rule: extract only when a second caller exists now or the change touches
+the duplicate. Duplication beats a wrong abstraction. A single-implementation
+interface, factory, or registry is Speculative Generality.
+
+Design guards:
+- One reason to change per class; tell, do not ask.
+- Few collaborators and no deep chains (Law of Demeter).
+- Prefer composition to inheritance; inject collaborators.
+- No new config, flag, or dependency the task did not ask for.
+
+Each finding names the smell, the move, and the change it makes cheaper, or says
+none. Apply the smallest behavior-preserving move, then stop.

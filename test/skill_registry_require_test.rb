@@ -47,19 +47,6 @@ class SkillRegistryRequireTest < Minitest::Test
     FileUtils.remove_entry(proj) if proj
   end
 
-  def test_shipped_drizzle_fires_on_js_schema_in_drizzle_project
-    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:drizzle" }
-    drz = project_with("drizzle.config.js", "src/db/schema.js")
-    plain = project_with("src/db/schema.js")
-    assert drizzle.matches?(File.join(drz, "src/db/schema.js"), root: drz),
-           "fires on a plain-JS Drizzle schema in a Drizzle project"
-    refute drizzle.matches?(File.join(plain, "src/db/schema.js"), root: plain),
-           "stays off a schema.js in a project with no Drizzle marker"
-  ensure
-    FileUtils.remove_entry(drz) if drz
-    FileUtils.remove_entry(plain) if plain
-  end
-
   def test_shipped_turbo_workspaces_requires_a_turbo_json
     turbo = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:turbo-workspaces" }
     mono = project_with_files("turbo.json" => "{}", "package.json" => "{}", "apps/web/package.json" => "{}")

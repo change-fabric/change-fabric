@@ -2,8 +2,9 @@
 name: cf:oauth-jwt
 group: rubrics
 review: true
-description: OAuth 2.0 and JWT auth flows. Auto-applied by the cf shim on every auth-related change; also invocable directly.
+description: OAuth 2.0 and JWT auth flows. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [js, jsx, mjs]
   require:
     - dep: [jsonwebtoken, jose, passport, passport-jwt, "@node-oauth/express-oauth-server", openid-client]

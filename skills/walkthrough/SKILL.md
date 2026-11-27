@@ -2,7 +2,7 @@
 name: cf:walkthrough
 group: workflow
 providers: [openai, elevenlabs, gemini]
-description: Flagship walkthrough command. Turns a PRD, SOW, brief, or an existing app into a cinematic narrated MP4 walkthrough without building the app, or films an already-built app from its URL, composing cf:design for DESIGN.md, cf:prototype for HTML/CSS mock screens and recorded motion, and cf:prototyping plus cf:usability for method and rubric. Writes storyboard.json as the source of truth, narrates in present tense as a shipped product, keeps the truth trail in an ASSUMPTIONS.md sidecar, generates ElevenLabs narration and music, and composes deterministically with Ruby and FFmpeg in pinned containers. Renders a draft first, then a final, and regenerates single scenes from cached content keys. Works from a PRD alone.
+description: Flagship walkthrough command. Turns a PRD, SOW, brief, or existing app into a narrated MP4 walkthrough without building the app, composing cf:design, cf:prototype, cf:prototyping, and cf:usability. Writes storyboard.json as the source of truth, generates ElevenLabs narration and music, composes with Ruby and FFmpeg in pinned containers, and renders a draft first, then a final.
 ---
 
 # CF walkthrough

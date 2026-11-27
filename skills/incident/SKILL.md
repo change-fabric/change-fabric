@@ -1,7 +1,7 @@
 ---
 name: cf:incident
 group: workflow
-description: Runs the production incident cycle for a repo, kept outside git. Opens a record in the cf incidents tree, drafts a rollback script from the repo's own runbook for the human to run, gathers read-only evidence into a timeline, scopes a hotfix through cf:drive quick and cf:change, verifies production read-only, writes an RCA, and tracks prevention follow-ups to closure. It never runs a prod command and never pushes a tag. Invoked by name.
+description: "Runs the production incident cycle for a repo, kept outside git: opens a record, drafts a rollback script for the human to run, gathers read-only evidence, scopes a hotfix through cf:drive quick and cf:change, writes an RCA, and tracks follow-ups. It never runs a prod command and never pushes a tag. Invoked by name."
 ---
 
 # CF incident

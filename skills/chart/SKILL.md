@@ -1,7 +1,7 @@
 ---
 name: cf:chart
 group: workflow
-description: Data chart command. Renders one standalone, theme-aware, accessible .svg per chart (bar, stacked-bar, line, schedule, table, scatter, heatmap) from a chart.json data spec with a deterministic Ruby renderer on cf:diagram's skin and palette, then gates it on a Ruby linter that runs cf:diagram's shared SVG checks plus chart checks (axis titles and units, zero baselines, tick counts, series cap, legends, a data table, and mark geometry against the spec), for up to three fix rounds. Invoked by name, or loaded by cf:plan and cf:drive thorough.
+description: Data chart command. Renders one standalone, theme-aware, accessible .svg per chart (bar, line, table, scatter, heatmap, and more) from a chart.json spec, then gates it on a Ruby linter for up to three fix rounds. Invoked by name, or loaded by cf:plan and cf:drive thorough.
 ---
 
 # CF chart

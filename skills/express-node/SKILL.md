@@ -2,8 +2,9 @@
 name: cf:express-node
 group: rubrics
 review: true
-description: Express and Node.js ESM backend. Auto-applied by the cf shim on every Express backend change; also invocable directly.
+description: Express and Node.js ESM backend. Applied in the stage 2 review; also invocable directly.
 auto:
+  min_level: strict
   extensions: [js, mjs]
   require:
     - dep: [express]

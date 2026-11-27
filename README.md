@@ -34,8 +34,9 @@ FFmpeg. Single scenes regenerate from cached content keys.
 
 **Rubrics that fire on their own.** Most skills carry an `auto:` block and
 surface without being asked: on an edit to a matching file, on a project
-fingerprint at session start, or as a review when a turn ends. `cf:ruby` on
-Ruby, `cf:react` on components, `cf:ai-slop` on every file you author.
+fingerprint at session start, or as a review when a turn ends. `cf:refactoring` on
+code and `cf:ai-slop` on every file you author load automatically; `cf:nextjs`,
+`cf:docker`, and `cf:turbo-workspaces` load when detected. The rest are review-time rubrics.
 
 The hooks are the enforcement half. They ask for a merge mode at session start,
 deny host-daemon commands before the tool call runs, and gate

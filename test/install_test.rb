@@ -280,7 +280,7 @@ class InstallerTest < Minitest::Test
   def test_links_the_auto_skills_under_the_namespace_keeping_cf_plain
     paths = install
     linked = paths.skill_sources.map { |s| Install::SkillName.of(s) }
-    assert_includes linked, "cf:ruby"
+    assert_includes linked, "cf:typescript"
     assert_includes linked, "cf:refactoring"
     assert_includes linked, "cf:usability"
     assert_includes linked, "cf", "the namespace root stays unprefixed, not cf:cf"
@@ -582,7 +582,7 @@ class InstallerTest < Minitest::Test
     FileUtils.mkdir_p(stale)
     File.write(File.join(stale, Install::PortableSkillMirror::MARKER), "source: old\n")
     custom = paths.codex_skill("custom")
-    collision = paths.codex_skill("cf:ruby")
+    collision = paths.codex_skill("cf:typescript")
     FileUtils.mkdir_p(custom)
     FileUtils.remove_entry(collision)
     FileUtils.mkdir_p(collision)

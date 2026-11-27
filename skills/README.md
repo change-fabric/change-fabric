@@ -118,6 +118,8 @@ The cf shim then surfaces it without anyone invoking it:
 | `detect` | Glob markers, relative to project root, that mark the skill active at SessionStart |
 | `all_code` | `true` = matches every code file via the central extension list (used by `cf:refactoring`) |
 | `all_files` | `true` = matches every edited file, code or prose (used by `cf:ai-slop`) |
+| `require` | Gate: globs or `{dep: [names]}` the project must satisfy (used by `cf:nextjs`, `cf:railway`) |
+| `min_level` | Least strict doctrine level (`lean`, `standard`, `strict`) at which the rubric is surfaced while authoring. Unset: `lean` for most rubrics, `strict` for a `review: true` rubric, which is otherwise review-time only |
 
 ## CI diff-grep checks
 

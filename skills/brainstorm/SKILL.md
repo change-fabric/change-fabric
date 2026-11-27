@@ -1,7 +1,7 @@
 ---
 name: cf:brainstorm
 group: workflow
-description: Divergent step that runs before cf:plan and feeds it. Frames the problem in at most five sentences, launches four background author-role agents in one message to generate options from three fixed lenses (user-value, simplest-thing, risk-and-ops) plus one topic lens chosen at framing, clusters the options into named concepts, culls a shortlist with one cf:roast doc round under a 0.5 USD cap, and lets the user pick with AskUserQuestion. Lands brainstorm.md in the plan dir and prints a paste-ready cf:plan line with --seed. It never writes plan.md, goal.md, or workflow.js and never invokes cf:plan itself.
+description: Divergent step that runs before cf:plan and feeds it. Frames the problem, launches four background agents to generate options from fixed lenses, clusters them into named concepts, culls a shortlist with one cf:roast round, and lets the user pick with AskUserQuestion. Lands brainstorm.md and a paste-ready cf:plan line; it never writes plan.md or invokes cf:plan itself.
 ---
 
 # CF Brainstorm
