@@ -167,6 +167,14 @@ module ReviewStage1
       end
     end
 
+    # HEAD's tree hash, nil outside git or on an unborn branch.
+    def git_tree
+      out, status = Open3.capture2e('git', '-C', root, 'rev-parse', 'HEAD^{tree}')
+      status.success? ? out.strip : nil
+    rescue SystemCallError
+      nil
+    end
+
     def git_head
       out, status = Open3.capture2e('git', '-C', root, 'rev-parse', 'HEAD')
       status.success? ? out.strip : 'HEAD'
@@ -272,8 +280,12 @@ module ReviewStage1
   class Run
     # runner: (command, root, timeout) -> ChangeProcess::Result. which: tool
     # lookup. files: changed paths for the glyph check, nil to ask git.
-    def initialize(root, timeout: DEFAULT_TIMEOUT, runner: nil, files: nil, base: nil)
+    # cache: a SuitePassCache-like module; the rake suite is skipped for a
+    # HEAD tree it holds a pass for, and recorded after a green run. nil (the
+    # default, and what tests use) never reads or writes a marker.
+    def initialize(root, timeout: DEFAULT_TIMEOUT, runner: nil, files: nil, base: nil, cache: nil)
       @repo = Repo.new(File.realpath(root))
+      @cache = cache
       @timeout = timeout
       @runner = runner || method(:spawn_command)
       @files = files
@@ -350,7 +362,7 @@ module ReviewStage1
           return result("tests:#{entry[:name]}", 'unavailable', "declared env not set: #{entry[:missing].join(', ')}", command: entry[:run])
         end
 
-        outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env], mask: entry[:mask])
+        outcome = run_suite(entry)
         # A skipped entry (tool not installed) lets the remaining entries run.
         next skipped << entry[:run] if outcome.status == 'not_applicable'
         return outcome unless outcome.status == 'passed'
@@ -358,6 +370,17 @@ module ReviewStage1
       return result('tests', 'not_applicable', 'tool not installed here', command: skipped.join(' && ')) if skipped.size == commands.size
 
       result('tests', 'passed', "#{commands.size - skipped.size} command(s) from #{source}")
+    end
+
+    # The rake suite consults the pass cache keyed on the pushed commit's tree
+    # (HEAD of the pushing checkout). Other entries always run.
+    def run_suite(entry)
+      tree = entry[:name] == 'rake' && @cache ? @repo.git_tree : nil
+      return result("tests:#{entry[:name]}", 'passed', "suite already passed for tree #{tree[0, 12]}") if tree && @cache.hit?(@repo.root, tree)
+
+      outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env], mask: entry[:mask])
+      @cache.record(@repo.root, tree) if tree && outcome.status == 'passed'
+      outcome
     end
 
     # The command itself could not start: the shell's exit 127 for no such
