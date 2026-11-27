@@ -279,20 +279,23 @@ class ChangeMergeGuard
     nil
   end
 
+  # Each `cd` before the merge moves from where the previous one landed.
   def command_dir
-    base = @event['cwd'].to_s.empty? ? Dir.pwd : @event['cwd'].to_s
-    target = cd_target(command)
-    target ? File.expand_path(target, base) : base
+    dir = @event['cwd'].to_s.empty? ? Dir.pwd : @event['cwd'].to_s
+    GuardedCommand.segments(GuardedCommand.tokens(command)).each do |segment|
+      break if segment.each_cons(3).include?(%w[gh pr merge])
+      next unless segment.first == 'cd'
+
+      dir = File.expand_path(cd_operand(segment.drop(1)), dir)
+    end
+    dir
   end
 
-  def cd_target(cmd)
-    target = nil
-    GuardedCommand.segments(GuardedCommand.tokens(cmd)).each do |segment|
-      break if segment.each_cons(3).include?(%w[gh pr merge])
-
-      target = segment[1] if segment.first == 'cd' && segment[1]
-    end
-    target&.sub(%r{\A~(?=/|\z)}, Dir.home)
+  # The directory operand of `cd [-L|-P [-e]] [-@] [--] [dir]`; no operand is home.
+  def cd_operand(args)
+    args = args.drop_while { |arg| arg.match?(/\A-[LPe@]+\z/) }
+    args = args.drop(1) if args.first == '--'
+    (args.first || '~').sub(%r{\A~(?=/|\z)}, Dir.home)
   end
 
   # [base_branch, head_sha] for the PR the command targets: an explicit
