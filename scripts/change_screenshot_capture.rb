@@ -295,6 +295,14 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
               cell.shot = await cellPage.screenshot({ encoding: "base64", type: "png", fullPage: true });
             } catch (err) {
               cell.error = String(err);
+              // A readiness wait for the protected page times out on the
+              // login page before the bounce check above runs, so the landing
+              // url is classified here as well.
+              let landed = "";
+              try { landed = session ? session.page.url() : ""; } catch (urlErr) { void urlErr; }
+              if (entry.auth && !cell.error.startsWith("Error: auth ") && bouncedToLogin(landed)) {
+                cell.error = `Error: auth bounce: ${entry.path} redirected to the login page (${landed}); ${cell.error}`;
+              }
               cell.authFailed = !!entry.auth && cell.error.startsWith("Error: auth ");
             } finally {
               await closeSession(session);

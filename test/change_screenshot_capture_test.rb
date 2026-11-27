@@ -293,6 +293,8 @@ class ChangeScreenshotCaptureTest < Minitest::Test
       js = auth_capturer.capture_module("https://app.example.org")
       assert_includes js, "bouncedToLogin(cellPage.url())"
       assert_includes js, "auth bounce:"
+      # Also classified when a readiness timeout throws first.
+      assert_includes js, "bouncedToLogin(landed)"
     end
     bounce = "Error: auth bounce: /dashboard redirected to the login page (https://app.example.org/login)"
     session = Object.new
