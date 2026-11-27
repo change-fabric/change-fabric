@@ -103,6 +103,94 @@ class ChangeLaneBrowserless < ChangeLane
     }
   CSS
 
+  # The per-cell session and login runtime: a fresh browser context per
+  # session, the pinned locale and basic auth, and the configured login steps
+  # with failure diagnostics. Lifted out of the scan module so cf:screenshot's
+  # capture logs in with exactly these steps rather than a copy. Expects the
+  # enclosing module to define `page`, `auth`, `basicAuth`, and `locale`.
+  def self.auth_session_js
+    <<~JS
+      // A cell's own browser context, or the one shared session when
+      // continuity was opted into. Puppeteer renamed this call
+      // (createIncognitoBrowserContext -> createBrowserContext); both names
+      // are probed so the lane is not pinned to one puppeteer major beyond
+      // the browserless image pin itself.
+      #{BrowserlessJs.fresh_context_js}
+
+      // Everything that makes a page's rendering reproducible is applied
+      // here, once, at the moment the page is created: the pinned locale
+      // (both the request header and what the page's own JS reads back) and
+      // any basic-auth credentials. A cell never inherits these from a
+      // sibling; it is given them.
+      async function openSession() {
+        const browser = page.browser();
+        const context = await newBrowserContext(browser);
+        const cellPage = context ? await context.newPage() : await browser.newPage();
+        const headers = #{BrowserlessJs.locale_header_js};
+        if (basicAuth) {
+          await cellPage.authenticate({ username: basicAuth.username, password: basicAuth.password });
+          // page.authenticate() only fires on a WWW-Authenticate challenge,
+          // which some gates never send (an ALB fixed-response 401 has no
+          // mechanism to set arbitrary response headers). Sending the header
+          // unconditionally works regardless of whether the target's 401
+          // carries a real challenge.
+          // btoa, not Buffer: this module runs inside browserless's function
+          // sandbox, a browser-like context with no Node globals.
+          headers.Authorization = "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`);
+        }
+        await cellPage.setExtraHTTPHeaders(headers);
+        #{BrowserlessJs.locale_js}
+        return { context, page: cellPage, authOk: null, authError: null, authDiagnostics: null, lastAuthResponse: null };
+      }
+
+      async function closeSession(session) {
+        if (!session) return;
+        try { await session.page.close(); } catch (err) { void err; }
+        try { if (session.context) await session.context.close(); } catch (err) { void err; }
+      }
+
+      #{ChangeFlowCompiler.auth_runtime_js}
+
+      // Captures a real diagnosis of an auth failure - the url actually
+      // landed on, the last main-frame response status, the page title,
+      // and a body-text snippet - so a reader sees why the login failed
+      // instead of a bare Puppeteer timeout message. Every read is
+      // wrapped so a diagnostics failure (a closed page, a weird DOM)
+      // never masks the real auth error it is describing.
+      async function captureAuthDiagnostics(session) {
+        const diag = {};
+        try { diag.url = session.page.url(); } catch (err) { diag.url = null; }
+        try { diag.status = session.lastAuthResponse ? session.lastAuthResponse.status() : null; } catch (err) { diag.status = null; }
+        try { diag.title = await session.page.title(); } catch (err) { diag.title = null; }
+        try {
+          diag.bodyText = await session.page.evaluate(() => (document.body ? document.body.innerText : "").slice(0, 500));
+        } catch (err) {
+          diag.bodyText = null;
+        }
+        try { diag.screenshot = await session.page.screenshot({ encoding: "base64" }); } catch (err) { diag.screenshot = null; }
+        return diag;
+      }
+
+      // Runs every configured step in order, in this session's own page, so
+      // a multi-step login (submit an email, then submit a code from a
+      // second form) carries its cookies from one step into the next. The
+      // result is memoized on the session, so an isolated cell logs in once
+      // and a continuity run logs in once for the whole matrix.
+      async function ensureAuth(session) {
+        if (!auth || session.authOk !== null) return session.authOk;
+        try {
+          for (const step of auth.steps) await runAuthStep(session, step);
+          session.authOk = true;
+        } catch (err) {
+          session.authOk = false;
+          session.authError = String(err);
+          session.authDiagnostics = await captureAuthDiagnostics(session);
+        }
+        return session.authOk;
+      }
+    JS
+  end
+
   # The pixel comparison, lifted out of the scan module's heredoc the same way
   # ChangeLane.wait_for_js is lifted, so a second caller (cf:screenshot's
   # before/after capture) diffs with exactly this function rather than a
@@ -610,84 +698,7 @@ class ChangeLaneBrowserless < ChangeLane
         #{recorder_js}
         #{ChangeRouteStates.runtime_js}
 
-        // A cell's own browser context, or the one shared session when
-        // continuity was opted into. Puppeteer renamed this call
-        // (createIncognitoBrowserContext -> createBrowserContext); both names
-        // are probed so the lane is not pinned to one puppeteer major beyond
-        // the browserless image pin itself.
-        #{BrowserlessJs.fresh_context_js}
-
-        // Everything that makes a page's rendering reproducible is applied
-        // here, once, at the moment the page is created: the pinned locale
-        // (both the request header and what the page's own JS reads back) and
-        // any basic-auth credentials. A cell never inherits these from a
-        // sibling; it is given them.
-        async function openSession() {
-          const browser = page.browser();
-          const context = await newBrowserContext(browser);
-          const cellPage = context ? await context.newPage() : await browser.newPage();
-          const headers = #{BrowserlessJs.locale_header_js};
-          if (basicAuth) {
-            await cellPage.authenticate({ username: basicAuth.username, password: basicAuth.password });
-            // page.authenticate() only fires on a WWW-Authenticate challenge,
-            // which some gates never send (an ALB fixed-response 401 has no
-            // mechanism to set arbitrary response headers). Sending the header
-            // unconditionally works regardless of whether the target's 401
-            // carries a real challenge.
-            // btoa, not Buffer: this module runs inside browserless's function
-            // sandbox, a browser-like context with no Node globals.
-            headers.Authorization = "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`);
-          }
-          await cellPage.setExtraHTTPHeaders(headers);
-          #{BrowserlessJs.locale_js}
-          return { context, page: cellPage, authOk: null, authError: null, authDiagnostics: null, lastAuthResponse: null };
-        }
-
-        async function closeSession(session) {
-          if (!session) return;
-          try { await session.page.close(); } catch (err) { void err; }
-          try { if (session.context) await session.context.close(); } catch (err) { void err; }
-        }
-
-        #{ChangeFlowCompiler.auth_runtime_js}
-
-        // Captures a real diagnosis of an auth failure - the url actually
-        // landed on, the last main-frame response status, the page title,
-        // and a body-text snippet - so a reader sees why the login failed
-        // instead of a bare Puppeteer timeout message. Every read is
-        // wrapped so a diagnostics failure (a closed page, a weird DOM)
-        // never masks the real auth error it is describing.
-        async function captureAuthDiagnostics(session) {
-          const diag = {};
-          try { diag.url = session.page.url(); } catch (err) { diag.url = null; }
-          try { diag.status = session.lastAuthResponse ? session.lastAuthResponse.status() : null; } catch (err) { diag.status = null; }
-          try { diag.title = await session.page.title(); } catch (err) { diag.title = null; }
-          try {
-            diag.bodyText = await session.page.evaluate(() => (document.body ? document.body.innerText : "").slice(0, 500));
-          } catch (err) {
-            diag.bodyText = null;
-          }
-          try { diag.screenshot = await session.page.screenshot({ encoding: "base64" }); } catch (err) { diag.screenshot = null; }
-          return diag;
-        }
-
-        // Runs every configured step in order, in this session's own page, so
-        // a multi-step login (submit an email, then submit a code from a
-        // second form) carries its cookies from one step into the next. The
-        // result is memoized on the session, so an isolated cell logs in once
-        // and a continuity run logs in once for the whole matrix.
-        async function ensureAuth(session) {
-          if (!auth || session.authOk !== null) return session.authOk;
-          try {
-            for (const step of auth.steps) await runAuthStep(session, step);
-            session.authOk = true;
-          } catch (err) {
-            session.authOk = false;
-            session.authError = String(err);
-            session.authDiagnostics = await captureAuthDiagnostics(session);
-          }
-          return session.authOk;
-        }
+        #{ChangeLaneBrowserless.auth_session_js}
 
         #{ChangeLaneBrowserless.diff_against_reference_js}
 

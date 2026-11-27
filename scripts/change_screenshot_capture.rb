@@ -63,7 +63,7 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
 
   # One captured cell: which route at which viewport, its base64 PNG, where it
   # landed on disk, and the navigation error if it never rendered.
-  Cell = Struct.new(:viewport, :route, :path, :base64, :http_status, :error, keyword_init: true) do
+  Cell = Struct.new(:viewport, :route, :path, :base64, :http_status, :error, :auth_failed, keyword_init: true) do
     def key = [ viewport, route ]
     def ok? = error.nil? && !base64.to_s.empty?
   end
@@ -71,7 +71,7 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
   # One route/viewport pair across both refs. `changed` is the whole point:
   # only a changed pair is uploaded or offered to a pull request body.
   Pair = Struct.new(:viewport, :route, :before_path, :after_path, :diff_percent,
-                    :changed, :reason, :missing_side, keyword_init: true)
+                    :changed, :reason, :missing_side, :auth_failed, keyword_init: true)
 
   # The full cross product, in viewport-major order so a reader scanning the
   # manifest sees one viewport's whole story before the next one starts.
@@ -143,12 +143,23 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         const diffStabilityCss = #{JSON.generate(ChangeLaneBrowserless::DIFF_STABILITY_CSS)};
         const locale = #{JSON.generate(locale)};
         const basicAuth = #{JSON.generate(basic_auth)};
+        const auth = #{JSON.generate(capture_auth(url))};
+        const authBlocker = #{JSON.generate(capture_auth_blocker)};
         const settleTimeoutMs = #{JSON.generate(SETTLE_TIMEOUT_MS)};
         const settleIntervalMs = #{JSON.generate(SETTLE_INTERVAL_MS)};
         const framePaintWaitMs = #{JSON.generate(FRAME_PAINT_WAIT_MS)};
         const tallViewportMaxPx = #{JSON.generate(TALL_VIEWPORT_MAX_PX)};
 
         #{ChangeLane.wait_for_js}
+        #{ChangeLaneBrowserless.auth_session_js}
+
+        // True when an auth route was redirected back to the login page: the
+        // shot would be the login form at both refs, a pixel match that says
+        // nothing, so the cell fails instead.
+        function bouncedToLogin(finalUrl) {
+          if (!auth) return false;
+          try { return new URL(finalUrl).pathname === new URL(auth.steps[0].url).pathname; } catch (err) { return false; }
+        }
 
         // A full-page capture is only meaningful once the document has stopped
         // growing, so this waits on the one quantity the capture actually
@@ -240,20 +251,24 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         const out = [];
         for (const vp of viewports) {
           for (const entry of routeEntries) {
-            const cell = { viewport: vp.name, route: entry.path };
-            let cellPage = null;
+            const cell = { viewport: vp.name, route: entry.path, authFailed: false };
+            let session = null;
             try {
-              cellPage = await page.browser().newPage();
-              const headers = { "Accept-Language": locale };
-              if (basicAuth) {
-                await cellPage.authenticate({ username: basicAuth.username, password: basicAuth.password });
-                headers.Authorization = "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`);
+              if (entry.auth && authBlocker) throw new Error(`auth login not attempted: ${authBlocker}`);
+              // A fresh incognito context per cell, so a login never leaks
+              // from one cell into the next.
+              session = await openSession();
+              const cellPage = session.page;
+              if (entry.auth && !(await ensureAuth(session))) {
+                throw new Error(`auth login failed: ${session.authError}`);
               }
-              await cellPage.setExtraHTTPHeaders(headers);
               await cellPage.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: deviceScaleFactor });
               const resp = await cellPage.goto(baseUrl + entry.path, { waitUntil: entry.waitFor.loadState, timeout: entry.waitFor.timeoutMs });
               cell.httpStatus = resp ? resp.status() : null;
               await awaitReadiness(cellPage, entry.waitFor);
+              if (entry.auth && bouncedToLogin(cellPage.url())) {
+                throw new Error(`auth bounce: ${entry.path} redirected to the login page (${cellPage.url()})`);
+              }
               // Injected before every shot, not only before a comparison
               // against a fixed reference: every shot here is one half of a
               // comparison, so an animation mid-flight or a blinking caret
@@ -280,8 +295,17 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
               cell.shot = await cellPage.screenshot({ encoding: "base64", type: "png", fullPage: true });
             } catch (err) {
               cell.error = String(err);
+              // A readiness wait for the protected page times out on the
+              // login page before the bounce check above runs, so the landing
+              // url is classified here as well.
+              let landed = "";
+              try { landed = session ? session.page.url() : ""; } catch (urlErr) { void urlErr; }
+              if (entry.auth && !cell.error.startsWith("Error: auth ") && bouncedToLogin(landed)) {
+                cell.error = `Error: auth bounce: ${entry.path} redirected to the login page (${landed}); ${cell.error}`;
+              }
+              cell.authFailed = !!entry.auth && cell.error.startsWith("Error: auth ");
             } finally {
-              if (cellPage) { try { await cellPage.close(); } catch (err) { void err; } }
+              await closeSession(session);
             }
             out.push(cell);
           }
@@ -314,7 +338,23 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
   def lane_base_url = base_url
 
   def js_capture_entries
-    route_entries.map { |entry| { path: entry[:path], waitFor: entry[:wait_for] } }
+    route_entries.map { |entry| { path: entry[:path], auth: entry[:auth], waitFor: entry[:wait_for] } }
+  end
+
+  # The lane's own auth resolution, reused: nil when no route needs a login or
+  # the config cannot log in (see capture_auth_blocker).
+  def capture_auth(url)
+    ready, = resolve_auth(route_entries, auth_config)
+    return nil unless ready && auth_config
+
+    ChangeFlowCompiler.compile_auth(auth_config.steps, base_url: url)
+  end
+
+  # Why the login cannot run, or nil. An auth route then fails its cell
+  # rather than being photographed as the login page.
+  def capture_auth_blocker
+    _, finding = resolve_auth(route_entries, auth_config)
+    finding&.detail
   end
 
   def index(cells) = cells.to_h { |cell| [ cell.key, cell ] }
@@ -332,7 +372,8 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
     Pair.new(viewport: viewport, route: route,
              before_path: before_cell&.path, after_path: after_cell&.path,
              diff_percent: diff && diff['diffPercent'],
-             changed: changed, reason: reason, missing_side: missing)
+             changed: changed, reason: reason, missing_side: missing,
+             auth_failed: [ before_cell, after_cell ].any? { |cell| cell&.auth_failed })
   end
 
   def verdict(before_cell, after_cell, diff)
@@ -365,7 +406,7 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
 
   def write_cell(raw, side:, out_dir:)
     cell = Cell.new(viewport: raw['viewport'], route: raw['route'], base64: raw['shot'],
-                    http_status: raw['httpStatus'], error: raw['error'])
+                    http_status: raw['httpStatus'], error: raw['error'], auth_failed: raw['authFailed'] == true)
     return cell if cell.base64.to_s.empty?
 
     path = File.join(out_dir, side, "#{slug(cell.viewport)}--#{slug(cell.route)}.png")
