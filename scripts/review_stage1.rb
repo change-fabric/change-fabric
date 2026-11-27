@@ -136,13 +136,24 @@ module ReviewStage1
       nil
     end
 
-    # oxlint runs through the repo's own lint script when it has one.
+    # oxlint runs through the repo's own lint script when it has one. A script
+    # that is a single oxlint call with no warning budget gets --deny-warnings,
+    # so warnings block here as they do for ESLint and the direct fallback.
     def js_lint_command
       return ESLINT if js_linter == :eslint
-      return 'npx --no-install oxlint . --deny-warnings' if package_scripts['lint'].to_s.strip.empty?
+
+      script = package_scripts['lint'].to_s.strip
+      return 'npx --no-install oxlint . --deny-warnings' if script.empty?
 
       runner = file?('pnpm-lock.yaml') ? 'pnpm' : (file?('yarn.lock') ? 'yarn' : 'npm')
-      "#{runner} run lint"
+      "#{runner} run lint#{warning_budget_args(runner, script)}"
+    end
+
+    def warning_budget_args(runner, script)
+      return '' unless script.match?(/\Aoxlint\b[^&|;]*\z/)
+      return '' if script.match?(/--deny-warnings|--max-warnings/)
+
+      runner == 'npm' ? ' -- --deny-warnings' : ' --deny-warnings'
     end
 
     # Whether the repo has opted into a tool: its config file exists. A repo

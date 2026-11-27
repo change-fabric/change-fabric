@@ -130,6 +130,16 @@ class ReviewStage1Test < Minitest::Test
     assert_empty tools.calls.grep(/eslint/)
   end
 
+  def test_oxlint_lint_script_without_a_warning_budget_gets_deny_warnings
+    dir = copy_fixture("oxlint")
+    File.write(File.join(dir, "package.json"), '{ "scripts": { "lint": "oxlint ." }, "devDependencies": { "oxlint": "1.0.0" } }')
+    row = result(run_stage1(dir), "javascript")
+    assert_equal "pnpm run lint --deny-warnings", row.command
+    File.delete(File.join(dir, "pnpm-lock.yaml"))
+    row = result(run_stage1(dir), "javascript")
+    assert_equal "npm run lint -- --deny-warnings", row.command
+  end
+
   def test_oxlint_without_a_lint_script_runs_oxlint_directly
     dir = copy_fixture("oxlint")
     File.write(File.join(dir, "package.json"), '{ "devDependencies": { "oxlint": "1.0.0" } }')
