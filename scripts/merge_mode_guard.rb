@@ -36,11 +36,11 @@ class MergeModeGuard
   def branch_for(command)
     return nil unless GuardedCommand.push?(command)
 
-    current_branch
+    current_branch(GuardedCommand.push_chdir(command))
   end
 
-  def current_branch
-    out = `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip
+  def current_branch(dir = nil)
+    out = IO.popen([ 'git', *(dir ? [ '-C', dir ] : []), 'rev-parse', '--abbrev-ref', 'HEAD' ], err: File::NULL, &:read).to_s.strip
     out.empty? ? nil : out
   rescue StandardError
     nil

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "tmpdir"
+require "open3"
 
 SCRIPTS = File.expand_path("../scripts", __dir__) unless defined?(SCRIPTS)
 require_relative "#{SCRIPTS}/guarded_command"
@@ -74,6 +76,13 @@ class GuardedCommandGlobalOptsTest < Minitest::Test
     assert_equal [ "/a" ], GuardedCommand.git_chdirs("git -C /a push")
     assert_equal [ "/a", "/b" ], GuardedCommand.git_chdirs("git -C /a status && git -c x=y -C /b push")
     assert_empty GuardedCommand.git_chdirs("git push")
+  end
+
+  def test_push_chdir
+    assert_equal "/a", GuardedCommand.push_chdir("git -C /a push", "/base")
+    assert_equal "/base/rel/b", GuardedCommand.push_chdir("git -C rel -C b push", "/base")
+    assert_nil GuardedCommand.push_chdir("git push", "/base")
+    assert_nil GuardedCommand.push_chdir("git -C /a status", "/base")
   end
 
   def test_violation_sees_global_opts_push

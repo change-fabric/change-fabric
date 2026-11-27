@@ -164,7 +164,8 @@ class ForcePushGuard
   def current_branch
     return @branch if @branch
 
-    name = git('rev-parse', '--abbrev-ref', 'HEAD')
+    dir = GuardedCommand.push_chdir(command)
+    name = git(*(dir ? [ '-C', dir ] : []), 'rev-parse', '--abbrev-ref', 'HEAD')
     @branch = name && name != 'HEAD' ? name : nil
   end
 

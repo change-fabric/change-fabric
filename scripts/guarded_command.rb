@@ -70,16 +70,32 @@ class GuardedCommand
   end
 
   # The `-C <path>` values given to each `git` in the command, in order.
-  def self.git_chdirs(command)
-    toks = raw_tokens(command)
-    dirs = []
-    toks.each_with_index do |tok, idx|
-      next unless tok == 'git'
+  def self.git_chdirs(command) = git_invocations(raw_tokens(command)).flat_map { |inv| inv[:chdirs] }
+
+  # The directory a `git ... push` in the command runs in, when `-C` moves it
+  # off `base`; nil when no push carries `-C`. Repeated -C compose like git's.
+  def self.push_chdir(command, base = Dir.pwd)
+    inv = git_invocations(raw_tokens(command)).find { |i| i[:sub] == 'push' && i[:chdirs].any? }
+    inv && inv[:chdirs].reduce(base) { |dir, path| File.expand_path(path, dir) }
+  end
+
+  # One entry per `git` token: its subcommand and the -C values before it.
+  def self.git_invocations(toks)
+    toks.each_index.filter_map do |idx|
+      next unless toks[idx] == 'git'
 
       stop = skip_git_globals(toks, idx + 1)
-      toks[(idx + 1)...stop].each_with_index { |opt, off| dirs << toks[idx + 2 + off] if opt == '-C' && toks[idx + 2 + off] }
+      chdirs = []
+      pos = idx + 1
+      while pos < stop
+        if toks[pos] == '-C'
+          chdirs << toks[pos + 1]
+          pos += 1
+        end
+        pos += 1
+      end
+      { sub: toks[stop], chdirs: chdirs.compact }
     end
-    dirs
   end
 
   OPERATOR_CHARS = [ ';', '&', '|', "\n" ].freeze

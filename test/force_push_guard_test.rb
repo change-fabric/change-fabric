@@ -119,4 +119,14 @@ class ForcePushGuardTest < Minitest::Test
     assert_equal "a direct push to the trunk", GuardedCommand.new("git push origin main;echo", "merge-ready").violation
     assert_nil GuardedCommand.new("git push origin feat/x", "merge-ready").violation
   end
+
+  def test_dash_c_resolves_the_branch_in_the_target_repo
+    Dir.mktmpdir do |dir|
+      system("git", "-C", dir, "init", "-q", "-b", "main", out: File::NULL, err: File::NULL)
+      system("git", "-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "i", out: File::NULL)
+      io = StringIO.new
+      ForcePushGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => "git -C #{dir} push --force-with-lease" } }, protected_branches: []).emit(io)
+      assert_includes io.string, "force-push to 'main'"
+    end
+  end
 end
