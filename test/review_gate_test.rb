@@ -215,18 +215,22 @@ class ReviewGateTest < Minitest::Test
     base = File.realpath(Dir.mktmpdir)
     start = File.join(base, "start")
     pushed = File.join(base, "pushed")
+    semi = File.join(base, "semi;dir")
     system("git", "init", "-q", start, out: File::NULL)
     system("git", "-C", start, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x", out: File::NULL)
     system("git", "-C", start, "worktree", "add", "-q", pushed, "-b", "other", out: File::NULL, err: File::NULL)
+    system("git", "-C", start, "worktree", "add", "-q", semi, "-b", "semi", out: File::NULL, err: File::NULL)
     [
       "cd #{pushed} && git push -u origin other",
       "cd #{base} && cd pushed; gh pr create --fill",
       "cd -- '#{pushed}' && gh pr create --fill",
-      "cd #{pushed} && git commit -m 'msg; cd #{start}' && git push"
+      "cd #{pushed} && git commit -m 'msg; cd #{start}' && git push",
+      "cd '#{semi}' && git push",
+      "cd #{pushed} || cd #{start}; git push"
     ].each do |command|
       seen = nil
       gate(command, cwd: start, stage1: ->(root) { seen = root; nil })
-      assert_equal pushed, seen, command
+      assert_equal command.include?("semi") ? semi : pushed, seen, command
     end
     seen = nil
     gate("git push", cwd: start, stage1: ->(root) { seen = root; nil })
