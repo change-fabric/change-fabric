@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'shellwords'
 require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'review_queue'
@@ -76,17 +77,43 @@ class ReviewGate
     root && @stage1.call(root)
   end
 
-  LEADING_CD = /\A\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)/
+  CD_OPTIONS = %w[-L -P -e -@].freeze
 
-  # The directory the push runs in: a leading `cd X &&` (or `;`) moves it off the
-  # event cwd. An unusable target falls back to the cwd.
+  # The directory the push or PR create runs in, read from the command itself:
+  # each `cd X` segment before it (chained with `&&`, `;` or `||`) moves it in
+  # order. A session that starts in one worktree and pushes another is checked
+  # in the pushed one. An unusable target keeps the directory it had, and a
+  # segment Shellwords cannot parse ends the walk; the start is the event cwd.
   def push_directory
-    cwd = @event['cwd'].to_s
-    target = command[LEADING_CD, 1]&.gsub(/\A["']|["']\z/, '')
-    return cwd unless target
+    command.split(/&&|\|\||;/).reduce(@event['cwd'].to_s) do |dir, segment|
+      words = shell_words(segment)
+      break dir if words.nil?
+      break dir if trigger?(segment)
 
-    dir = File.expand_path(target, cwd.empty? ? Dir.pwd : cwd)
-    File.directory?(dir) ? dir : cwd
+      words.first == 'cd' ? move(dir, cd_target(words)) : dir
+    end
+  end
+
+  def trigger?(segment) = GuardedCommand.push?(segment) || GuardedCommand.pr_create?(segment)
+
+  def shell_words(segment)
+    Shellwords.split(segment)
+  rescue ArgumentError
+    nil
+  end
+
+  def cd_target(words)
+    args = words.drop(1)
+    args = args.drop_while { |word| CD_OPTIONS.include?(word) }
+    args = args.drop(1) if args.first == '--'
+    args.empty? ? Dir.home : args.first
+  end
+
+  def move(dir, target)
+    return dir if target.nil? || target == '-'
+
+    path = File.expand_path(target, dir.empty? ? Dir.pwd : dir)
+    File.directory?(path) ? path : dir
   end
 
   def registry = @skills ||= SkillRegistry.load
