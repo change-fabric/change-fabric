@@ -28,7 +28,8 @@ module ApprovalConsole
         @status = status
         @data = data.is_a?(Hash) ? data : {}
         @code = @data['error'].to_s
-        super("console refused (#{status}): #{@code.empty? ? 'error' : @code}")
+        detail = @data['detail'].to_s.gsub(/[[:cntrl:]]+/, ' ').strip[0, 300]
+        super("console refused (#{status}): #{@code.empty? ? 'error' : @code}#{detail.empty? ? '' : " - #{detail}"}")
       end
     end
 
@@ -52,7 +53,14 @@ module ApprovalConsole
       @clock = clock
     end
 
-    def create_request(body) = call('POST', machine_path('/requests'), 'body' => body)
+    # Validates the body locally first, so an invalid one fails with the
+    # canonical messages instead of a round trip to a 400.
+    def create_request(body)
+      Canonical.parse(body)
+      call('POST', machine_path('/requests'), 'body' => body)
+    rescue Canonical::Invalid => e
+      raise Canonical::Invalid, "invalid request body: #{e.message}"
+    end
 
     # Marks a run-script receipt consumed on the console (single use). Raises
     # Refused 409 when it was already consumed and 410 when it has expired.
