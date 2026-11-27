@@ -28,6 +28,7 @@ require_relative 'skill_registry'
 # Detectors key off the stack (source files and manifests), never off whether
 # the enforcer is installed: a present stack with a missing enforcer is
 # `unavailable`, which blocks, so a rule never silently stops being enforced.
+# A JS linter the repo never configured (ESLint or oxlint) is not_applicable.
 # Test and lint commands come from the CHANGE.md command lane first; without
 # one, the matching manifest decides (`bundle exec rake test`, `pnpm test`,
 # `npm test`).
@@ -125,11 +126,42 @@ module ReviewStage1
       end
     end
 
-    # Whether the repo has opted into a tool: its config file or declared
-    # dependency exists. A repo that never adopted a tool is not denied for it.
+    # The JavaScript linter the repo configured: ESLint by its config, oxlint
+    # by .oxlintrc.json, its dependency or its lint script. nil when none is
+    # configured, so the lint rows are not_applicable rather than blocking.
+    def js_linter
+      return :eslint unless eslint_config.strip.empty?
+      return :oxlint if file?('.oxlintrc.json') || dep?('oxlint') || package_scripts['lint'].to_s.include?('oxlint')
+
+      nil
+    end
+
+    # oxlint runs through the repo's own lint script when it has one. A script
+    # that is a single oxlint call with no warning budget gets --deny-warnings,
+    # so warnings block here as they do for ESLint and the direct fallback.
+    def js_lint_command
+      return ESLINT if js_linter == :eslint
+
+      script = package_scripts['lint'].to_s.strip
+      return 'npx --no-install oxlint . --deny-warnings' if script.empty?
+
+      runner = file?('pnpm-lock.yaml') ? 'pnpm' : (file?('yarn.lock') ? 'yarn' : 'npm')
+      "#{runner} run lint#{warning_budget_args(runner, script)}"
+    end
+
+    def warning_budget_args(runner, script)
+      return '' unless script.match?(/\Aoxlint\b[^&|;]*\z/)
+      return '' if script.match?(/--deny-warnings|--max-warnings/)
+
+      runner == 'npm' ? ' -- --deny-warnings' : ' --deny-warnings'
+    end
+
+    # Whether the repo has opted into a tool: its config file exists. A repo
+    # that never configured a tool is not denied for it.
     def adopted?(tool)
       case tool
-      when :eslint then !eslint_config.strip.empty? || dep?('eslint')
+      when :eslint then js_linter == :eslint
+      when :js_lint then !js_linter.nil?
       when :rubocop then file?('.rubocop.yml') || %w[Gemfile Gemfile.lock].any? { |rel| read(rel).match?(/\brubocop\b/) }
       else true
       end
@@ -145,6 +177,13 @@ module ReviewStage1
     def rails? = file?('config/application.rb') || read('Gemfile.lock').match?(/^\s+rails \(/)
 
     private
+
+    def package_scripts
+      scripts = JSON.parse(read('package.json'))['scripts']
+      scripts.is_a?(Hash) ? scripts : {}
+    rescue JSON::ParserError, TypeError
+      {}
+    end
 
     def eslint_in_package
       pkg = JSON.parse(read('package.json'))
@@ -622,6 +661,14 @@ module ReviewStage1
       nil
     end
 
+    # A lint row run by whichever linter the repo configured. The rule gaps are
+    # ESLint rule names, so they are judged only where ESLint is the linter.
+    def js_lint_check(id:, detect:, missing:)
+      Check.new(id: id, tool: :js_lint, detect: detect,
+                commands: ->(repo, _changed) { [ repo.js_lint_command ] },
+                missing: ->(repo, capture) { repo.js_linter == :eslint ? missing.call(repo, capture) : nil })
+    end
+
     TYPE_CHECKED_RULE = '@typescript-eslint/no-floating-promises'
 
     # tsc runs when it is installed; ESLint runs only where the repo adopted it.
@@ -629,7 +676,7 @@ module ReviewStage1
       Check.new(id: 'typescript', detect: ->(repo) { repo.file?('tsconfig.json') },
                 commands: lambda do |repo, _changed|
                   [ repo.tsc_command,
-                    (ESLINT if repo.adopted?(:eslint)) ].compact
+                    (repo.js_lint_command if repo.adopted?(:js_lint)) ].compact
                 end,
                 missing: lambda do |repo, capture|
                   strict, error = TsConfig.strict(repo)
@@ -646,14 +693,14 @@ module ReviewStage1
     end
 
     def javascript
-      Check.new(id: 'javascript', tool: :eslint, commands: [ ESLINT ],
-                detect: ->(repo) { repo.file?('package.json') || !repo.sources(JS_EXTENSIONS, limit: 1).empty? },
-                missing: eslint_missing('no-var', 'eqeqeq', 'prefer-const', hint: 'enable the rules no-var, eqeqeq and prefer-const'))
+      js_lint_check(id: 'javascript',
+                    detect: ->(repo) { repo.file?('package.json') || !repo.sources(JS_EXTENSIONS, limit: 1).empty? },
+                    missing: eslint_missing('no-var', 'eqeqeq', 'prefer-const', hint: 'enable the rules no-var, eqeqeq and prefer-const'))
     end
 
     def react
-      Check.new(id: 'react', tool: :eslint, commands: [ ESLINT ], detect: ->(repo) { repo.dep?('react') },
-                missing: lambda do |repo, capture|
+      js_lint_check(id: 'react', detect: ->(repo) { repo.dep?('react') },
+                    missing: lambda do |repo, capture|
                   rules = effective_eslint_rules(repo, capture, %w[jsx tsx js ts])
                   if rules
                     hooks = %w[react-hooks/rules-of-hooks react-hooks/exhaustive-deps]
@@ -717,8 +764,8 @@ module ReviewStage1
     # `cypress/*`); the plugin name in the config is only the fallback when no
     # test file can be inspected.
     def js_testing
-      Check.new(id: 'js_testing', tool: :eslint, commands: [ ESLINT ], detect: ->(repo) { TEST_PLUGINS.keys.any? { |dep| repo.dep?(dep) } },
-                missing: lambda do |repo, capture|
+      js_lint_check(id: 'js_testing', detect: ->(repo) { TEST_PLUGINS.keys.any? { |dep| repo.dep?(dep) } },
+                    missing: lambda do |repo, capture|
                   rules = effective_eslint_rules(repo, capture, SOURCE_EXTENSIONS, tests: true)
                   absent = TEST_PLUGINS.select do |dep, names|
                     next false unless repo.dep?(dep)

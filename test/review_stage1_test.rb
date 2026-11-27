@@ -22,7 +22,7 @@ class ReviewStage1Test < Minitest::Test
     def call(command, root, _timeout, _env = nil)
       @calls << command
       case command
-      when /eslint \./ then eslint(root)
+      when /eslint \.|oxlint|run lint/ then eslint(root)
       when /zizmor/ then zizmor(root)
       when /rubocop/ then rubocop(command, root)
       else ok
@@ -99,13 +99,54 @@ class ReviewStage1Test < Minitest::Test
   end
 
   # An enforcer missing from a present stack blocks and names the config to add.
-  def test_missing_eslint_config_is_unavailable_not_passed
+  def test_an_eslint_config_lacking_rules_is_unavailable_not_passed
     dir = copy_fixture("js_var")
-    File.delete(File.join(dir, "eslint.config.mjs"))
+    File.write(File.join(dir, "eslint.config.mjs"), "export default [];\n")
     row = result(run_stage1(dir), "javascript")
     assert_equal "unavailable", row.status
     assert_includes row.detail, "no-var"
     assert_includes row.detail, "eqeqeq"
+  end
+
+  # No supported linter configured (only a dependency, or nothing) does not block.
+  def test_no_linter_config_is_not_applicable
+    dir = copy_fixture("js_var")
+    File.delete(File.join(dir, "eslint.config.mjs"))
+    tools = Tools.new
+    report = run_stage1(dir, tools: tools)
+    row = result(report, "javascript")
+    assert_equal "not_applicable", row.status, row.detail
+    refute_predicate report, :blocking?
+    assert_empty tools.calls.grep(/lint/)
+  end
+
+  # oxlint runs through the repo's own lint script, per its lockfile.
+  def test_oxlint_runs_the_lint_script_and_its_failures_block
+    tools = Tools.new
+    row = result(run_stage1(copy_fixture("oxlint"), tools: tools), "javascript")
+    assert_equal "failed", row.status, row.detail
+    assert_equal "pnpm run lint", row.command
+    assert_match(%r{src/a\.js:1}, row.findings.join("\n"))
+    assert_empty tools.calls.grep(/eslint/)
+  end
+
+  def test_oxlint_lint_script_without_a_warning_budget_gets_deny_warnings
+    dir = copy_fixture("oxlint")
+    File.write(File.join(dir, "package.json"), '{ "scripts": { "lint": "oxlint ." }, "devDependencies": { "oxlint": "1.0.0" } }')
+    row = result(run_stage1(dir), "javascript")
+    assert_equal "pnpm run lint --deny-warnings", row.command
+    File.delete(File.join(dir, "pnpm-lock.yaml"))
+    row = result(run_stage1(dir), "javascript")
+    assert_equal "npm run lint -- --deny-warnings", row.command
+  end
+
+  def test_oxlint_without_a_lint_script_runs_oxlint_directly
+    dir = copy_fixture("oxlint")
+    File.write(File.join(dir, "package.json"), '{ "devDependencies": { "oxlint": "1.0.0" } }')
+    File.write(File.join(dir, "src/a.js"), "export const count = 1;\n")
+    row = result(run_stage1(dir), "javascript")
+    assert_equal "passed", row.status, row.detail
+    assert_equal "npx --no-install oxlint . --deny-warnings", row.command
   end
 
   def test_typescript_without_strict_is_unavailable
@@ -495,13 +536,6 @@ class ReviewStage1Test < Minitest::Test
     write(dir, "src/a.js", "var x = 1\n")
     report = run_stage1(dir)
     assert_equal "not_applicable", result(report, "javascript").status
-  end
-
-  def test_a_declared_eslint_with_no_config_is_unavailable
-    dir = tmpdir
-    write(dir, "package.json", '{ "devDependencies": { "eslint": "^9" } }')
-    write(dir, "src/a.js", "var x = 1\n")
-    assert_equal "unavailable", result(run_stage1(dir), "javascript").status
   end
 
   def test_eslint_runs_with_a_zero_warning_budget
