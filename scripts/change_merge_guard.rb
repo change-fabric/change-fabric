@@ -279,14 +279,19 @@ class ChangeMergeGuard
     nil
   end
 
-  # Each `cd` before the merge moves from where the previous one landed.
+  # Each `cd` before the merge moves from where the previous one landed; `cd -`
+  # returns to the directory before it (OLDPWD, starting at the hook's cwd).
   def command_dir
     dir = @event['cwd'].to_s.empty? ? Dir.pwd : @event['cwd'].to_s
+    previous = dir
     GuardedCommand.segments(GuardedCommand.tokens(command)).each do |segment|
       break if segment.each_cons(3).include?(%w[gh pr merge])
       next unless segment.first == 'cd'
 
-      dir = File.expand_path(cd_operand(segment.drop(1)), dir)
+      operand = cd_operand(segment.drop(1))
+      target = operand == '-' ? previous : File.expand_path(operand, dir)
+      previous = dir
+      dir = target
     end
     dir
   end

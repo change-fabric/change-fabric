@@ -659,7 +659,7 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
       guard = ChangeMergeGuard.new({ "cwd" => "/", "tool_input" => { "command" => "cd #{dir} && gh pr merge 612 --squash" } })
       assert_equal real, File.realpath(guard.send(:repo_root))
       FileUtils.mkdir_p(File.join(dir, "sub"))
-      [ "cd sub && cd .. && gh pr merge 612", "cd -P . && gh pr merge 612", "cd -- . && gh pr merge 612", "gh pr merge 612 && cd /" ].each do |cmd|
+      [ "cd sub && cd .. && gh pr merge 612", "cd -P . && gh pr merge 612", "cd -- . && gh pr merge 612", "cd sub && cd - && gh pr merge 612", "gh pr merge 612 && cd /" ].each do |cmd|
         guard = ChangeMergeGuard.new({ "cwd" => dir, "tool_input" => { "command" => cmd } })
         assert_equal real, File.realpath(guard.send(:repo_root)), cmd
       end
