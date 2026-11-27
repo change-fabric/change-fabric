@@ -8,6 +8,7 @@ auto:
   basenames: [railway.toml, railway.json, .railwayignore, Dockerfile]
   require:
     - "**/railway.toml"
+    - "**/railway.json"
   detect: [railway.toml, railway.json, .railwayignore, Dockerfile]
 ---
 
