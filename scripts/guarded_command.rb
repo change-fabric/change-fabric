@@ -72,11 +72,12 @@ class GuardedCommand
   # The `-C <path>` values given to each `git` in the command, in order.
   def self.git_chdirs(command) = git_invocations(raw_tokens(command)).flat_map { |inv| inv[:chdirs] }
 
-  # The directory a `git ... push` in the command runs in, when `-C` moves it
-  # off `base`; nil when no push carries `-C`. Repeated -C compose like git's.
-  def self.push_chdir(command, base = Dir.pwd)
-    inv = git_invocations(raw_tokens(command)).find { |i| i[:sub] == 'push' && i[:chdirs].any? }
-    inv && inv[:chdirs].reduce(base) { |dir, path| File.expand_path(path, dir) }
+  # The directory each `git ... push` in the command runs in, in order: the
+  # `-C` chain applied to `base`, or nil for a push that carries no `-C`.
+  def self.push_chdirs(command, base = Dir.pwd)
+    git_invocations(raw_tokens(command)).select { |inv| inv[:sub] == 'push' }.map do |inv|
+      inv[:chdirs].any? ? inv[:chdirs].reduce(base) { |dir, path| File.expand_path(path, dir) } : nil
+    end
   end
 
   # One entry per `git` token: its subcommand and the -C values before it.

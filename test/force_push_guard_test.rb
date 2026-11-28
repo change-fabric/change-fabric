@@ -129,4 +129,17 @@ class ForcePushGuardTest < Minitest::Test
       assert_includes io.string, "force-push to 'main'"
     end
   end
+
+  def test_each_push_resolves_its_own_repository
+    Dir.mktmpdir do |dir|
+      feature = File.join(dir, "feature")
+      system("git", "init", "-q", "-b", "feat/x", feature, out: File::NULL, err: File::NULL)
+      system("git", "-C", feature, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "i", out: File::NULL)
+      io = StringIO.new
+      command = "git push --force-with-lease; git -C #{feature} push"
+      guard = ForcePushGuard.new({ "tool_name" => "Bash", "tool_input" => { "command" => command } }, branch: "main", protected_branches: [])
+      guard.emit(io)
+      assert_includes io.string, "force-push to 'main'"
+    end
+  end
 end

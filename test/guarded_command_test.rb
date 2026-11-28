@@ -78,11 +78,12 @@ class GuardedCommandGlobalOptsTest < Minitest::Test
     assert_empty GuardedCommand.git_chdirs("git push")
   end
 
-  def test_push_chdir
-    assert_equal "/a", GuardedCommand.push_chdir("git -C /a push", "/base")
-    assert_equal "/base/rel/b", GuardedCommand.push_chdir("git -C rel -C b push", "/base")
-    assert_nil GuardedCommand.push_chdir("git push", "/base")
-    assert_nil GuardedCommand.push_chdir("git -C /a status", "/base")
+  def test_push_chdirs
+    assert_equal [ "/a" ], GuardedCommand.push_chdirs("git -C /a push", "/base")
+    assert_equal [ "/base/rel/b" ], GuardedCommand.push_chdirs("git -C rel -C b push", "/base")
+    assert_equal [ nil ], GuardedCommand.push_chdirs("git push", "/base")
+    assert_empty GuardedCommand.push_chdirs("git -C /a status", "/base")
+    assert_equal [ nil, "/f" ], GuardedCommand.push_chdirs("git push --force-with-lease; git -C /f push", "/base")
   end
 
   def test_violation_sees_global_opts_push
