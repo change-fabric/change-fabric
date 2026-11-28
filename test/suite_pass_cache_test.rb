@@ -14,6 +14,9 @@ class SuitePassCacheTest < Minitest::Test
     @store = Dir.mktmpdir("spc-store")
     @saved = ENV.fetch("CF_SUITE_PASS_DIR", nil)
     ENV["CF_SUITE_PASS_DIR"] = @store
+    # CI shards this very suite with TEST_SHARD; clear the filters so these
+    # tests see a full run, and restore them after.
+    @filters = SuitePassCache::FILTER_VARS.to_h { |name| [ name, ENV.delete(name) ] }
     git("init", "-q")
     git("config", "user.email", "t@example.com")
     git("config", "user.name", "t")
@@ -25,6 +28,7 @@ class SuitePassCacheTest < Minitest::Test
 
   def teardown
     ENV["CF_SUITE_PASS_DIR"] = @saved
+    @filters.each { |name, value| ENV[name] = value }
     FileUtils.rm_rf([ @repo, @store ])
   end
 
@@ -105,8 +109,6 @@ class SuitePassCacheTest < Minitest::Test
     refute SuitePassCache.hit?(@repo, head_tree)
     FileUtils.rm_rf(Dir.glob(File.join(@store, "*")))
     refute SuitePassCache.record(@repo, head_tree)
-  ensure
-    ENV.delete("TEST_SHARD")
   end
 
   def test_a_lane_entry_named_rake_never_uses_the_cache
