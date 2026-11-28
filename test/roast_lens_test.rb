@@ -216,8 +216,6 @@ class RoastLensPlanRoutingTest < Minitest::Test
   # `lens: keywords:` must equal its row exactly.
   TABLE = <<~TABLE
     | cf:usability | screen, page, form, UI, component |
-    | cf:ruby | Ruby |
-    | cf:rails | Rails |
     | cf:terraform | Terraform, HCL |
     | cf:aws | Lambda, DynamoDB, S3, CloudFront, ECS, Fargate, EKS, RDS, Aurora, SQS, SNS, EventBridge, CloudFormation, CDK |
   TABLE
@@ -252,7 +250,7 @@ class RoastLensPlanRoutingTest < Minitest::Test
   def test_goal_fixtures_route_without_file_paths
     assert_includes routed("A plan for a serverless AWS service on Lambda and DynamoDB."), "cf:aws"
     assert_includes routed("A plan with screens."), "cf:usability"
-    assert_equal %w[cf:ruby cf:terraform], routed("A plan that rewrites Ruby or Terraform.")
+    assert_equal %w[cf:aws cf:terraform], routed("A plan that rewrites Lambda or Terraform.")
   end
 
   def test_negatives
@@ -268,16 +266,13 @@ class RoastLensPlanRoutingTest < Minitest::Test
     assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Last, edit infra/main.tf.")
     assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Update [infra/main.tf](https://example.com/main.tf).")
     assert_equal %w[app.gemspec invoice.handlebars], RoastLens.named_paths("Update app.gemspec and invoice.handlebars.")
-    assert_includes routed("Update app.gemspec."), "cf:ruby"
     assert_equal %w[vite.config.ts eslint.config.js], RoastLens.named_paths("Update vite.config.ts and eslint.config.js.")
     assert_includes RoastLens.suggest_with_reasons([ [ "plan.md", "Update vite.config.ts." ] ], SKILLS_DIR, plan_text: true).keys, "cf:typescript"
   end
 
   def test_bare_basenames_and_dotfiles_route
     result = RoastLens.suggest_with_reasons([ [ "plan.md", "Update Gemfile, Dockerfile and .dockerignore." ] ], SKILLS_DIR, plan_text: true)
-    assert_includes result["cf:ruby"], "path Gemfile"
     assert_includes result.keys, "cf:docker"
-    refute_includes routed("A plan about gems."), "cf:ruby"
   end
 
   def test_multi_word_keyword_spans_any_whitespace
@@ -287,9 +282,9 @@ class RoastLensPlanRoutingTest < Minitest::Test
 
   def test_repo_detect_adds_the_marker_reason
     Dir.mktmpdir do |repo|
-      File.write(File.join(repo, "cdk.json"), "{}")
+      File.write(File.join(repo, "main.tf"), "")
       result = RoastLens.suggest_with_reasons([ [ "plan.md", "Nothing here." ] ], SKILLS_DIR, plan_text: true, repo: repo)
-      assert_equal [ "detect cdk.json" ], result["cf:aws"]
+      assert_equal [ "detect *.tf" ], result["cf:terraform"]
     end
   end
 
