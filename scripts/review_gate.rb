@@ -85,13 +85,16 @@ class ReviewGate
   # in the pushed one. An unusable target keeps the directory it had, and a
   # segment Shellwords cannot parse ends the walk; the start is the event cwd.
   def push_directory
-    segments.reduce(@event['cwd'].to_s) do |dir, (joiner, segment)|
+    segments.reduce([ @event['cwd'].to_s, nil ]) do |(dir, previous), (joiner, segment)|
       words = shell_words(segment)
-      break dir if words.nil?
-      break dir if trigger?(segment)
+      break [ dir, previous ] if words.nil?
+      break [ dir, previous ] if trigger?(segment)
 
-      words.first == 'cd' && joiner != '||' ? move(dir, cd_target(words)) : dir
-    end
+      next [ dir, previous ] unless words.first == 'cd' && joiner != '||'
+
+      moved = move(dir, previous, cd_target(words))
+      moved == dir ? [ dir, previous ] : [ moved, dir ]
+    end.first
   end
 
   SEGMENT = /((?:'[^']*'|"(?:\\.|[^"\\])*"|\\.|[^&|;'"\\])+)|(&&|\|\||;)/
@@ -121,8 +124,9 @@ class ReviewGate
     args.empty? ? Dir.home : args.first
   end
 
-  def move(dir, target)
-    return dir if target.nil? || target == '-'
+  def move(dir, previous, target)
+    return dir if target.nil?
+    return previous || dir if target == '-'
 
     path = File.expand_path(target, dir.empty? ? Dir.pwd : dir)
     File.directory?(path) ? path : dir

@@ -238,4 +238,16 @@ class ReviewGateTest < Minitest::Test
   ensure
     FileUtils.remove_entry(base)
   end
+
+  def test_cd_dash_returns_to_the_previous_directory
+    base = File.realpath(Dir.mktmpdir)
+    a = File.join(base, "a")
+    b = File.join(base, "b")
+    [ a, b ].each { |dir| system("git", "init", "-q", dir, out: File::NULL) }
+    seen = nil
+    gate("cd #{a}; cd #{b}; cd -; git push", cwd: base, stage1: ->(root) { seen = root; nil })
+    assert_equal a, seen
+  ensure
+    FileUtils.remove_entry(base)
+  end
 end
