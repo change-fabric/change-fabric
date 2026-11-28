@@ -24,7 +24,7 @@ module WalkthroughProbe
     ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'ffprobe',
                              mounts: { File.dirname(real) => { target: MOUNT, readonly: true } },
                              args: [ '-v', 'error', '-count_packets', '-print_format', 'json', '-show_format', '-show_streams',
-                                     File.join(MOUNT, File.basename(real)) ])
+                                     File.join(MOUNT, File.basename(real)) ], user: :host)
   end
 
   # runner takes the argv and returns [output, success].
