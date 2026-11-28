@@ -263,7 +263,7 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
       <plan_dir> --repo <target repo> --cull`. It prints `plan lenses
       always: cf:simplicity`, the ranked `plan lenses candidates:` with
       reasons (paths named in the plan, `lens: keywords:`, `detect:`
-      markers), then culls them in one host `claude -p --model haiku
+      markers), then culls them in one host `claude -p --model {{model:classifier}}
       --max-turns 1` call with every tool off and the plan, goal and
       candidate rubrics on stdin. That call runs on the Claude Code
       subscription and is not debited. Read `plan lenses final:`

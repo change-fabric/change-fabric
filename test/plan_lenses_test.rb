@@ -67,8 +67,8 @@ class PlanLensesTest < Minitest::Test
 
   def test_keep_ignores_unknown_and_keeps_rank_order
     plan("Ruby and Rails on Lambda with Terraform.\n")
-    _, text = run_cli("--plan-dir", @dir, "--keep", "nope,cf:ruby,aws")
-    assert_includes text, "plan lenses final: --lens cf:simplicity --lens cf:aws --lens cf:ruby"
+    _, text = run_cli("--plan-dir", @dir, "--keep", "nope,cf:terraform,aws")
+    assert_includes text, "plan lenses final: --lens cf:simplicity --lens cf:aws --lens cf:terraform"
   end
 
   def test_no_line_carries_more_than_four_lens_flags
@@ -176,7 +176,7 @@ class PlanLensesTest < Minitest::Test
   end
 
   # A fake `claude` on PATH that records its argv and stdin, then answers.
-  def stub_claude(answer: '["cf:ruby"]', status: 0)
+  def stub_claude(answer: '["cf:terraform"]', status: 0)
     bin = File.join(@dir, "bin")
     FileUtils.mkdir_p(bin)
     path = File.join(bin, "claude")
@@ -204,7 +204,7 @@ exit #{status}
   def test_cull_runs_haiku_one_turn_with_tools_off_and_keeps_its_answer
     cull_plan
     _, text = with_path("#{stub_claude}:/usr/bin:/bin") { run_cli("--plan-dir", @dir, "--cull") }
-    assert_includes text, "plan lenses final: --lens cf:simplicity --lens cf:ruby
+    assert_includes text, "plan lenses final: --lens cf:simplicity --lens cf:terraform
 "
     argv = File.read(File.join(@dir, "argv")).split("
 ", -1)
@@ -219,14 +219,14 @@ exit #{status}
     cull_plan
     _, text = with_path(File.join(@dir, "nowhere")) { run_cli("--plan-dir", @dir, "--cull") }
     assert_includes text, "plan lenses cull skipped (claude not on PATH); using rule-based candidates"
-    assert_equal 4, text[/^plan lenses final: .*$/].scan("--lens").size
+    assert_equal 3, text[/^plan lenses final: .*$/].scan("--lens").size
   end
 
   def test_cull_non_zero_exit_falls_back_to_rules
     cull_plan
     _, text = with_path("#{stub_claude(status: 2)}:/usr/bin:/bin") { run_cli("--plan-dir", @dir, "--cull") }
     assert_includes text, "plan lenses cull skipped (claude exited 2)"
-    assert_equal 4, text[/^plan lenses final: .*$/].scan("--lens").size
+    assert_equal 3, text[/^plan lenses final: .*$/].scan("--lens").size
   end
 
   def test_cull_never_sends_a_sensitive_term
