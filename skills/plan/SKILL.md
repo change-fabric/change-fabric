@@ -208,9 +208,14 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
    "Decisions (settled, do not re-litigate)", each decision naming the answer
    it came from, so the executing session does not reopen a settled call.
    It ends plan.md with a `## Visuals` section listing the visuals the
-   scale rule below calls for, one line each (file name, type, purpose),
-   without drawing them. With none, the section reads "None (single-PR,
-   single-subsystem plan)." Keep the writing agent's id for 7a and 7b.
+   scale rule below calls for, one line each, without drawing them, in the
+   pending form `- diagrams/<name>.svg (pending), <type>, <purpose>`.
+   `plan_check.rb` does not check a `(pending)` path; 7a removes the marker
+   once the SVG is drawn, and from then on the path must exist. With none,
+   the section reads "None (single-PR, single-subsystem plan)." When the
+   scale rule calls for visuals that will not be drawn, the section carries
+   one `visuals deferred: <reason>` line instead, which passes the check.
+   Keep the writing agent's id for 7a and 7b.
 
    Scale rule (deterministic):
 
@@ -231,8 +236,9 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
    `--no-measure` on exit 3), renders light and dark PNGs with
    `diagram_render.rb` (skipping on exit 3), and never edits the three plan
    files. It returns each SVG with type, purpose, and measured yes or no.
-   Then `SendMessage` the writing agent to fill `## Visuals` from that
-   return: each SVG's relative path, type, purpose with its
+   Then `SendMessage` the writing agent to rewrite `## Visuals` from that
+   return, dropping every `(pending)` marker: each SVG's relative path, type,
+   purpose with its
    `(phases: all)` or `(phases: N[,N])` tag, and "text measured" or
    "text not measured (no Docker)", plus a note that diagrams are
    illustrative and plan.md wins on any conflict. A visual still failing
@@ -284,9 +290,23 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
       the writing agent to apply accepted text fixes, and resume the diagram
       agent to apply accepted visual fixes, re-lint, and re-render both
       themes with `diagram_render.rb` so round 2 sees the fixed PNGs before
-      its estimate. Write `roast/round-N.response.json` (the cf:roast response
-      shape) for every round run, an empty response list when it has no
-      findings; `plan_check.rb` fails a round without it. Contested calls go to
+      its estimate. Write `roast/round-N.response.json` for every round run,
+      one row per issue in `round-N.json` order, an empty response list when
+      it has no findings:
+
+      ```json
+      { "responses": [
+        { "where": "Phase 2", "problem": "<short>", "verdict": "accept", "change": "<what changed>" },
+        { "where": "goal.md", "problem": "<short>", "verdict": "rebut", "reason": "<why>" } ] }
+      ```
+
+      `verdict` is `accept` (needs `change`), `rebut`, or `contested` (each
+      needs `reason`). `ruby ~/.claude/cf/bin/roast.rb respond --out-dir
+      <plan_dir>/roast --round N --accept-all` writes it with every issue
+      accepted at the critic's fix; `--verdicts FILE` takes a JSON array of
+      `{ "verdict", "change" or "reason" }`, one per issue in order.
+      `plan_check.rb` fails a round whose response is missing, of another
+      shape, or a different length. Contested calls go to
       `AskUserQuestion`; under `--judge`, through the judge protocol in
       `reference/interview.md`, recorded as `Answered by: judge (roast)`.
    5. Round 2 runs only if
@@ -323,9 +343,10 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
    `Date.now()`, `Math.random()`, or `new Date()`, or lacks the resource gate
    (see "Resource floors" below). When the plan has a
    `diagrams/` directory or a `## Visuals` section, it also fails on a listed
-   SVG that is missing, an SVG with a glyph, a home path, or no
-   `data-diagram-type`/`data-chart-type`, and a `roast/round-N.json` without
-   its `round-N.response.json`. It also fails on a `story.json` or
+   SVG that is missing (a `(pending)` line is not checked, and a
+   `visuals deferred: <reason>` line settles the section), an SVG with a
+   glyph, a home path, or no `data-diagram-type`/`data-chart-type`, and a
+   `roast/round-N.json` without a valid `round-N.response.json`. It also fails on a `story.json` or
    `story/*.json` that breaks story-only validation, and on a
    `walkthrough: <slug>` line whose story file is missing. Do not report success until it exits zero.
 

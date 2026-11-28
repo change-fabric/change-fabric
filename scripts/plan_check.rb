@@ -6,6 +6,7 @@ require_relative 'ctx_paths'
 require_relative 'plan_visuals'
 require_relative 'resource_gate_lint'
 require_relative 'walkthrough_story'
+require_relative 'roast_response'
 
 # Mechanically verifies a landed cf:plan triple: plan.md, goal.md, and the
 # workflow.js that operationalizes the plan. Every file must exist and be
@@ -112,7 +113,7 @@ module PlanCheck
 
     ok = true
     ok &= check_listed_visuals(plan_dir, section, lines) if section
-    ok &= check_manifest(plan_dir, section, lines) if section && File.exist?(File.join(diagrams, 'manifest.json'))
+    ok &= check_manifest(plan_dir, section, lines) if section && !deferred?(section) && File.exist?(File.join(diagrams, 'manifest.json'))
     Dir.glob(File.join(diagrams, '*.svg')).sort.each { |svg| ok &= check_svg(svg, plan_dir, lines) }
     ok &= check_roast_rounds(File.join(plan_dir, 'roast'), lines)
     ok
@@ -125,8 +126,20 @@ module PlanCheck
     body&.sub(VISUALS_HEADING, '')
   end
 
+  # A line carrying `(pending)` is a visual listed at step 7 and not drawn yet,
+  # so its path is not checked. A `visuals deferred: <reason>` line settles
+  # the whole section without drawing anything.
+  PENDING = /\(pending\)/
+  DEFERRED = /^visuals deferred:(.*)$/i
+
+  def self.deferred?(section) = section&.match?(DEFERRED)
+
   def self.check_listed_visuals(plan_dir, section, lines)
-    section.scan(%r{[\w./-]+\.svg}).uniq.map do |rel|
+    return check_deferred(section, lines) if deferred?(section)
+
+    pending, drawn = section.lines.select { |l| l.match?(%r{[\w./-]+\.svg}) }.partition { |l| l.match?(PENDING) }
+    pending.each { |l| lines << "visuals: #{l[%r{[\w./-]+\.svg}]} pending, not drawn yet" }
+    drawn.join.scan(%r{[\w./-]+\.svg}).uniq.map do |rel|
       path = File.join(plan_dir, rel)
       if File.exist?(path) && !File.read(path).strip.empty?
         lines << "visuals: #{rel} present"
@@ -138,6 +151,17 @@ module PlanCheck
     end.all?
   end
 
+  def self.check_deferred(section, lines)
+    reason = section[DEFERRED, 1].strip
+    if reason.empty?
+      lines << 'visuals: deferred needs a reason (visuals deferred: <reason>)'
+      false
+    else
+      lines << "visuals: deferred (#{reason})"
+      true
+    end
+  end
+
   # Only a plan whose diagrams carry a manifest is held to phase tags, so a
   # plan landed before tags existed keeps passing. The manifest must parse and
   # name every listed SVG; each listed line carries exactly one tag, and no
@@ -145,7 +169,7 @@ module PlanCheck
   def self.check_manifest(plan_dir, section, lines)
     data = JSON.parse(File.read(File.join(plan_dir, 'diagrams', 'manifest.json')))
     total = PlanVisuals.workflow_phase_count(plan_dir)
-    section.lines.select { |line| line.match?(%r{[\w./-]+\.svg}) }
+    section.lines.select { |line| line.match?(%r{[\w./-]+\.svg}) && !line.match?(PENDING) }
            .map { |line| check_tagged_line(line, data.fetch('visuals', {}), total, lines) }.all?
   rescue JSON::ParserError, TypeError => e
     lines << "visuals: diagrams/manifest.json does NOT parse (#{e.message.lines.first&.strip})"
@@ -191,13 +215,29 @@ module PlanCheck
       response = round.sub(/\.json\z/, '.response.json')
       name = File.basename(round)
       if File.exist?(response)
-        lines << "roast/#{name}: response present"
-        true
+        check_response(round, response, lines)
       else
         lines << "roast/#{name}: MISSING #{File.basename(response)}"
         false
       end
     end.all?
+  end
+
+  # The response must hold the canonical shape (see roast_response.rb), one
+  # row per issue in its round.
+  def self.check_response(round, response, lines)
+    found = begin
+      RoastResponse.problems(JSON.parse(File.read(response)), JSON.parse(File.read(round)))
+    rescue JSON::ParserError => e
+      [ "does not parse (#{e.message.lines.first&.strip})" ]
+    end
+    if found.empty?
+      lines << "roast/#{File.basename(round)}: response present"
+      true
+    else
+      lines << "roast/#{File.basename(response)}: INVALID: #{found.join('; ')}"
+      false
+    end
   end
 
   # The Workflow script is checked by grep, not by parsing: the checker has no
