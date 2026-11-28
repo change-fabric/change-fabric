@@ -133,10 +133,10 @@ class PlanVisualsTest < Minitest::Test
     assert_includes STEP_SEVEN, "visuals deferred: <reason>"
   end
 
-  def test_roast_step_documents_the_response_shape_helper_and_lens
+  def test_roast_step_documents_the_response_shape_helper_and_lens_script
     assert_includes ROAST_STEP, '"responses"'
     assert_includes ROAST_STEP, "roast.rb respond"
-    assert_includes ROAST_STEP, "--lens"
+    assert_includes ROAST_STEP, "plan_lenses.rb"
   end
 
   def test_a_section_with_no_visuals_passes
