@@ -51,11 +51,20 @@ if echo "$staged" | grep -qE '\.rb$|^(Gemfile|Gemfile\.lock)$'; then
     exit 0
   fi
 
-  echo "[pre-commit] bundle exec rake test..."
-  if ! "${noenv[@]}" bundle exec rake test >/tmp/cf-rake-test-check.out 2>&1; then
-    cat /tmp/cf-rake-test-check.out >&2
-    echo "[pre-commit] rake test failed; fix before committing (or bypass with 'git commit --no-verify')." >&2
-    exit 1
+  # Suite-pass cache (scripts/suite_pass_cache.rb): keyed on the staged tree,
+  # so a tree whose full suite already passed here skips the rerun. A pass is
+  # recorded only when the working tree matches the staged tree exactly.
+  staged_tree="$(git write-tree)"
+  if ruby scripts/suite_pass_cache.rb hit "$staged_tree"; then
+    echo "[pre-commit] rake test already passed for tree ${staged_tree:0:12}; skipping"
+  else
+    echo "[pre-commit] bundle exec rake test..."
+    if ! "${noenv[@]}" bundle exec rake test >/tmp/cf-rake-test-check.out 2>&1; then
+      cat /tmp/cf-rake-test-check.out >&2
+      echo "[pre-commit] rake test failed; fix before committing (or bypass with 'git commit --no-verify')." >&2
+      exit 1
+    fi
+    ruby scripts/suite_pass_cache.rb record "$staged_tree" || true
   fi
 
   echo "[pre-commit] rubocop..."

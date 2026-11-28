@@ -12,6 +12,7 @@ require_relative 'review_scope'
 require_relative 'guarded_command'
 require_relative 'change_autopilot'
 require_relative 'review_stage1'
+require_relative 'suite_pass_cache'
 
 # PreToolUse hook: denies a push or PR when files changed this session lack a
 # review verdict, and hands back the review prompt. The verdict must be for
@@ -40,7 +41,7 @@ class ReviewGate
   # stage1: (root) -> ReviewStage1::Report, injected by tests. The default runs
   # the real checks in the repo the command was issued from; with no known repo
   # root there is nothing to check and stage 1 is skipped.
-  def initialize(event, skills: nil, stage1: ->(root) { ReviewStage1.run(root) })
+  def initialize(event, skills: nil, stage1: ->(root) { ReviewStage1.run(root, cache: SuitePassCache) })
     @event = event
     @skills = skills
     @stage1 = stage1
