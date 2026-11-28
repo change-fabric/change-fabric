@@ -591,7 +591,7 @@ module WalkthroughLive
         await page.evaluateOnNewDocument(hideCursor);
         const safe = async (fn, fallback) => { try { return await fn(); } catch (e) { void e; return fallback; } };
         if (job.html) {
-          await page.setContent(job.html, { waitUntil: "load" });
+          await page.setContent(job.html, { waitUntil: "load", timeout: 100000 });
           await page.evaluate(linkHook);
           await page.evaluate(hideCursor);
         } else {

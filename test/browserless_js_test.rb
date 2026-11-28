@@ -46,7 +46,7 @@ class BrowserlessJsTest < Minitest::Test
     assert_includes js, 'url.startsWith("about:")'
     assert_includes js, "req.abort("
     assert_includes js, "blockedRequests.push("
-    assert_includes js, 'page.setContent("<p>\"hi\"</p>", { waitUntil: "load" })'
+    assert_includes js, 'page.setContent("<p>\"hi\"</p>", { waitUntil: "load", timeout: 100_000 })'
     assert balanced?(js)
   end
 

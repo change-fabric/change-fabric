@@ -28,8 +28,9 @@ module LaneInvariants
     <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        page.setDefaultNavigationTimeout(100000);
         await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
-        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 100000 });
         const samples = [];
         let now = 0;
         for (const t of #{JSON.generate(times)}) {

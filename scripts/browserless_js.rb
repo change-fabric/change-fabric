@@ -227,7 +227,7 @@ module BrowserlessJs
         #{failures_var}.push({ url, reason: "blocked: external request in inline html" });
         return req.abort("blockedbyclient");
       });
-      await #{page_var}.setContent(#{JSON.generate(html)}, { waitUntil: "load" });
+      await #{page_var}.setContent(#{JSON.generate(html)}, { waitUntil: "load", timeout: 100_000 });
     JS
   end
 

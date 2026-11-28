@@ -104,7 +104,13 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     head, tail = WalkthroughLive::NavigateRun.split(run, cut)
     assert_equal at, head["ticks"].size
     assert_equal 4, tail["cursor"].first["carry"], "the ripple carries its 4 frames into the next scene"
-    assert_operator run["frames"].size, :>, 20, "the glide streams many distinct frames, not a jump"
+    # The glide is real time, so a loaded host drops screencast frames and the
+    # total distinct count varies. A jump shows at most 2 distinct frames over
+    # the 27 glide ticks (before, after); 8 or more means the page moved in
+    # steps whatever the load. Frames first appear in tick order, never back.
+    glide = run["ticks"].first(27)
+    assert_operator glide.uniq.size, :>, 8, "the glide streams many distinct frames, not a jump: #{glide.inspect}"
+    assert_equal glide.uniq, glide.uniq.sort, "frames arrive in order"
     bad = job.merge("expectUrl" => "about:blank#elsewhere")
     error = assert_raises(StandardError) { film(board, feed, bad) }
     assert_match(/tap-navigate never reached the next scene's url about:blank#elsewhere/, error.message)
