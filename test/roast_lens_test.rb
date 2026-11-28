@@ -206,3 +206,108 @@ class RoastLensTest < Minitest::Test
     assert_includes text, "roast lenses suggested: cf:terraform (pass --lens)"
   end
 end
+
+# Plan-aware routing (suggest_with_reasons) against the real skills tree, so
+# the keyword lists under test are the ones that ship.
+class RoastLensPlanRoutingTest < Minitest::Test
+  SKILLS_DIR = File.expand_path("../skills", __dir__)
+
+  # The plan's Keyword triggers table, one row per landed lens. Each skill's
+  # `lens: keywords:` must equal its row exactly.
+  TABLE = <<~TABLE
+    | cf:usability | screen, page, form, UI, component |
+    | cf:terraform | Terraform, HCL |
+    | cf:aws | Lambda, DynamoDB, S3, CloudFront, ECS, Fargate, EKS, RDS, Aurora, SQS, SNS, EventBridge, CloudFormation, CDK |
+  TABLE
+
+  def rows
+    TABLE.lines.to_h do |line|
+      _, lens, words = line.split("|").map(&:strip)
+      [ lens, words.split(",").map(&:strip) ]
+    end
+  end
+
+  # cf:ai-slop is all_files, so it matches plan.md itself on every call;
+  # these tests are about what the text adds.
+  def routed(text, **opts)
+    RoastLens.suggest_with_reasons([ [ "plan.md", text ] ], SKILLS_DIR, plan_text: true, **opts).keys - [ "cf:ai-slop" ]
+  end
+
+  def test_every_skill_keyword_list_equals_its_table_row
+    assert_equal rows, RoastLens.keywords(SKILLS_DIR)
+  end
+
+  def test_each_keyword_selects_its_lens_alone_and_never_glued
+    rows.each do |lens, words|
+      words.each do |word|
+        assert_includes routed("We use #{word} today."), lens, word
+        refute_includes routed("We use x#{word} today."), lens, "x#{word}"
+        refute_includes routed("We use #{word}x today."), lens, "#{word}x"
+      end
+    end
+  end
+
+  def test_goal_fixtures_route_without_file_paths
+    assert_includes routed("A plan for a serverless AWS service on Lambda and DynamoDB."), "cf:aws"
+    assert_includes routed("A plan with screens."), "cf:usability"
+    assert_equal %w[cf:aws cf:terraform], routed("A plan that rewrites Lambda or Terraform.")
+  end
+
+  def test_negatives
+    assert_empty routed("Dynamo alone.")
+    refute_includes routed("Notes on authoring."), "cf:security"
+    assert_includes routed("Two pages."), "cf:usability"
+  end
+
+  def test_named_paths_route_and_urls_and_versions_do_not
+    result = RoastLens.suggest_with_reasons([ [ "plan.md", "Edit infra/main.tf now." ] ], SKILLS_DIR, plan_text: true)
+    assert_equal({ "cf:ai-slop" => [ "path plan.md" ], "cf:terraform" => [ "path infra/main.tf" ] }, result)
+    assert_empty RoastLens.named_paths("See https://example.com/main.tf and version 1.2.3.")
+    assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Last, edit infra/main.tf.")
+    assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Update [infra/main.tf](https://example.com/main.tf).")
+    assert_equal %w[app.gemspec invoice.handlebars], RoastLens.named_paths("Update app.gemspec and invoice.handlebars.")
+    assert_equal %w[vite.config.ts eslint.config.js], RoastLens.named_paths("Update vite.config.ts and eslint.config.js.")
+    assert_includes RoastLens.suggest_with_reasons([ [ "plan.md", "Update vite.config.ts." ] ], SKILLS_DIR, plan_text: true).keys, "cf:typescript"
+  end
+
+  def test_bare_basenames_and_dotfiles_route
+    result = RoastLens.suggest_with_reasons([ [ "plan.md", "Update Gemfile, Dockerfile and .dockerignore." ] ], SKILLS_DIR, plan_text: true)
+    assert_includes result.keys, "cf:docker"
+  end
+
+  def test_multi_word_keyword_spans_any_whitespace
+    assert RoastLens.keyword_pattern("Cloud Run").match?("on cloud\n  run today")
+    refute RoastLens.keyword_pattern("Cloud Run").match?("xCloud Run")
+  end
+
+  def test_repo_detect_adds_the_marker_reason
+    Dir.mktmpdir do |repo|
+      File.write(File.join(repo, "main.tf"), "")
+      result = RoastLens.suggest_with_reasons([ [ "plan.md", "Nothing here." ] ], SKILLS_DIR, plan_text: true, repo: repo)
+      assert_equal [ "detect *.tf" ], result["cf:terraform"]
+    end
+  end
+
+  def test_defaults_equal_two_argument_suggest
+    texts = [ [ "plan.md", "Edit infra/main.tf for DynamoDB on Lambda." ],
+              [ "change.diff", "+++ b/app/x.rb\n" ] ]
+    assert_equal RoastLens.suggest(texts, SKILLS_DIR), RoastLens.suggest_with_reasons(texts, SKILLS_DIR).keys
+  end
+
+  def test_two_argument_suggest_output_is_pinned
+    texts = [ [ "plan.md", "Edit infra/main.tf for DynamoDB on Lambda with screens." ] ]
+    assert_equal %w[cf:ai-slop], RoastLens.suggest(texts, SKILLS_DIR)
+    diff = [ [ "change.diff", "+++ b/infra/main.tf\n" ] ]
+    assert_equal %w[cf:ai-slop cf:terraform], RoastLens.suggest(diff, SKILLS_DIR)
+  end
+
+  def test_lens_key_is_not_seen_by_registry_matching
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "x"))
+      File.write(File.join(dir, "x", "SKILL.md"),
+                 "---\nname: cf:x\ngroup: rubrics\nlens:\n  keywords: [main.tf]\n---\n\nbody\n")
+      assert_empty SkillRegistry.load(dir)
+      assert_equal({ "cf:x" => [ "main.tf" ] }, RoastLens.keywords(dir))
+    end
+  end
+end

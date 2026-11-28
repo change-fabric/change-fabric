@@ -7,6 +7,8 @@ auto:
   min_level: strict
   extensions: [tf, tfvars]
   detect: ["*.tf", .terraform.lock.hcl]
+lens:
+  keywords: [Terraform, HCL]
 ---
 
 # Terraform Cheat Sheet
