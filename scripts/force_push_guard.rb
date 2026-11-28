@@ -67,13 +67,13 @@ class ForcePushGuard
   def forceish? = command.match?(/\bpush\b/) && command.match?(/(?:\s-[a-zA-Z]*f|--force|--mirror|\s\+\S)/)
 
   def push_violation
-    GuardedCommand.push_args(command).each do |args|
+    GuardedCommand.push_args(command).each_with_index do |args, index|
       force = args.any? { |arg| GuardedCommand.force_arg?(arg) }
       return 'git push --mirror rewrites every branch, trunk included' if args.include?('--mirror')
       return 'a forced push of every branch (--all or --branches)' if force && (args & %w[--all --branches]).any?
 
       deleting = args.include?('--delete') || args.include?('-d')
-      dests = destinations(args)
+      dests = destinations(args, index)
       if deleting
         hit = positionals(args).drop(1).find { |name| protected?(strip_ref(name)) }
         return "deleting the protected branch '#{strip_ref(hit)}'" if hit
@@ -85,7 +85,7 @@ class ForcePushGuard
       wild = dests.find { |dest, _| dest.include?('*') }
       return "a forced push of the wildcard refspec '#{wild.last}'" if wild
 
-      targets = dests.empty? ? [ current_branch ] : dests.map(&:first)
+      targets = dests.empty? ? [ current_branch(index) ] : dests.map(&:first)
       hit = targets.find { |dest| dest.nil? || protected?(dest) }
       return "a force-push to '#{hit || 'an unknown current branch'}'" if targets.include?(hit)
     end
@@ -106,11 +106,11 @@ class ForcePushGuard
   end
 
   # [[destination branch, refspec]] for each refspec (the first positional is the remote).
-  def destinations(args)
+  def destinations(args, index = 0)
     positionals(args).drop(1).map do |spec|
       plain = spec.delete_prefix('+')
       dest = plain.include?(':') ? plain.split(':', 2).last : plain
-      dest = current_branch if dest == 'HEAD'
+      dest = current_branch(index) if dest == 'HEAD'
       [ strip_ref(dest), plain ]
     end
   end
@@ -145,7 +145,7 @@ class ForcePushGuard
   def rewrite_violation
     return nil unless command.match?(/\bfilter-(?:branch|repo)\b/)
 
-    pushed = GuardedCommand.push_args(command).flat_map { |args| destinations(args).map(&:first).then { |d| d.empty? ? [ current_branch ] : d } }
+    pushed = GuardedCommand.push_args(command).each_with_index.flat_map { |args, index| destinations(args, index).map(&:first).then { |d| d.empty? ? [ current_branch(index) ] : d } }
     hit = pushed.find { |dest| dest.nil? || protected?(dest) }
     "a history rewrite pushed to '#{hit || 'an unknown branch'}'" if pushed.include?(hit)
   end
@@ -161,12 +161,20 @@ class ForcePushGuard
     end
   end
 
-  def current_branch
-    return @branch if @branch
+  # The branch the index-th push runs on: its own -C repository when it names
+  # one, else the session's.
+  def current_branch(index = 0)
+    return @branch if @branch && push_dirs[index].nil?
 
-    name = git('rev-parse', '--abbrev-ref', 'HEAD')
-    @branch = name && name != 'HEAD' ? name : nil
+    @branches ||= {}
+    return @branches[index] if @branches.key?(index)
+
+    dir = push_dirs[index]
+    name = git(*(dir ? [ '-C', dir ] : []), 'rev-parse', '--abbrev-ref', 'HEAD')
+    @branches[index] = name && name != 'HEAD' ? name : nil
   end
+
+  def push_dirs = @push_dirs ||= GuardedCommand.push_chdirs(command)
 
   def git(*args)
     out, status = Open3.capture2e('git', *args)

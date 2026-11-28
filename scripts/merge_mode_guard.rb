@@ -36,11 +36,14 @@ class MergeModeGuard
   def branch_for(command)
     return nil unless GuardedCommand.push?(command)
 
-    current_branch
+    branches = GuardedCommand.push_chdirs(command).map { |dir| current_branch(dir) }
+    branches = [ current_branch ] if branches.empty?
+    # One branch stands for the whole command, so a push from the trunk wins.
+    branches.find { |name| GuardedCommand::TRUNK.include?(name) } || branches.first
   end
 
-  def current_branch
-    out = `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip
+  def current_branch(dir = nil)
+    out = IO.popen([ 'git', *(dir ? [ '-C', dir ] : []), 'rev-parse', '--abbrev-ref', 'HEAD' ], err: File::NULL, &:read).to_s.strip
     out.empty? ? nil : out
   rescue StandardError
     nil

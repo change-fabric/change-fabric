@@ -95,7 +95,14 @@ class CfRuntime
     raise ArgumentError, 'shell command must be a string' unless command.is_a?(String)
 
     workdir = input['workdir'].is_a?(String) ? File.expand_path(input['workdir'], @request['project']) : @request['project']
-    GuardedCommand.new(command, state['mode'], branch: current_branch(workdir)).violation
+    GuardedCommand.new(command, state['mode'], branch: command_branch(command, workdir)).violation
+  end
+
+  # One branch stands for the whole command, so a push from the trunk wins.
+  def command_branch(command, workdir)
+    branches = GuardedCommand.push_chdirs(command, workdir).map { |dir| current_branch(dir || workdir) }
+    branches = [ current_branch(workdir) ] if branches.empty?
+    branches.find { |name| GuardedCommand::TRUNK.include?(name) } || branches.first
   end
 
   # A structured push without an explicit branch pushes the current one.

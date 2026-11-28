@@ -6,7 +6,7 @@ require_relative 'merge_mode_slug'
 
 # Advisory guardrail, not airtight enforcement: it inspects the Bash command
 # text (plus the current branch, for bare pushes). It catches the obvious cases
-# and is trivially bypassable (env-var indirection, `git -c`, non-Bash tools).
+# and is trivially bypassable (env-var indirection, non-Bash tools).
 # It exists to make an accidental violation of the chosen mode loud, not to
 # sandbox.
 class GuardedCommand
@@ -20,9 +20,83 @@ class GuardedCommand
   # redirect such as 2>&1 stays one word. Unbalanced quotes fall back to a
   # whitespace split.
   def self.tokens(command)
+    strip_git_globals(raw_tokens(command))
+  end
+
+  def self.raw_tokens(command)
     lex(command.to_s)
   rescue ArgumentError
     command.to_s.split
+  end
+
+  # git's global options sit between `git` and the subcommand (`git -C dir
+  # push`). Those that take a separate value, and the bare flags.
+  GIT_VALUE_OPTS = %w[-C -c --git-dir --work-tree --namespace --config-env --super-prefix --attr-source].freeze
+  GIT_FLAG_OPTS = %w[--exec-path -p -P --paginate --no-pager --no-replace-objects --bare --literal-pathspecs --glob-pathspecs
+                     --noglob-pathspecs --icase-pathspecs --no-optional-locks --no-advice --no-lazy-fetch
+                     --html-path --man-path --info-path].freeze
+
+  GIT_EQUALS_OPT = /\A--(exec-path|git-dir|work-tree|namespace|config-env|super-prefix|attr-source)=/
+
+  # Drops git's global options after every `git` token, so the matchers see
+  # `git push` however the push is spelled. The skipped options stay available
+  # through git_chdirs.
+  def self.strip_git_globals(toks)
+    out = []
+    i = 0
+    while i < toks.size
+      out << toks[i]
+      i += 1
+      next unless toks[i - 1] == 'git'
+
+      i = skip_git_globals(toks, i)
+    end
+    out
+  end
+
+  # Index of the first token at or after `i` that is not a git global option.
+  def self.skip_git_globals(toks, i)
+    while i < toks.size
+      tok = toks[i]
+      if GIT_VALUE_OPTS.include?(tok)
+        i += 2
+      elsif GIT_FLAG_OPTS.include?(tok) || tok.match?(GIT_EQUALS_OPT)
+        i += 1
+      else
+        break
+      end
+    end
+    [ i, toks.size ].min
+  end
+
+  # The `-C <path>` values given to each `git` in the command, in order.
+  def self.git_chdirs(command) = git_invocations(raw_tokens(command)).flat_map { |inv| inv[:chdirs] }
+
+  # The directory each `git ... push` in the command runs in, in order: the
+  # `-C` chain applied to `base`, or nil for a push that carries no `-C`.
+  def self.push_chdirs(command, base = Dir.pwd)
+    git_invocations(raw_tokens(command)).select { |inv| inv[:sub] == 'push' }.map do |inv|
+      inv[:chdirs].any? ? inv[:chdirs].reduce(base) { |dir, path| File.expand_path(path, dir) } : nil
+    end
+  end
+
+  # One entry per `git` token: its subcommand and the -C values before it.
+  def self.git_invocations(toks)
+    toks.each_index.filter_map do |idx|
+      next unless toks[idx] == 'git'
+
+      stop = skip_git_globals(toks, idx + 1)
+      chdirs = []
+      pos = idx + 1
+      while pos < stop
+        if toks[pos] == '-C'
+          chdirs << toks[pos + 1]
+          pos += 1
+        end
+        pos += 1
+      end
+      { sub: toks[stop], chdirs: chdirs.compact }
+    end
   end
 
   OPERATOR_CHARS = [ ';', '&', '|', "\n" ].freeze
