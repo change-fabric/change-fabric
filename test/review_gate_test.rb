@@ -209,4 +209,45 @@ class ReviewGateTest < Minitest::Test
   ensure
     FileUtils.remove_entry(other)
   end
+  # The session starts in one worktree and pushes another: stage 1 must check
+  # the pushed worktree, whichever way the command names it.
+  def test_stage1_and_pr_create_run_in_the_pushed_worktree_not_the_session_start
+    base = File.realpath(Dir.mktmpdir)
+    start = File.join(base, "start")
+    pushed = File.join(base, "pushed")
+    semi = File.join(base, "semi;dir")
+    system("git", "init", "-q", start, out: File::NULL)
+    system("git", "-C", start, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x", out: File::NULL)
+    system("git", "-C", start, "worktree", "add", "-q", pushed, "-b", "other", out: File::NULL, err: File::NULL)
+    system("git", "-C", start, "worktree", "add", "-q", semi, "-b", "semi", out: File::NULL, err: File::NULL)
+    [
+      "cd #{pushed} && git push -u origin other",
+      "cd #{base} && cd pushed; gh pr create --fill",
+      "cd -- '#{pushed}' && gh pr create --fill",
+      "cd #{pushed} && git commit -m 'msg; cd #{start}' && git push",
+      "cd '#{semi}' && git push",
+      "cd #{pushed} || cd #{start}; git push"
+    ].each do |command|
+      seen = nil
+      gate(command, cwd: start, stage1: ->(root) { seen = root; nil })
+      assert_equal command.include?("semi") ? semi : pushed, seen, command
+    end
+    seen = nil
+    gate("git push", cwd: start, stage1: ->(root) { seen = root; nil })
+    assert_equal start, seen, "with no target named the session start is the repo"
+  ensure
+    FileUtils.remove_entry(base)
+  end
+
+  def test_cd_dash_returns_to_the_previous_directory
+    base = File.realpath(Dir.mktmpdir)
+    a = File.join(base, "a")
+    b = File.join(base, "b")
+    [ a, b ].each { |dir| system("git", "init", "-q", dir, out: File::NULL) }
+    seen = nil
+    gate("cd #{a}; cd #{b}; cd -; git push", cwd: base, stage1: ->(root) { seen = root; nil })
+    assert_equal a, seen
+  ensure
+    FileUtils.remove_entry(base)
+  end
 end
