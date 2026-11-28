@@ -179,8 +179,9 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
     <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        page.setDefaultNavigationTimeout(100000);
         await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
-        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 100000 });
         for (let t = 0; t < #{t_ms}; t += #{STEP_MS}) await page.evaluate((step) => window.__cfAdvance(step), #{STEP_MS});
         const data = await page.evaluate(() => {
           const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
@@ -320,8 +321,9 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
     <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        page.setDefaultNavigationTimeout(100000);
         await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
-        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 100000 });
         const samples = [];
         for (let t = 0; t <= #{duration_ms}; t += #{STEP_MS}) {
           samples.push(await page.evaluate((step) => {

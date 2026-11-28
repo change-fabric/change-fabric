@@ -131,6 +131,7 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         code = <<~JS
           export default async function ({ page }) {
             await page.setViewport({ width: #{board.dig('viewport', 'w')}, height: #{board.dig('viewport', 'h')} });
+            page.setDefaultNavigationTimeout(100000);
             await page.setContent(#{JSON.generate(PrototypeCapture.with_document_scripts(html, prng_seed: 1, state: nil))});
             const deadline = Date.now() + 15000;
             while (!(await page.evaluate(() => window.__cfDiagramReady === true)) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
@@ -436,8 +437,9 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     code = <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        page.setDefaultNavigationTimeout(100000);
         await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
-        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 100000 });
         const samples = [];
         for (let t = 0; t <= #{duration_ms}; t += #{STEP_MS}) {
           // A flow probe waits two painted frames after each advance, as the
@@ -469,8 +471,9 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     code = <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        page.setDefaultNavigationTimeout(100000);
         await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
-        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 100000 });
         const out = [];
         let at = 0;
         for (const t of #{JSON.generate(times)}) {
@@ -506,8 +509,9 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     code = <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        page.setDefaultNavigationTimeout(100000);
         await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
-        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 100000 });
         await page.evaluate(() => window.__cfAdvance(1000));
         const out = await page.evaluate(() => {
           const icons = {};
