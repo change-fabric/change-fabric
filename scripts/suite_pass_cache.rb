@@ -18,6 +18,9 @@ require 'open3'
 #   ruby scripts/suite_pass_cache.rb record TREE   writes the marker if clean
 module SuitePassCache
   DEFAULT_DIR = File.join(Dir.home, '.claude', 'cf', 'state', 'suite-pass')
+  # Variables that narrow a rake test run to part of the suite. While any is
+  # set, a run is partial: it neither records a marker nor reuses one.
+  FILTER_VARS = %w[TEST_SHARD TEST TESTOPTS N].freeze
 
   module_function
 
@@ -29,7 +32,7 @@ module SuitePassCache
   end
 
   def hit?(root, tree)
-    return false unless tree_id?(tree)
+    return false unless tree_id?(tree) && full_run?
 
     File.file?(File.join(dir, key(root, tree)))
   end
@@ -38,7 +41,7 @@ module SuitePassCache
   # ran in matched it exactly: no tracked change against the tree and no
   # untracked file. Returns true when a marker was written.
   def record(root, tree)
-    return false unless tree_id?(tree) && clean?(root, tree)
+    return false unless tree_id?(tree) && full_run? && clean?(root, tree)
 
     FileUtils.mkdir_p(dir)
     File.write(File.join(dir, key(root, tree)), "#{tree}\n")
@@ -49,6 +52,8 @@ module SuitePassCache
     tracked = system('git', '-C', root, 'diff', '--quiet', tree, '--', out: File::NULL, err: File::NULL)
     tracked && git(root, 'ls-files', '--others', '--exclude-standard').to_s.empty?
   end
+
+  def full_run? = FILTER_VARS.none? { |name| !ENV.fetch(name, '').empty? }
 
   def tree_id?(tree) = tree.to_s.match?(/\A\h{40,64}\z/)
 

@@ -98,4 +98,23 @@ class SuitePassCacheTest < Minitest::Test
     ReviewStage1.run(@repo, runner: runner, files: [])
     assert_equal 1, calls.count("bundle exec rake test")
   end
+
+  def test_a_sharded_run_neither_records_nor_hits
+    SuitePassCache.record(@repo, head_tree)
+    ENV["TEST_SHARD"] = "1/4"
+    refute SuitePassCache.hit?(@repo, head_tree)
+    FileUtils.rm_rf(Dir.glob(File.join(@store, "*")))
+    refute SuitePassCache.record(@repo, head_tree)
+  ensure
+    ENV.delete("TEST_SHARD")
+  end
+
+  def test_a_lane_entry_named_rake_never_uses_the_cache
+    run = ReviewStage1::Run.new(@repo, cache: SuitePassCache)
+    lane = { name: "rake", run: "bundle exec rake test", env: {} }
+    manifest = { name: "rake", run: "bundle exec rake test" }
+    refute run.send(:manifest_rake?, lane)
+    refute run.send(:manifest_rake?, { name: "rake", run: "make check" })
+    assert run.send(:manifest_rake?, manifest)
+  end
 end

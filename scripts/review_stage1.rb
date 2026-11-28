@@ -372,16 +372,19 @@ module ReviewStage1
       result('tests', 'passed', "#{commands.size - skipped.size} command(s) from #{source}")
     end
 
-    # The rake suite consults the pass cache keyed on the pushed commit's tree
-    # (HEAD of the pushing checkout). Other entries always run.
+    # Only the manifest's own rake suite consults the pass cache, keyed on the
+    # pushed commit's tree (HEAD of the pushing checkout). A command lane entry
+    # carries an env and may run anything under any name, so it always runs.
     def run_suite(entry)
-      tree = entry[:name] == 'rake' && @cache ? @repo.git_tree : nil
+      tree = @cache && manifest_rake?(entry) ? @repo.git_tree : nil
       return result("tests:#{entry[:name]}", 'passed', "suite already passed for tree #{tree[0, 12]}") if tree && @cache.hit?(@repo.root, tree)
 
       outcome = run_commands("tests:#{entry[:name]}", [ entry[:run] ], entry[:timeout], env: entry[:env], mask: entry[:mask])
       @cache.record(@repo.root, tree) if tree && outcome.status == 'passed'
       outcome
     end
+
+    def manifest_rake?(entry) = entry[:run] == TestCommands::RAKE && !entry.key?(:env)
 
     # The command itself could not start: the shell's exit 127 for no such
     # executable, or npx --no-install with no package to run. Output phrases
@@ -425,6 +428,7 @@ module ReviewStage1
       [ manifest, 'manifest' ]
     end
 
+    RAKE = 'bundle exec rake test'
     BOOT_SKIP_NOTE = 'info: command lane skipped because boot.up is declared; lanes needing boot run in cf:change instead'
 
     # A hook never runs boot: a lane that needs provisioned services is left to
@@ -494,7 +498,7 @@ module ReviewStage1
 
     def manifest_entries(repo, timeout)
       entries = []
-      entries << entry('rake', 'bundle exec rake test', timeout) if repo.file?('Gemfile') && rake_test?(repo)
+      entries << entry('rake', RAKE, timeout) if repo.file?('Gemfile') && rake_test?(repo)
       entries << entry('npm', js_runner(repo), timeout) if js_test_script?(repo)
       entries
     end
