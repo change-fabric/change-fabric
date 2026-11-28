@@ -619,25 +619,60 @@ class ChangeMergeGuardCarveOutTest < Minitest::Test
     io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason")
   end
 
-  def test_an_autopilot_never_covers_a_locked_path
+  # D1a: the owner's autopilot covers locked paths too (the guards, the
+  # autopilot code, CHANGE.md). This reproduces the denial an active carve_out
+  # grant used to return for a guard-script PR, and checks the waiver is logged.
+  def test_an_autopilot_covers_a_locked_path_and_logs_it
     with_repo_identity do
       with_autopilot do |calls|
-        assert_match(/no phone-approved carve-out/, locked_verdict([ "scripts/change_autopilot.rb" ]))
-        assert_match(/no phone-approved carve-out/, locked_verdict([ "CHANGE.md", "scripts/x.rb" ]))
-        assert_match(/no phone-approved carve-out/, verdict(files: CARVE))
-        assert_empty calls
+        assert_nil locked_verdict([ "scripts/change_merge_guard.rb" ])
+        assert_nil locked_verdict([ "scripts/change_autopilot.rb" ])
+        assert_nil locked_verdict([ "CHANGE.md", "scripts/x.rb" ])
+        assert_equal 3, calls.size
+        assert(calls.all? { |gate, kw| gate == "carve_out" && kw[:guard] == "change_merge_guard" })
+        assert_match(/PR #{Regexp.escape(PR_URL)} at #{HEAD}/, calls.first.last[:detail])
       end
     end
   end
 
-  def test_an_autopilot_never_waives_an_implicit_policy_file
+  def test_an_autopilot_waives_change_md_but_not_a_registered_app_config
     assert ChangeAutopilot.locked_path?("CHANGE.md")
     with_repo_identity do
       with_autopilot do |calls|
-        assert_match(/no phone-approved carve-out/, unlisted_verdict([ "CHANGE.md" ]))
+        assert_nil unlisted_verdict([ "CHANGE.md" ])
         assert_match(/no phone-approved carve-out/, unlisted_verdict([ "apps/web/CHANGE.app.yml" ], base_policy: app_policy))
-        assert_empty calls
+        assert_equal 1, calls.size
       end
+    end
+  end
+
+  def test_without_an_autopilot_a_locked_path_still_needs_the_tap
+    with_repo_identity do
+      assert_match(/no phone-approved carve-out/, locked_verdict([ "scripts/change_merge_guard.rb" ]))
+    end
+  end
+
+  def test_the_repo_root_follows_a_cd_before_the_merge
+    Dir.mktmpdir do |dir|
+      system("git", "init", "-q", dir, exception: true)
+      real = File.realpath(dir)
+      guard = ChangeMergeGuard.new({ "cwd" => "/", "tool_input" => { "command" => "cd #{dir} && gh pr merge 612 --squash" } })
+      assert_equal real, File.realpath(guard.send(:repo_root))
+      FileUtils.mkdir_p(File.join(dir, "sub"))
+      [ "cd sub && cd .. && gh pr merge 612", "cd -P . && gh pr merge 612", "cd -- . && gh pr merge 612", "cd sub && cd - && gh pr merge 612", "gh pr merge 612 && cd /" ].each do |cmd|
+        guard = ChangeMergeGuard.new({ "cwd" => dir, "tool_input" => { "command" => cmd } })
+        assert_equal real, File.realpath(guard.send(:repo_root)), cmd
+      end
+    end
+  end
+
+  def test_a_merge_outside_any_checkout_fails_closed
+    Dir.mktmpdir do |dir|
+      event = { "tool_name" => "Bash", "cwd" => dir, "tool_input" => { "command" => "gh pr merge 612 --squash" } }
+      io = StringIO.new
+      ChangeMergeGuard.new(event).emit(io)
+      reason = JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason")
+      assert_match(/could not resolve the repository/, reason)
     end
   end
 

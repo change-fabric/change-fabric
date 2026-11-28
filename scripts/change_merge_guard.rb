@@ -54,11 +54,11 @@ class ChangeMergeGuard
     input.is_a?(Hash) ? input['command'].to_s : ''
   end
 
-  # The deny reason, or nil to allow. Every branch that cannot determine the
-  # facts (no repo, no CHANGE.md, unreadable PR) fails open: an advisory guard
-  # must not wedge a merge on an inability to check.
+  # The deny reason, or nil to allow. No resolvable repo fails closed: a
+  # merge run from outside a checkout would otherwise skip every check. Past
+  # that, no CHANGE.md or an unreadable PR fails open.
   def violation
-    root = repo_root or return nil
+    root = repo_root or return no_repo_violation
     pr = pr_facts or return nil
     base, sha, url = pr
     policy = base_policy(root, base, url)
@@ -145,13 +145,14 @@ class ChangeMergeGuard
     'the carve-out receipt is 24h old or older (or dated in the future); request a new approval.'
   end
 
-  # An active autopilot naming carve_out stands in for the per-head tap, but
-  # only for this repo's own PR and never when any changed file is a locked
-  # path (the guards, the autopilot code, CHANGE.md, ...) or a policy file (a
-  # registered app config). --auto and --match-head-commit were already
-  # enforced above; cf:change still gates.
+  # An active autopilot naming carve_out stands in for the per-head tap on
+  # this repo's own PR, locked paths included (the owner's D1a: the phone
+  # granted the autopilot, so it covers the guards and CHANGE.md too; every
+  # waiver is logged). A registered app config that is not a locked path
+  # still needs its tap. --auto and --match-head-commit were already enforced
+  # above; cf:change still gates.
   def autopilot_waives?(policy, files, sha, url)
-    return false if files.any? { |file| ChangeAutopilot.locked_path?(file) || policy.policy_file?(file) }
+    return false if files.any? { |file| policy.policy_file?(file) && !ChangeAutopilot.locked_path?(file) }
 
     root = repo_root or return false
     return false unless ChangePrFacts.repo_id(url) == CfProjectIdentity.for(root).id
@@ -262,11 +263,44 @@ class ChangeMergeGuard
 
   def admin?(cmd) = GuardedCommand.tokens(cmd).include?('--admin')
 
+  def no_repo_violation
+    "the merge guard could not resolve the repository this merge targets (no git checkout at #{command_dir}); " \
+      "the guard fails closed. Run the merge from the repo's checkout, or prefix it with cd <checkout> &&. #{escape_note}"
+  end
+
+  # The checkout the merge runs in: the last `cd <dir>` before `gh pr merge`
+  # in the command, resolved against the hook's cwd, else the hook's cwd.
   def repo_root
-    out, status = Open3.capture2e('git', 'rev-parse', '--show-toplevel')
-    status.success? ? out.strip : nil
+    @repo_root ||= begin
+      out, status = Open3.capture2e('git', '-C', command_dir, 'rev-parse', '--show-toplevel')
+      status.success? ? out.strip : nil
+    end
   rescue StandardError
     nil
+  end
+
+  # Each `cd` before the merge moves from where the previous one landed; `cd -`
+  # returns to the directory before it (OLDPWD, starting at the hook's cwd).
+  def command_dir
+    dir = @event['cwd'].to_s.empty? ? Dir.pwd : @event['cwd'].to_s
+    previous = dir
+    GuardedCommand.segments(GuardedCommand.tokens(command)).each do |segment|
+      break if segment.each_cons(3).include?(%w[gh pr merge])
+      next unless segment.first == 'cd'
+
+      operand = cd_operand(segment.drop(1))
+      target = operand == '-' ? previous : File.expand_path(operand, dir)
+      previous = dir
+      dir = target
+    end
+    dir
+  end
+
+  # The directory operand of `cd [-L|-P [-e]] [-@] [--] [dir]`; no operand is home.
+  def cd_operand(args)
+    args = args.drop_while { |arg| arg.match?(/\A-[LPe@]+\z/) }
+    args = args.drop(1) if args.first == '--'
+    (args.first || '~').sub(%r{\A~(?=/|\z)}, Dir.home)
   end
 
   # [base_branch, head_sha] for the PR the command targets: an explicit
@@ -278,7 +312,7 @@ class ChangeMergeGuard
     args = [ 'gh', 'pr', 'view' ]
     args << ref if ref
     args += [ '--json', 'baseRefName,headRefOid,url', '-q', '.baseRefName + "\t" + .headRefOid + "\t" + .url' ]
-    out, _err, status = Open3.capture3(*args)
+    out, _err, status = Open3.capture3(*args, chdir: repo_root || command_dir)
     return nil unless status.success?
 
     base, sha, url = out.strip.split("\t", 3)

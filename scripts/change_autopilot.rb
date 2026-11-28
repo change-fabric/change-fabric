@@ -20,7 +20,7 @@ require_relative 'cf_project_identity'
 # The guards ask `ChangeAutopilot.waive!(gate, ...)` only on a would-deny path;
 # a true answer means allow, and a ledger row records the waiver. The locked
 # core never asks: secrets, release tags, change_override and
-# CF_ALLOW_UNGATED_MERGE, force-push to trunk, and edits to LOCKED_PATHS.
+# CF_ALLOW_UNGATED_MERGE, and force-push to trunk.
 #
 # An autopilot covers a gate only when all of these hold (StandingReceipt plus):
 #   - the receipt verifies, for this machine, against the authoritative pins;
@@ -32,7 +32,9 @@ require_relative 'cf_project_identity'
 # Any error means not covered.
 class ChangeAutopilot
   GATES = ApprovalConsole::Canonical::AUTOPILOT_GATES
-  # Paths an autopilot never relaxes, even when the repo lists them as carve-outs.
+  # The guards, the autopilot code and CHANGE.md. An active carve_out grant
+  # waives their merge tap too (owner decision D1a, logged per waiver); the
+  # merge guard uses the list to tell CHANGE.md from other policy files.
   LOCKED_PATHS = %w[CHANGE.md install.rb scripts/*guard*.rb scripts/change_autopilot*.rb scripts/change_*_store.rb
                     scripts/review_gate.rb scripts/change_gate_check.rb scripts/change_policy.rb scripts/cf_host_hook.rb
                     scripts/approval_console*.rb scripts/approval_console/** approval_console/**
