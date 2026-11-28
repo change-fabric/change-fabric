@@ -977,7 +977,9 @@ module Roast
       verdicts = opts[:verdicts] && Array(JSON.parse(File.read(opts[:verdicts])))
       response = verdicts ? RoastResponse.build(critic, verdicts) : RoastResponse.accept_all(critic)
       path = File.join(opts[:out_dir], "round-#{opts[:round]}.response.json")
-      File.write(path, "#{JSON.pretty_generate(response)}\n")
+      existing = File.file?(path) ? JSON.parse(File.read(path)) : {}
+      merged = (existing.is_a?(Hash) ? existing : {}).merge('responses' => response['responses'])
+      File.write(path, "#{JSON.pretty_generate(merged)}\n")
       out.puts("roast response: wrote #{path} (#{response['responses'].size} response(s))")
       0
     rescue RoastResponse::Invalid, JSON::ParserError => e

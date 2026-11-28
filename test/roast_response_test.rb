@@ -44,6 +44,14 @@ class RoastResponseTest < Minitest::Test
     assert_empty RoastResponse.problems(written, CRITIC)
   end
 
+  def test_respond_keeps_the_followups_ledger_already_in_the_file
+    path = File.join(@dir, "round-1.response.json")
+    File.write(path, JSON.generate("responses" => [], "followups" => [ { "id" => "f1", "outcome" => "mitigated" } ]))
+    assert_equal 0, respond("--accept-all"), @out.string
+    assert_equal [ { "id" => "f1", "outcome" => "mitigated" } ], written["followups"]
+    assert_equal 2, written["responses"].size
+  end
+
   def test_verdicts_file_maps_one_verdict_per_issue_in_order
     file = verdicts([ { "verdict" => "accept", "change" => "Added rollback" },
                       { "verdict" => "rebut", "reason" => "goal.md names it" } ])
